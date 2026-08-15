@@ -23,7 +23,15 @@ In the output, you'll find options to open the app in a
 - [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
 - [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+Expo Router adapters live in `src/app`; product work belongs in the owning
+module under `src/modules`. This project uses
+[file-based routing](https://docs.expo.dev/router/introduction).
+
+## Architecture
+
+Noomori contains an Expo modular monolith and a separately deployable FastAPI
+modular monolith. Read [ARCHITECTURE.md](./ARCHITECTURE.md) before adding a new
+feature or dependency between modules.
 
 ## Get a fresh project
 

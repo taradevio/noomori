@@ -1,0 +1,14 @@
+{
+  "background": "#F6F1E8",
+  "surface": "#FFFDF8",
+  "surfaceSubtle": "#EDE4D6",
+  "textPrimary": "#2E2A27",
+  "textSecondary": "#6D655E",
+  "primary": "#C86A4A",
+  "primaryStrong": "#B95E40",
+  "secondary": "#7A8B68",
+  "border": "#CFC5B7",
+  "error": "#B94A48",
+  "success": "#657A58",
+  "onPrimary": "#FFFDF8"
+}
