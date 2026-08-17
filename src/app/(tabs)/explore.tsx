@@ -4,21 +4,16 @@ import { Platform, Pressable, ScrollView, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
-  BottomTabInset,
-  MaxContentWidth,
-  Spacing,
-  useTheme,
+    BottomTabInset,
+    MaxContentWidth,
+    Spacing,
+    useTheme,
 } from "@/shared/design-system";
 import { WebBadge } from "@/shared/platform";
-import {
-  Collapsible,
-  ExternalLink,
-  ThemedText,
-  ThemedView,
-} from "@/shared/ui";
+import { Collapsible, ExternalLink, ThemedText, ThemedView } from "@/shared/ui";
 
-/** Activity module entry screen. */
-export function ActivityScreen() {
+/** Households module entry screen. */
+export default function HouseholdScreen() {
   const safeAreaInsets = useSafeAreaInsets();
   const insets = {
     ...safeAreaInsets,
