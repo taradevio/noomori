@@ -28,9 +28,6 @@ export default function AppTabs() {
           <TabTrigger name="activity" href="/activity" asChild>
             <TabButton>Activity</TabButton>
           </TabTrigger>
-          <TabTrigger name="auth" href="/auth" asChild>
-            <TabButton>Auth</TabButton>
-          </TabTrigger>
         </CustomTabList>
       </TabList>
     </Tabs>
