@@ -35,6 +35,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       .eq("id", userId)
       .maybeSingle();
 
+    console.log(profile);
+
     if (error) {
       console.error(error);
       return;
