@@ -1,9 +1,72 @@
+// update onboarding first to navigate to home since onboarding is still null
+
+import { apiConfig } from "@/config/api";
+import { useSession } from "@/shared/providers/session-providers";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
+type CreateHousehold = {
+  name: string;
+};
+
 export default function CreateHousehold() {
-  const [household, onChangeHousehold] = useState("");
+  const queryClient = useQueryClient();
+  const [household, onChangeHousehold] = useState<string>("");
+  // const [isDisabled, setIsDisabled] = useState<boolean>(true);
+  const { refreshUserState } = useSession();
+
+  const isDisabled = household.trim() === "";
+
+  const createHouseholdName = async (householdName: CreateHousehold) => {
+    const res = await fetch(
+      `${apiConfig.backendUrl}${apiConfig.endpoints.households}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(householdName),
+      },
+    );
+
+    if (!res.ok) {
+      throw new Error(`Server returned status code: ${res.status}`);
+    }
+
+    return res.json();
+  };
+
+  const { mutate, isPending, isError, error } = useMutation({
+    mutationFn: createHouseholdName,
+    onSuccess: async (data) => {
+      console.log(`Household is set ${data}`);
+      // await Promise.all([
+      //   queryClient.invalidateQueries({
+      //     queryKey: ["household"],
+      //   }),
+
+      //   queryClient.invalidateQueries({
+      //     queryKey: ["profile"],
+      //   }),
+      // ]);
+
+      await refreshUserState();
+    },
+  });
+
+  const handleHouseholdName = () => {
+    if (!household.trim()) return;
+
+    mutate({ name: household });
+  };
 
   return (
     <SafeAreaProvider>
@@ -27,6 +90,27 @@ export default function CreateHousehold() {
             aria-labelledby="householdName"
             placeholder="Your Household Name"
           />
+
+          <TouchableOpacity
+            className="px-2 py-4 w-full mt-3 rounded-lg bg-[#B95E40]"
+            disabled={isDisabled}
+            onPress={handleHouseholdName}
+            activeOpacity={0.7}
+          >
+            {isPending ? (
+              <>
+                <ActivityIndicator size="small" />
+              </>
+            ) : (
+              <Text className="text-[#F6F1E8] text-center">
+                Create Household
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <View>
+          {isError && <Text className="text-red-500">{error.message}</Text>}
         </View>
       </SafeAreaView>
     </SafeAreaProvider>

@@ -26,8 +26,12 @@ app.include_router(
 
 class CreateHousehold(BaseModel):
     name: str
-    
+
+# insert household, member role, and update onboarding
+@app.post("/household")
 async def create_household(payload: CreateHousehold):
+    
+    
     print(f"Household's name {payload}")
 
 def main() -> None:

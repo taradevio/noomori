@@ -6,6 +6,7 @@ import {
   SessionProvider,
   useSession,
 } from "@/shared/providers/session-providers";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { SplashScreenController } from "../shared/components/splash-screen-controller";
@@ -44,14 +45,18 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  const queryClient = new QueryClient();
+
   return (
-    <ThemeProvider value={noomoriNavigationTheme}>
-      <SessionProvider>
-        <AuthProvider>
-          <SplashScreenController />
-          <RootNavigator />
-        </AuthProvider>
-      </SessionProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider value={noomoriNavigationTheme}>
+        <SessionProvider>
+          <AuthProvider>
+            <SplashScreenController />
+            <RootNavigator />
+          </AuthProvider>
+        </SessionProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
