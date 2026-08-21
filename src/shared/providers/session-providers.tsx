@@ -1,12 +1,14 @@
 // providers/session-provider.tsx
 
 import { supabase } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useState } from "react";
 
 type AppState = "loading" | "signed-out" | "needs-onboarding" | "ready";
 
 type SessionContextValue = {
   state: AppState;
+  session: Session | null;
   refreshUserState: () => Promise<void>;
 };
 
@@ -14,6 +16,9 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>("loading");
+  // Expose Supabase's managed session so API callers can use its short-lived
+  // access token without copying it into separate storage.
+  const [session, setSession] = useState<Session | null>(null);
 
   async function resolveUserState() {
     setState("loading");
@@ -21,6 +26,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { session },
     } = await supabase.auth.getSession();
+
+    // Keep consumers synchronized with Supabase after sign-in, refresh, or
+    // sign-out events handled by resolveUserState.
+    setSession(session);
 
     if (!session) {
       setState("signed-out");
@@ -68,6 +77,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     <SessionContext.Provider
       value={{
         state,
+        session,
         refreshUserState: resolveUserState,
       }}
     >

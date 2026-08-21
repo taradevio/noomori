@@ -1,16 +1,29 @@
+import { colorTokens } from "@/shared/design-system";
 import { Stack } from "expo-router";
 
 export default function RootNavigator() {
   return (
-    <Stack>
+    <Stack
+      screenOptions={{
+        contentStyle: { backgroundColor: colorTokens.background },
+        headerShadowVisible: false,
+        headerStyle: { backgroundColor: colorTokens.background },
+        headerTintColor: colorTokens.textPrimary,
+        headerTitleStyle: {
+          color: colorTokens.textPrimary,
+          fontSize: 16,
+          fontWeight: "600",
+        },
+      }}
+    >
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen
         name="create-household"
-        options={{ title: "Create Household" }}
+        options={{ headerBackTitle: "Back", title: "" }}
       />
       <Stack.Screen
         name="join-household"
-        options={{ title: "Join Household" }}
+        options={{ headerBackTitle: "Back", title: "" }}
       />
     </Stack>
   );

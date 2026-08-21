@@ -1,17 +1,16 @@
 // update onboarding first to navigate to home since onboarding is still null
 
 import { apiConfig } from "@/config/api";
+import { OnboardingButton } from "@/modules/onboarding/components/onboarding-button";
+import {
+  OnboardingScreen,
+  useOnboardingLayout,
+} from "@/modules/onboarding/components/onboarding-screen";
+import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import {
-  ActivityIndicator,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { useEffect, useState } from "react";
+import { AccessibilityInfo, Text, TextInput, View } from "react-native";
 
 type CreateHousehold = {
   name: string;
@@ -20,8 +19,10 @@ type CreateHousehold = {
 export default function CreateHousehold() {
   const queryClient = useQueryClient();
   const [household, onChangeHousehold] = useState<string>("");
+  const [isFieldFocused, setIsFieldFocused] = useState(false);
   // const [isDisabled, setIsDisabled] = useState<boolean>(true);
-  const { refreshUserState } = useSession();
+  const { refreshUserState, session } = useSession();
+  const { compact } = useOnboardingLayout();
 
   const isDisabled = household.trim() === "";
 
@@ -31,6 +32,9 @@ export default function CreateHousehold() {
       {
         method: "POST",
         headers: {
+          // The backend validates this token and forwards it to PostgREST so
+          // database policies can resolve auth.uid() for the current user.
+          Authorization: `Bearer ${session?.access_token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(householdName),
@@ -44,75 +48,131 @@ export default function CreateHousehold() {
     return res.json();
   };
 
-  const { mutate, isPending, isError, error } = useMutation({
+  const { mutate, isPending, isError, reset } = useMutation({
     mutationFn: createHouseholdName,
     onSuccess: async (data) => {
       console.log(`Household is set ${data}`);
-      // await Promise.all([
-      //   queryClient.invalidateQueries({
-      //     queryKey: ["household"],
-      //   }),
+      // Clear user-scoped cached data before re-resolving the navigation state
+      // that depends on the newly completed profile.
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["household"],
+        }),
 
-      //   queryClient.invalidateQueries({
-      //     queryKey: ["profile"],
-      //   }),
-      // ]);
+        queryClient.invalidateQueries({
+          queryKey: ["profile"],
+        }),
+      ]);
 
       await refreshUserState();
     },
   });
+  const inputBorder = isError
+    ? "border-error"
+    : isFieldFocused
+      ? "border-primary-strong"
+      : "border-text-secondary";
+
+  useEffect(() => {
+    if (isError) {
+      AccessibilityInfo.announceForAccessibility(
+        "Couldn’t create your household. Try again.",
+      );
+    }
+  }, [isError]);
 
   const handleHouseholdName = () => {
-    if (!household.trim()) return;
+    if (!household.trim() || isPending) return;
 
     mutate({ name: household });
   };
 
+  const handleHouseholdChange = (value: string) => {
+    if (isError) reset();
+    onChangeHousehold(value);
+  };
+
   return (
-    <SafeAreaProvider>
-      <SafeAreaView className="p-2">
-        <View>
-          <Text className="text-4xl">Create your household</Text>
-          <Text>
+    <OnboardingScreen headerVisible keyboardAware>
+      <View
+        className={`grow ${compact ? "gap-6 pb-4 pt-5" : "gap-10 pb-6 pt-8"}`}
+      >
+        <View className="gap-3">
+          <Text
+            accessibilityRole="header"
+            className="text-[30px] font-bold leading-9 text-text-primary"
+          >
+            Create your household
+          </Text>
+          <Text className="max-w-[440px] text-base font-normal leading-6 text-text-secondary">
             You'll be the owner. You can invite people whenever you're ready.
           </Text>
         </View>
 
-        <View className="mt-10">
-          <Text className="font-semibold" nativeID="householdName">
-            Household name
-          </Text>
+        <View className="w-full">
+          <View className="mb-2 flex-row items-baseline justify-between gap-4">
+            <Text
+              nativeID="householdName"
+              className="shrink text-sm font-bold leading-5 text-text-primary"
+            >
+              Household name
+            </Text>
+            <Text className="text-[13px] font-medium leading-[18px] text-text-secondary">
+              Required
+            </Text>
+          </View>
           <TextInput
-            onChangeText={onChangeHousehold}
-            value={household}
-            className="w-full h-18 border p-2 "
+            accessibilityHint="Enter a name that household members will recognize."
             accessibilityLabel="Household name"
             aria-labelledby="householdName"
-            placeholder="Your Household Name"
+            accessibilityState={{ disabled: isPending }}
+            autoCapitalize="words"
+            editable={!isPending}
+            onBlur={() => setIsFieldFocused(false)}
+            onChangeText={handleHouseholdChange}
+            onFocus={() => setIsFieldFocused(true)}
+            onSubmitEditing={handleHouseholdName}
+            placeholder="e.g. Our kitchen"
+            placeholderTextColor={colorTokens.textSecondary}
+            returnKeyType="done"
+            selectionColor={colorTokens.primaryStrong}
+            className={`min-h-[52px] w-full rounded-[10px] border-2 bg-surface px-4 py-3 text-base font-normal leading-6 text-text-primary ${inputBorder} ${isPending ? "opacity-[0.72]" : ""}`}
+            value={household}
           />
+          <Text className="mt-2 text-sm font-normal leading-5 text-text-secondary">
+            Choose a name everyone in the household will recognize.
+          </Text>
 
-          <TouchableOpacity
-            className="px-2 py-4 w-full mt-3 rounded-lg bg-[#B95E40]"
-            disabled={isDisabled}
-            onPress={handleHouseholdName}
-            activeOpacity={0.7}
-          >
-            {isPending ? (
-              <>
-                <ActivityIndicator size="small" />
-              </>
-            ) : (
-              <Text className="text-[#F6F1E8] text-center">
-                Create Household
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
+          <View className="mt-6">
+            <OnboardingButton
+              accessibilityHint="Creates the household using the name entered above."
+              disabled={isDisabled}
+              label="Create household"
+              loading={isPending}
+              loadingLabel="Creating household…"
+              onPress={handleHouseholdName}
+            />
+          </View>
 
-        <View>
-          {isError && <Text className="text-red-500">{error.message}</Text>}
+          <View className="min-h-[68px] justify-center pt-3">
+            {isError ? (
+              <View className="min-h-[52px] flex-row items-start gap-2.5 rounded-[10px] border border-error bg-surface px-3 py-3">
+                <View
+                  accessible={false}
+                  className="mt-1.5 h-2 w-2 rounded bg-error"
+                />
+                <Text
+                  accessibilityLiveRegion="assertive"
+                  accessibilityRole="alert"
+                  className="flex-1 text-sm font-medium leading-5 text-text-primary"
+                >
+                  Couldn’t create your household. Try again.
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
-      </SafeAreaView>
-    </SafeAreaProvider>
+      </View>
+    </OnboardingScreen>
   );
 }
