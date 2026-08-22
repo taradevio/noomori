@@ -39,6 +39,9 @@ function RootNavigator() {
       <Stack.Protected guard={state === "ready"}>
         {/* <Stack.Screen name="auth" options={{ headerShown: false }} /> */}
         <Stack.Screen name="(tabs)" />
+        {/* NOTE: Recipe editors remain inside the authenticated route boundary. */}
+        <Stack.Screen name="recipe/new" />
+        <Stack.Screen name="recipe/[id]/edit" />
       </Stack.Protected>
     </Stack>
   );

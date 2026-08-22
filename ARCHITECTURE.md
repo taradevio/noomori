@@ -1,31 +1,31 @@
 # Noomori Architecture
 
-Noomori is a modular monolith optimized for one developer. The mobile app and
-API deploy separately, but both group code by product feature and add structure
-only when implemented behavior needs it.
+Noomori is optimized for one developer. The mobile app and API deploy
+separately, and both add structure only when implemented behavior needs it.
 
 ## Mobile
 
 ```text
 src/
-├── app/          Expo Router files
-├── navigation/   tab navigation
-├── modules/      product features
-└── shared/       design system, reusable UI, and platform helpers
+├── app/          Expo Router routes and route controllers
+├── routes/       tab navigation adapters
+└── shared/       components, types, design system, and platform helpers
 ```
 
 Current route ownership:
 
 | Route | Screen |
 |---|---|
-| `/` | `modules/recipes/recipes-screen.tsx` |
-| `/explore` | `modules/households/household-screen.tsx` |
-| `/activity` | `modules/activity/activity-screen.tsx` |
-| `/auth` | `modules/auth/auth-screen.tsx` |
+| `/` | `app/(tabs)/index.tsx` |
+| `/explore` | `app/(tabs)/explore.tsx` |
+| `/activity` | `app/(tabs)/activity.tsx` |
+| `/auth` and `/login` | `shared/components/auth/auth-screen.tsx` |
+| `/onboarding/*` | `app/onboarding/` |
 
-Keep code inside its feature. Add a local `components`, `api`, `service`, or
-`types` file only when that feature needs it. Move code to `shared` only after a
-second feature needs the same behavior.
+Keep route composition in `app`. Group reusable product UI by feature under
+`shared/components`, and keep shared model types in `shared/types.ts`. Keep
+cross-cutting design-system, hook, provider, and platform code in their existing
+`shared` folders.
 
 ## API
 

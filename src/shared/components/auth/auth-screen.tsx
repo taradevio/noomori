@@ -8,8 +8,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AuthHeroIllustration } from "./components/auth-hero-illustration";
-import { GoogleSignInButton } from "./components/google-sign-in-button";
+import { AuthHeroIllustration } from "./auth-hero-illustration";
+import { GoogleSignInButton } from "./google-sign-in-button";
 
 /** Welcome and authentication entry screen. */
 export default function AuthScreen() {

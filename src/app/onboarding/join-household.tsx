@@ -1,9 +1,9 @@
-import { HouseholdIllustration } from "@/modules/onboarding/components/household-illustration";
-import { OnboardingButton } from "@/modules/onboarding/components/onboarding-button";
+import { HouseholdIllustration } from "@/shared/components/onboarding/household-illustration";
+import { OnboardingButton } from "@/shared/components/onboarding/onboarding-button";
 import {
   OnboardingScreen,
   useOnboardingLayout,
-} from "@/modules/onboarding/components/onboarding-screen";
+} from "@/shared/components/onboarding/onboarding-screen";
 import { router } from "expo-router";
 import { Text, View } from "react-native";
 

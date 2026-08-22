@@ -1,11 +1,11 @@
 // update onboarding first to navigate to home since onboarding is still null
 
 import { apiConfig } from "@/config/api";
-import { OnboardingButton } from "@/modules/onboarding/components/onboarding-button";
+import { OnboardingButton } from "@/shared/components/onboarding/onboarding-button";
 import {
   OnboardingScreen,
   useOnboardingLayout,
-} from "@/modules/onboarding/components/onboarding-screen";
+} from "@/shared/components/onboarding/onboarding-screen";
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
