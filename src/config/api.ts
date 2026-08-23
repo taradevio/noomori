@@ -6,7 +6,7 @@ export const apiConfig = {
 
   endpoints: {
     health: "/health",
-    recipes: "/recipes",
+    addRecipes: "/add-recipes",
     households: "/household",
   },
 } as const;

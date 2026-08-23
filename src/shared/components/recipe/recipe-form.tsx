@@ -16,10 +16,8 @@ import type {
   RecipeDraft,
   RecipeFormMode,
   RecipeIngredient,
-  RecipeIngredientGroup,
-  RecipeInstructionGroup,
   RecipeInstructionStep,
-  RecipeSourceType,
+  RecipeSourceType
 } from "@/shared/types";
 
 import {
@@ -33,6 +31,8 @@ type RecipeFormProps = {
   mode: RecipeFormMode;
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onSubmit: (draft: RecipeDraft) => void;
+  isSubmitting?: boolean;
 };
 
 type AmountSnapshot = {
@@ -237,6 +237,8 @@ export function RecipeForm({
   mode,
   onClose,
   onDirtyChange,
+  onSubmit,
+  isSubmitting = false,
 }: RecipeFormProps) {
   const insets = useSafeAreaInsets();
   const initialSignature = useRef(JSON.stringify(initialDraft));
@@ -1070,6 +1072,8 @@ export function RecipeForm({
             </View>
 
             <Pressable
+              disabled={isSubmitting}
+              onPress={() => onSubmit(draft)}
               // NOTE: This is intentionally an unconnected visual placeholder.
               // CRUD, submit validation, navigation, and fake success are omitted.
               accessibilityHint="Recipe saving will be connected later."
@@ -1082,7 +1086,11 @@ export function RecipeForm({
               }
             >
               <Text className="text-center text-base font-bold leading-6 text-on-primary">
-                {mode === "create" ? "Save recipe" : "Save changes"}
+                {isSubmitting
+                  ? "Saving..."
+                  : mode === "create"
+                    ? "Save recipe"
+                    : "Save changes"}
               </Text>
             </Pressable>
           </View>
