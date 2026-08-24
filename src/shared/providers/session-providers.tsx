@@ -20,31 +20,30 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // access token without copying it into separate storage.
   const [session, setSession] = useState<Session | null>(null);
 
-  async function resolveUserState() {
+  async function resolveUserState(nextSession?: Session | null) {
     setState("loading");
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const resolvedSession =
+      nextSession === undefined
+        ? (await supabase.auth.getSession()).data.session
+        : nextSession;
 
     // Keep consumers synchronized with Supabase after sign-in, refresh, or
     // sign-out events handled by resolveUserState.
-    setSession(session);
+    setSession(resolvedSession);
 
-    if (!session) {
+    if (!resolvedSession) {
       setState("signed-out");
       return;
     }
 
-    const userId = session.user.id;
+    const userId = resolvedSession.user.id;
 
     const { data: profile, error } = await supabase
       .from("profiles")
       .select("onboarding_completed_at")
       .eq("id", userId)
       .maybeSingle();
-
-    console.log(profile);
 
     if (error) {
       console.error(error);
@@ -60,12 +59,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    resolveUserState();
-
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      resolveUserState();
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      // INITIAL_SESSION supplies the restored session, so reading it again here
+      // would repeat both session restoration and the onboarding profile query.
+      void resolveUserState(nextSession);
     });
 
     return () => {

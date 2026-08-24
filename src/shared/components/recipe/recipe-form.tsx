@@ -1,7 +1,10 @@
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
+  KeyboardTypeOptions,
   Platform,
   Pressable,
   ScrollView,
@@ -17,7 +20,8 @@ import type {
   RecipeFormMode,
   RecipeIngredient,
   RecipeInstructionStep,
-  RecipeSourceType
+  RecipeNutrition,
+  RecipeSourceType,
 } from "@/shared/types";
 
 import {
@@ -25,13 +29,27 @@ import {
   RecipeDurationPicker,
   RecipeUnitPicker,
 } from "./recipe-form-pickers";
+import { nutritionFields } from "./recipe-calculations";
+import {
+  hasRecipeDraftErrors,
+  parseRecipeAmount,
+  validateRecipeDraft,
+} from "./recipe-payload";
+import {
+  debugRecipeImage,
+  prepareRecipeImage,
+  type PreparedRecipePhoto,
+} from "./recipe-image";
 
 type RecipeFormProps = {
   initialDraft: RecipeDraft;
   mode: RecipeFormMode;
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
-  onSubmit: (draft: RecipeDraft) => void;
+  onSubmit: (
+    draft: RecipeDraft,
+    photo: PreparedRecipePhoto | null,
+  ) => void | Promise<void>;
   isSubmitting?: boolean;
 };
 
@@ -51,6 +69,8 @@ function createLocalId(prefix: string) {
 function cloneDraft(draft: RecipeDraft): RecipeDraft {
   return {
     ...draft,
+    photo: draft.photo ? { ...draft.photo } : null,
+    nutrition: { ...draft.nutrition },
     source: { ...draft.source },
     ingredientGroups: draft.ingredientGroups.map((group) => ({
       ...group,
@@ -68,52 +88,24 @@ export function createBlankRecipeDraft(): RecipeDraft {
   // fabricated ingredient or instruction rows.
   return {
     title: "",
+    photo: null,
     prepMinutes: null,
     cookMinutes: null,
     servings: 1,
     ingredientGroups: [],
     instructionGroups: [],
     notes: "",
+    nutrition: Object.fromEntries(
+      nutritionFields.map(([key]) => [key, ""]),
+    ) as RecipeNutrition,
     source: { type: null, name: "", url: "" },
   };
-}
-
-function parseAmount(value: string): number | null {
-  const normalized = value.trim();
-  if (!normalized) return null;
-
-  const mixed = normalized.match(/^(\d+)\s+(\d+)\/(\d+)$/);
-  if (mixed) {
-    const denominator = Number(mixed[3]);
-    if (!denominator) return null;
-    return Number(mixed[1]) + Number(mixed[2]) / denominator;
-  }
-
-  const fraction = normalized.match(/^(\d+)\/(\d+)$/);
-  if (fraction) {
-    const denominator = Number(fraction[2]);
-    if (!denominator) return null;
-    return Number(fraction[1]) / denominator;
-  }
-
-  if (!/^\d*\.?\d+$/.test(normalized)) return null;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatScaledAmount(snapshot: AmountSnapshot, servings: number) {
   if (servings === snapshot.baseServings) return snapshot.baseRaw;
   const scaled = (snapshot.baseAmount * servings) / snapshot.baseServings;
   return Number(scaled.toFixed(4)).toString();
-}
-
-function isValidWebsiteUrl(value: string) {
-  try {
-    const parsed = new URL(value.trim());
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 function FieldLabel({
@@ -141,6 +133,7 @@ function FormInput({
   accessibilityLabel,
   error,
   multiline,
+  keyboardType,
   onBlur,
   onChangeText,
   placeholder,
@@ -149,6 +142,7 @@ function FormInput({
   accessibilityLabel: string;
   error?: string | null;
   multiline?: boolean;
+  keyboardType?: KeyboardTypeOptions;
   onBlur?: () => void;
   onChangeText: (value: string) => void;
   placeholder?: string;
@@ -166,6 +160,7 @@ function FormInput({
       <TextInput
         accessibilityLabel={accessibilityLabel}
         className={`${multiline ? "min-h-[112px]" : "min-h-[52px]"} rounded-xl border-2 bg-surface px-4 py-3 text-base font-normal leading-6 text-text-primary ${border}`}
+        keyboardType={keyboardType}
         multiline={multiline}
         onBlur={() => {
           setFocused(false);
@@ -193,10 +188,12 @@ function FormInput({
 }
 
 function ActionButton({
+  disabled = false,
   label,
   onPress,
   tone = "secondary",
 }: {
+  disabled?: boolean;
   label: string;
   onPress: () => void;
   tone?: "secondary" | "danger";
@@ -204,7 +201,9 @@ function ActionButton({
   return (
     <Pressable
       accessibilityRole="button"
-      className={`min-h-12 items-center justify-center rounded-xl border-2 bg-surface px-4 py-3 focus:border-primary-strong active:bg-surface-subtle ${tone === "danger" ? "border-error" : "border-border"}`}
+      accessibilityState={{ disabled }}
+      className={`min-h-12 items-center justify-center rounded-xl border-2 bg-surface px-4 py-3 focus:border-primary-strong active:bg-surface-subtle disabled:opacity-50 ${tone === "danger" ? "border-error" : "border-border"}`}
+      disabled={disabled}
       onPress={onPress}
     >
       <Text
@@ -243,10 +242,27 @@ export function RecipeForm({
   const insets = useSafeAreaInsets();
   const initialSignature = useRef(JSON.stringify(initialDraft));
   const amountSnapshots = useRef(new Map<string, AmountSnapshot>());
+  const photoGeneration = useRef(0);
+  const preparedPhoto = useRef<PreparedRecipePhoto | null>(null);
+  // PERFORMANCE: A synchronous ref closes the render-sized gap where rapid taps
+  // could start duplicate POST/PUT requests before disabled state is painted.
+  const submitLock = useRef(false);
+  const photoPreparation = useRef<Promise<PreparedRecipePhoto | null> | null>(
+    null,
+  );
   const [draft, setDraft] = useState(() => cloneDraft(initialDraft));
   const [titleTouched, setTitleTouched] = useState(false);
   const [sourceNameTouched, setSourceNameTouched] = useState(false);
   const [sourceUrlTouched, setSourceUrlTouched] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [ingredientAmountTouched, setIngredientAmountTouched] = useState<
+    Record<string, boolean>
+  >({});
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [isSubmittingForm, setIsSubmittingForm] = useState(false);
+  const [nutritionTouched, setNutritionTouched] = useState<
+    Partial<Record<keyof RecipeNutrition, boolean>>
+  >({});
   const [durationField, setDurationField] = useState<"prep" | "cook" | null>(
     null,
   );
@@ -261,20 +277,137 @@ export function RecipeForm({
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
+  useEffect(
+    () => () => {
+      photoGeneration.current += 1;
+    },
+    [],
+  );
+
+  const validationErrors = useMemo(() => validateRecipeDraft(draft), [draft]);
   const titleError =
-    titleTouched && !draft.title.trim() ? "Enter a recipe name." : null;
+    titleTouched || submitAttempted ? validationErrors.title : null;
   const sourceNameError =
-    sourceNameTouched &&
-    draft.source.type === "family-friend" &&
-    !draft.source.name.trim()
-      ? "Add who this recipe came from."
-      : null;
+    sourceNameTouched || submitAttempted ? validationErrors.sourceName : null;
   const sourceUrlError =
-    sourceUrlTouched &&
-    draft.source.type === "website" &&
-    !isValidWebsiteUrl(draft.source.url)
-      ? "Enter a valid website URL."
-      : null;
+    sourceUrlTouched || submitAttempted ? validationErrors.sourceUrl : null;
+  const nutritionError = (key: keyof RecipeNutrition) => {
+    if (!nutritionTouched[key] && !submitAttempted) return null;
+    return validationErrors.nutrition[key] ?? null;
+  };
+
+  const submit = async () => {
+    if (submitLock.current || isSubmitting) return;
+    setSubmitAttempted(true);
+    if (hasRecipeDraftErrors(validationErrors)) return;
+
+    // PERFORMANCE: One local state spans photo preparation, mutation, and route
+    // handoff, preventing save-label flicker between asynchronous stages.
+    submitLock.current = true;
+    setIsSubmittingForm(true);
+    try {
+      const generation = photoGeneration.current;
+      let photo = preparedPhoto.current;
+      if (draft.photo && photoPreparation.current) {
+        debugRecipeImage("save_waiting_for_preparation");
+        photo = await photoPreparation.current;
+      }
+      if (generation !== photoGeneration.current) {
+        debugRecipeImage("stale_preparation_ignored");
+        return;
+      }
+      if (draft.photo && !draft.photo.imagePath && !photo) {
+        debugRecipeImage("save_blocked_by_photo_error");
+        setPhotoError(
+          (current) =>
+            current ?? "This photo couldn’t be used. Choose another photo.",
+        );
+        return;
+      }
+
+      await onSubmit(draft, photo);
+    } catch {
+      // The route-owned mutation exposes its normal error state.
+    } finally {
+      submitLock.current = false;
+      setIsSubmittingForm(false);
+    }
+  };
+
+  const pickPhoto = async () => {
+    debugRecipeImage("picker_opened");
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        mediaTypes: ["images"],
+        quality: 1,
+      });
+      if (result.canceled) {
+        debugRecipeImage("picker_cancelled");
+        return;
+      }
+      const asset = result.assets[0];
+      if (!asset) return;
+      debugRecipeImage("photo_selected", {
+        width: asset.width,
+        height: asset.height,
+        mimeType: asset.mimeType ?? "unknown",
+      });
+      setPhotoError(null);
+      const photo = {
+        uri: asset.uri,
+        width: asset.width,
+        height: asset.height,
+        fileName: asset.fileName ?? null,
+        mimeType: asset.mimeType ?? null,
+      };
+      const generation = ++photoGeneration.current;
+      preparedPhoto.current = null;
+      setDraft((current) => ({
+        ...current,
+        photo,
+      }));
+
+      photoPreparation.current = prepareRecipeImage(photo)
+        .then((prepared) => {
+          if (generation !== photoGeneration.current) {
+            debugRecipeImage("stale_preparation_ignored");
+            return null;
+          }
+          preparedPhoto.current = prepared;
+          return prepared;
+        })
+        .catch((error: unknown) => {
+          if (generation !== photoGeneration.current) {
+            debugRecipeImage("stale_preparation_error_ignored");
+            return null;
+          }
+          preparedPhoto.current = null;
+          setPhotoError(
+            error instanceof Error
+              ? error.message
+              : "This photo couldn’t be used. Choose another photo.",
+          );
+          return null;
+        });
+    } catch (error) {
+      debugRecipeImage("picker_failed", {
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+      setPhotoError("Couldn’t open your photo library. Try again.");
+    }
+  };
+
+  const removePhoto = () => {
+    debugRecipeImage("photo_removed");
+    photoGeneration.current += 1;
+    preparedPhoto.current = null;
+    photoPreparation.current = null;
+    setPhotoError(null);
+    setDraft((current) => ({ ...current, photo: null }));
+  };
+
+  const isSaving = isSubmitting || isSubmittingForm;
 
   const selectedUnitIngredient = draft.ingredientGroups
     .flatMap((group) => group.ingredients)
@@ -286,7 +419,7 @@ export function RecipeForm({
     update: Partial<RecipeIngredient>,
   ) => {
     if (typeof update.amount === "string") {
-      const parsed = parseAmount(update.amount);
+      const parsed = parseRecipeAmount(update.amount);
       if (parsed === null) {
         amountSnapshots.current.delete(ingredientId);
       } else {
@@ -435,7 +568,7 @@ export function RecipeForm({
         ingredients: group.ingredients.map((ingredient) => {
           let snapshot = amountSnapshots.current.get(ingredient.id);
           if (!snapshot) {
-            const parsed = parseAmount(ingredient.amount);
+            const parsed = parseRecipeAmount(ingredient.amount);
             if (parsed === null) return ingredient;
             snapshot = {
               baseAmount: parsed,
@@ -580,14 +713,77 @@ export function RecipeForm({
 
         <ScrollView
           automaticallyAdjustKeyboardInsets
-          contentContainerClassName="w-full max-w-[720px] self-center px-5 pb-12 pt-6"
           contentContainerStyle={{
             paddingBottom: Math.max(insets.bottom + 32, 48),
           }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
         >
-          <View className="gap-8">
+          <View className="w-full max-w-[720px] self-center gap-8 px-5 pt-6">
+            <View className="gap-4">
+              <SectionHeading
+                body="Optional. Choose one photo that helps you recognize this recipe."
+                title="Recipe photo"
+              />
+              <View className="aspect-[4/3] overflow-hidden rounded-2xl border border-border bg-surface-subtle">
+                {draft.photo?.uri ? (
+                  <Image
+                    accessibilityLabel="Selected recipe photo"
+                    accessible
+                    cachePolicy="memory-disk"
+                    contentFit="cover"
+                    source={{
+                      uri: draft.photo.uri,
+                      cacheKey: draft.photo.imagePath ?? undefined,
+                    }}
+                    style={{ width: "100%", height: "100%" }}
+                  />
+                ) : (
+                  <View className="h-full items-center justify-center gap-3 px-5">
+                    <View className="h-14 w-14 items-center justify-center rounded-2xl bg-surface">
+                      <SymbolView
+                        accessible={false}
+                        name={{ ios: "photo", android: "image", web: "image" }}
+                        size={26}
+                        tintColor={colorTokens.textSecondary}
+                      />
+                    </View>
+                    <Text className="text-center text-sm leading-5 text-text-secondary">
+                      {draft.photo ? "Photo unavailable" : "No photo selected"}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <View className="flex-row flex-wrap gap-3">
+                <View className="min-w-[160px] flex-1">
+                  <ActionButton
+                    disabled={isSaving}
+                    label={draft.photo ? "Replace photo" : "Choose photo"}
+                    onPress={pickPhoto}
+                  />
+                </View>
+                {draft.photo ? (
+                  <View className="min-w-[140px] flex-1">
+                    <ActionButton
+                      disabled={isSaving}
+                      label="Remove photo"
+                      onPress={removePhoto}
+                      tone="danger"
+                    />
+                  </View>
+                ) : null}
+              </View>
+              {photoError ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  accessibilityRole="alert"
+                  className="text-sm font-medium leading-5 text-error"
+                >
+                  {photoError}
+                </Text>
+              ) : null}
+            </View>
+
             <View>
               <FieldLabel label="Recipe title" required />
               <FormInput
@@ -755,6 +951,20 @@ export function RecipeForm({
                               <FieldLabel label="Amount" />
                               <FormInput
                                 accessibilityLabel={`Ingredient ${index + 1} amount`}
+                                error={
+                                  ingredientAmountTouched[ingredient.id] ||
+                                  submitAttempted
+                                    ? validationErrors.ingredientAmounts[
+                                        ingredient.id
+                                      ]
+                                    : null
+                                }
+                                onBlur={() =>
+                                  setIngredientAmountTouched((current) => ({
+                                    ...current,
+                                    [ingredient.id]: true,
+                                  }))
+                                }
                                 onChangeText={(amount) =>
                                   updateIngredient(group.id, ingredient.id, {
                                     amount,
@@ -885,61 +1095,70 @@ export function RecipeForm({
                       ) : null}
                       {group.steps.map((step, index) => (
                         <View
-                          className="flex-row items-start gap-3"
+                          className="gap-3 rounded-2xl border border-border bg-surface-subtle p-4"
                           key={step.id}
                         >
-                          <View
-                            accessible={false}
-                            className="mt-1 h-10 w-10 items-center justify-center rounded-full bg-surface-subtle"
-                          >
-                            <Text className="text-base font-bold text-text-primary">
-                              {index + 1}
+                          <View className="flex-row items-center justify-between gap-3">
+                            <Text className="text-sm font-bold text-text-primary">
+                              Instruction {index + 1}
                             </Text>
-                          </View>
-                          <View className="flex-1">
-                            <FormInput
-                              accessibilityLabel={`Instruction step ${index + 1}`}
-                              multiline
-                              onChangeText={(text) =>
-                                setDraft((current) => ({
-                                  ...current,
-                                  instructionGroups:
-                                    current.instructionGroups.map((item) =>
-                                      item.id === group.id
-                                        ? {
-                                            ...item,
-                                            steps: item.steps.map(
-                                              (currentStep) =>
-                                                currentStep.id === step.id
-                                                  ? { ...currentStep, text }
-                                                  : currentStep,
-                                            ),
-                                          }
-                                        : item,
-                                    ),
-                                }))
+                            <Pressable
+                              accessibilityLabel={`Delete instruction step ${index + 1}`}
+                              accessibilityRole="button"
+                              className="h-12 w-12 items-center justify-center rounded-xl border-2 border-error bg-surface focus:border-primary-strong active:bg-surface-subtle"
+                              onPress={() =>
+                                removeInstruction(group.id, step.id)
                               }
-                              placeholder="Describe this step"
-                              value={step.text}
-                            />
+                            >
+                              <SymbolView
+                                accessible={false}
+                                name={{
+                                  ios: "trash",
+                                  android: "delete",
+                                  web: "delete",
+                                }}
+                                size={20}
+                                tintColor={colorTokens.error}
+                              />
+                            </Pressable>
                           </View>
-                          <Pressable
-                            accessibilityLabel={`Delete instruction step ${index + 1}`}
-                            accessibilityRole="button"
-                            className="h-12 w-12 items-center justify-center rounded-xl border-2 border-error bg-surface focus:border-primary-strong active:bg-surface-subtle"
-                            onPress={() => removeInstruction(group.id, step.id)}
-                          >
-                            <SymbolView
+                          <View className="flex-row items-start gap-3">
+                            <View
                               accessible={false}
-                              name={{
-                                ios: "trash",
-                                android: "delete",
-                                web: "delete",
-                              }}
-                              size={20}
-                              tintColor={colorTokens.error}
-                            />
-                          </Pressable>
+                              className="mt-1 h-10 w-10 items-center justify-center rounded-full bg-surface-subtle"
+                            >
+                              <Text className="text-base font-bold text-text-primary">
+                                {index + 1}
+                              </Text>
+                            </View>
+                            <View className="flex-1">
+                              <FormInput
+                                accessibilityLabel={`Instruction step ${index + 1}`}
+                                multiline
+                                onChangeText={(text) =>
+                                  setDraft((current) => ({
+                                    ...current,
+                                    instructionGroups:
+                                      current.instructionGroups.map((item) =>
+                                        item.id === group.id
+                                          ? {
+                                              ...item,
+                                              steps: item.steps.map(
+                                                (currentStep) =>
+                                                  currentStep.id === step.id
+                                                    ? { ...currentStep, text }
+                                                    : currentStep,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                  }))
+                                }
+                                placeholder="Describe this step"
+                                value={step.text}
+                              />
+                            </View>
+                          </View>
                         </View>
                       ))}
                       <ActionButton
@@ -993,6 +1212,39 @@ export function RecipeForm({
 
             <View className="gap-4">
               <SectionHeading
+                body="Optional values per serving. These stay stable when the editor scales the batch."
+                title="Nutrition"
+              />
+              <View className="gap-4">
+                {nutritionFields.map(([key, label, unit]) => (
+                  <View key={key}>
+                    <FieldLabel label={unit ? `${label} (${unit})` : label} />
+                    <FormInput
+                      accessibilityLabel={`${label} per serving${unit ? ` in ${unit}` : ""}`}
+                      error={nutritionError(key)}
+                      keyboardType="decimal-pad"
+                      onBlur={() =>
+                        setNutritionTouched((current) => ({
+                          ...current,
+                          [key]: true,
+                        }))
+                      }
+                      onChangeText={(value) =>
+                        setDraft((current) => ({
+                          ...current,
+                          nutrition: { ...current.nutrition, [key]: value },
+                        }))
+                      }
+                      placeholder="Optional"
+                      value={draft.nutrition[key]}
+                    />
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View className="gap-4">
+              <SectionHeading
                 body="Choose where this recipe originally came from."
                 title="Source"
               />
@@ -1029,8 +1281,14 @@ export function RecipeForm({
                 })}
               </View>
               {!draft.source.type ? (
-                <Text className="text-sm font-medium leading-5 text-text-secondary">
-                  Required. Choose a source before saving.
+                <Text
+                  accessibilityLiveRegion="polite"
+                  accessibilityRole={submitAttempted ? "alert" : undefined}
+                  className={`text-sm font-medium leading-5 ${submitAttempted ? "text-error" : "text-text-secondary"}`}
+                >
+                  {submitAttempted
+                    ? validationErrors.source
+                    : "Required. Choose a source before saving."}
                 </Text>
               ) : null}
               {draft.source.type === "family-friend" ? (
@@ -1072,13 +1330,14 @@ export function RecipeForm({
             </View>
 
             <Pressable
-              disabled={isSubmitting}
-              onPress={() => onSubmit(draft)}
-              // NOTE: This is intentionally an unconnected visual placeholder.
-              // CRUD, submit validation, navigation, and fake success are omitted.
-              accessibilityHint="Recipe saving will be connected later."
+              accessibilityState={{ disabled: isSaving }}
+              disabled={isSaving}
+              onPress={submit}
+              // NOTE: Persistence remains route-owned; the shared form only
+              // reports its current draft and pending state.
+              accessibilityHint="Saves the current recipe draft."
               accessibilityRole="button"
-              className="min-h-[52px] items-center justify-center rounded-xl border-2 border-primary-strong bg-primary-strong px-5 py-3 focus:border-text-primary active:opacity-[0.82]"
+              className="min-h-[52px] items-center justify-center rounded-xl border-2 border-primary-strong bg-primary-strong px-5 py-3 focus:border-text-primary active:opacity-[0.82] disabled:opacity-50"
               testID={
                 mode === "create"
                   ? "save-recipe-placeholder"
@@ -1086,7 +1345,7 @@ export function RecipeForm({
               }
             >
               <Text className="text-center text-base font-bold leading-6 text-on-primary">
-                {isSubmitting
+                {isSaving
                   ? "Saving..."
                   : mode === "create"
                     ? "Save recipe"

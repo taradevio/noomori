@@ -206,6 +206,7 @@ export function RecipesLibraryView({
   onCookbookPress,
   onCreateCookbook,
   onProfilePress,
+  onRecipeImageError,
   onRecipePress,
   onRetryCookbooks,
   onRetryRecipes,
@@ -396,6 +397,7 @@ export function RecipesLibraryView({
               return (
                 <RecipeCard
                   item={item.item}
+                  onImageError={onRecipeImageError}
                   onPress={onRecipePress}
                   width={cardWidth}
                 />

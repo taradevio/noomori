@@ -1,6 +1,7 @@
 export type RecipeCardModel = {
   id: string;
   title: string;
+  imagePath?: string | null;
   imageUrl?: string | null;
   cookingTimeMinutes?: number | null;
   isShared?: boolean;
@@ -30,6 +31,7 @@ export type RecipesLibraryViewProps = {
   onCookbookPress?: (cookbookId: string) => void;
   onCreateCookbook?: () => void;
   onProfilePress?: () => void;
+  onRecipeImageError?: (imagePath: string) => void;
   onRecipePress?: (recipeId: string) => void;
   onRetryCookbooks?: () => void;
   onRetryRecipes?: () => void;
@@ -38,8 +40,8 @@ export type RecipesLibraryViewProps = {
 
 export type RecipeFormMode = "create" | "edit";
 
-// NOTE: These types describe the client-side Add/Edit draft only. They are not
-// an API payload or database schema; persistence mapping is intentionally deferred.
+// NOTE: These types describe the client-side Add/Edit draft only. The create
+// route maps them to the canonical API payload before persistence.
 export type RecipeIngredient = {
   id: string;
   amount: string;
@@ -73,13 +75,42 @@ export type RecipeSource = {
   url: string;
 };
 
+export type RecipePhotoDraft = {
+  uri: string;
+  width: number;
+  height: number;
+  fileName: string | null;
+  mimeType: string | null;
+  imagePath?: string | null;
+};
+
+export type RecipeNutrition = {
+  calories: string;
+  fatGrams: string;
+  saturatedFatGrams: string;
+  cholesterolMilligrams: string;
+  sodiumMilligrams: string;
+  carbohydrateGrams: string;
+  dietaryFiberGrams: string;
+  sugarGrams: string;
+  proteinGrams: string;
+};
+
 export type RecipeDraft = {
   title: string;
+  photo: RecipePhotoDraft | null;
   prepMinutes: number | null;
   cookMinutes: number | null;
   servings: number;
   ingredientGroups: RecipeIngredientGroup[];
   instructionGroups: RecipeInstructionGroup[];
   notes: string;
+  nutrition: RecipeNutrition;
   source: RecipeSource;
+};
+
+export type RecipeDetailModel = Omit<RecipeDraft, "photo"> & {
+  id: string;
+  imagePath: string | null;
+  imageUrl: string | null;
 };

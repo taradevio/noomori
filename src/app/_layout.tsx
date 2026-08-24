@@ -1,7 +1,6 @@
 import "@/global.css";
 
 import { noomoriNavigationTheme } from "@/shared/design-system";
-import AuthProvider from "@/shared/providers/auth-providers";
 import {
   SessionProvider,
   useSession,
@@ -9,22 +8,19 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { useState } from "react";
 import { SplashScreenController } from "../shared/components/splash-screen-controller";
-import { useAuthContext } from "../shared/hooks/use-auth-context";
 
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 200, fade: true });
 
-// Separate RootNavigator so we can access the AuthContext
+// Separate RootNavigator so route guards can consume the current session state.
 function RootNavigator() {
-  const { isLoading, isLoggedIn } = useAuthContext();
   const { state } = useSession();
 
   if (state === "loading") {
     return null;
   }
-
-  if (isLoading) return null;
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -41,6 +37,7 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" />
         {/* NOTE: Recipe editors remain inside the authenticated route boundary. */}
         <Stack.Screen name="recipe/new" />
+        <Stack.Screen name="recipe/[id]/index" />
         <Stack.Screen name="recipe/[id]/edit" />
       </Stack.Protected>
     </Stack>
@@ -48,16 +45,16 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  const queryClient = new QueryClient();
+  // PERFORMANCE: Keep one cache for the app lifetime so layout rerenders cannot
+  // discard recipe data and force avoidable network requests.
+  const [queryClient] = useState(() => new QueryClient());
 
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider value={noomoriNavigationTheme}>
         <SessionProvider>
-          <AuthProvider>
-            <SplashScreenController />
-            <RootNavigator />
-          </AuthProvider>
+          <SplashScreenController />
+          <RootNavigator />
         </SessionProvider>
       </ThemeProvider>
     </QueryClientProvider>

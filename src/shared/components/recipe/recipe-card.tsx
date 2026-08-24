@@ -9,6 +9,7 @@ import type { RecipeCardModel } from "@/shared/types";
 
 type RecipeCardProps = {
   item: RecipeCardModel;
+  onImageError?: (imagePath: string) => void;
   onPress?: (recipeId: string) => void;
   width: number;
 };
@@ -27,7 +28,12 @@ function getSharedLabel(item: RecipeCardModel) {
 }
 
 /** Compact, data-driven recipe summary with no fabricated metadata. */
-export function RecipeCard({ item, onPress, width }: RecipeCardProps) {
+export function RecipeCard({
+  item,
+  onImageError,
+  onPress,
+  width,
+}: RecipeCardProps) {
   const [focused, setFocused] = useState(false);
   const cookingTime = getCookingTime(item.cookingTimeMinutes);
   const sharedLabel = getSharedLabel(item);
@@ -48,7 +54,13 @@ export function RecipeCard({ item, onPress, width }: RecipeCardProps) {
             accessible={false}
             cachePolicy="memory-disk"
             contentFit="cover"
-            source={imageUrl}
+            onError={() => {
+              if (item.imagePath) onImageError?.(item.imagePath);
+            }}
+            source={{
+              uri: imageUrl,
+              cacheKey: item.imagePath ?? undefined,
+            }}
             style={styles.coverImage}
           />
         ) : (
