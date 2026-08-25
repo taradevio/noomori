@@ -37,6 +37,7 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" />
         {/* NOTE: Recipe editors remain inside the authenticated route boundary. */}
         <Stack.Screen name="recipe/new" />
+        <Stack.Screen name="recipe/import-text" />
         <Stack.Screen name="recipe/[id]/index" />
         <Stack.Screen name="recipe/[id]/edit" />
       </Stack.Protected>

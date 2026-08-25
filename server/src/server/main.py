@@ -1,5 +1,7 @@
 import uvicorn
 import logging
+import re
+import unicodedata
 
 from fastapi import FastAPI, HTTPException, Depends, Response
 from dataclasses import dataclass
@@ -7,7 +9,7 @@ from datetime import datetime, timezone
 from time import perf_counter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from server.api.health import router as health_router
 from server.config import settings
 from dotenv import load_dotenv
@@ -20,6 +22,26 @@ security = HTTPBearer()
 logger = logging.getLogger(__name__)
 RECIPE_IMAGE_BUCKET = "noomori-recipe-images"
 RECIPE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+RECIPE_TEXT_MAX_CHARS = 20_000
+RECIPE_UNITS = (
+    "tsp",
+    "tbsp",
+    "cup",
+    "ml",
+    "L",
+    "mg",
+    "g",
+    "kg",
+    "oz",
+    "lb",
+    "piece",
+    "clove",
+    "slice",
+    "can",
+    "pack",
+    "bunch",
+    "pinch",
+)
 
 app = FastAPI(
     title="Noomori API",
@@ -112,6 +134,326 @@ class CreateRecipe(BaseModel):
 
 class RecipeImageUpdate(BaseModel):
     image_path: str = Field(min_length=1, max_length=500)
+
+
+class ImportRecipeTextRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=RECIPE_TEXT_MAX_CHARS)
+
+    @field_validator("text")
+    @classmethod
+    def text_must_not_be_blank(cls, value: str) -> str:
+        text = value.strip()
+        if not text:
+            raise ValueError("Recipe text cannot be blank")
+        return text
+
+
+class ImportedRecipeTextDraft(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    ingredients: list[RecipeIngredientGroup] = Field(default_factory=list)
+    instructions: list[RecipeInstructionGroup] = Field(default_factory=list)
+    servings: int | None = Field(default=None, gt=0)
+    prep_time_minutes: int | None = Field(default=None, ge=0)
+    cook_time_minutes: int | None = Field(default=None, ge=0)
+
+
+_SECTION_NAMES = {
+    "ingredient": "ingredients",
+    "ingredients": "ingredients",
+    "direction": "instructions",
+    "directions": "instructions",
+    "instruction": "instructions",
+    "instructions": "instructions",
+    "method": "instructions",
+    "note": "notes",
+    "notes": "notes",
+}
+_LIST_PREFIX = re.compile(r"^(?:[-*\u2022]\s+|\d+[.)]\s+)")
+_VULGAR_FRACTIONS = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞"
+_QUANTITY_PREFIX = re.compile(
+    rf"^(?P<quantity>(?:(?:\d+\s*)?[{_VULGAR_FRACTIONS}])|(?:\d+\s+\d+/\d+)|(?:\d+/\d+)|(?:\d+(?:\.\d+)?)|(?:\.\d+))(?=\s|[A-Za-z]|$)"
+)
+_DURATION_PART = re.compile(
+    r"(?P<value>\d+)\s*(?P<unit>hours?|hrs?|h|minutes?|mins?|m)\b",
+    re.IGNORECASE,
+)
+_METADATA_LINE = re.compile(
+    r"^(?P<label>servings|yield|prep(?:aration)?(?:\s*time)?|cook(?:ing)?(?:\s*time)?|additional\s*time|total\s*time)\b\s*:?\s*(?P<value>.*)$",
+    re.IGNORECASE,
+)
+_EMBEDDED_SERVINGS = re.compile(
+    r"\bservings\s*:\s*(?P<value>[1-9]\d*)\b",
+    re.IGNORECASE,
+)
+_PARENTHESIZED_SIZE = re.compile(r"^\((?P<note>[^)]+)\)\s+(?P<rest>.+)$")
+_UNIT_ALIASES = {
+    "teaspoon": "tsp",
+    "teaspoons": "tsp",
+    "tablespoon": "tbsp",
+    "tablespoons": "tbsp",
+    "cups": "cup",
+    "milliliter": "ml",
+    "milliliters": "ml",
+    "millilitre": "ml",
+    "millilitres": "ml",
+    "liter": "L",
+    "liters": "L",
+    "litre": "L",
+    "litres": "L",
+    "milligram": "mg",
+    "milligrams": "mg",
+    "gr": "g",
+    "gram": "g",
+    "grams": "g",
+    "kilogram": "kg",
+    "kilograms": "kg",
+    "ounce": "oz",
+    "ounces": "oz",
+    "pound": "lb",
+    "pounds": "lb",
+    "package": "pack",
+    "packages": "pack",
+    "pieces": "piece",
+    "cloves": "clove",
+    "slices": "slice",
+    "cans": "can",
+    "packs": "pack",
+    "bunches": "bunch",
+    "pinches": "pinch",
+}
+_UNITS_BY_LOWER = {
+    **{unit.lower(): unit for unit in RECIPE_UNITS},
+    **_UNIT_ALIASES,
+}
+_UNIT_DIMENSIONS = {
+    **{unit: "mass" for unit in ("mg", "g", "kg", "oz", "lb")},
+    **{unit: "volume" for unit in ("tsp", "tbsp", "cup", "ml", "L")},
+}
+
+
+def _plain_line(line: str) -> str:
+    return line.strip().lstrip("#").strip().strip("*_").strip()
+
+
+def _without_list_prefix(line: str) -> str:
+    return _LIST_PREFIX.sub("", line.strip()).strip()
+
+
+def _duration_minutes(value: str) -> int | None:
+    parts = list(_DURATION_PART.finditer(value))
+    if parts:
+        return sum(
+            int(part.group("value"))
+            * (60 if part.group("unit").lower().startswith("h") else 1)
+            for part in parts
+        )
+    bare = re.fullmatch(r"\s*(\d+)\s*", value)
+    return int(bare.group(1)) if bare else None
+
+
+def _metadata(
+    line: str,
+    following: str | None,
+) -> tuple[str, int | str | None, bool] | None:
+    match = _METADATA_LINE.match(line)
+    if not match:
+        return None
+
+    label = match.group("label").lower()
+    raw_value = match.group("value").strip()
+    from_following = not raw_value and following is not None
+    candidate = following if from_following else raw_value
+
+    if label == "yield":
+        valid = raw_value or (
+            candidate if candidate and re.search(r"\b[1-9]\d*\b", candidate)
+            else None
+        )
+        return label, valid, from_following and valid is not None
+
+    if label == "servings":
+        servings = re.match(r"([1-9]\d*)\b", candidate or "")
+        value = int(servings.group(1)) if servings else None
+        return label, value, from_following and value is not None
+
+    value = _duration_minutes(candidate or "")
+    if label.startswith("prep"):
+        key = "prep_time_minutes"
+    elif label.startswith("cook"):
+        key = "cook_time_minutes"
+    else:
+        key = label
+    return key, value, from_following and value is not None
+
+
+def _quantity(value: str) -> float:
+    if value[-1] in _VULGAR_FRACTIONS:
+        whole = value[:-1].strip()
+        return (int(whole) if whole else 0) + unicodedata.numeric(value[-1])
+    if " " in value:
+        whole, fraction = value.split(" ", 1)
+        numerator, denominator = fraction.split("/", 1)
+        return int(whole) + int(numerator) / int(denominator)
+    if "/" in value:
+        numerator, denominator = value.split("/", 1)
+        return int(numerator) / int(denominator)
+    return float(value)
+
+
+def _without_alternate_measurement(name: str, primary_unit: str) -> str:
+    # NOTE: The left-hand measurement is canonical. Remove only a valid
+    # same-dimension alternate so uncertain or density-based text remains reviewable.
+    if not name.startswith("/"):
+        return name
+
+    alternate = name[1:].strip()
+    quantity = _QUANTITY_PREFIX.match(alternate)
+    if not quantity:
+        return name
+
+    try:
+        _quantity(quantity.group("quantity"))
+    except (ValueError, ZeroDivisionError):
+        return name
+
+    unit_text = alternate[quantity.end():].strip()
+    first, separator, remainder = unit_text.partition(" ")
+    alternate_unit = _UNITS_BY_LOWER.get(first.rstrip(".").lower())
+    if (
+        not separator
+        or not remainder.strip()
+        or _UNIT_DIMENSIONS.get(primary_unit) is None
+        or _UNIT_DIMENSIONS.get(primary_unit) != _UNIT_DIMENSIONS.get(alternate_unit)
+    ):
+        return name
+    return remainder.strip()
+
+
+def _ingredient(line: str) -> dict:
+    name = _without_list_prefix(line)
+    quantity = None
+    unit = None
+    note = None
+    match = _QUANTITY_PREFIX.match(name)
+    if match:
+        raw_quantity = match.group("quantity")
+        try:
+            quantity = _quantity(raw_quantity)
+            name = name[match.end():].strip()
+        except (ValueError, ZeroDivisionError):
+            quantity = None
+
+    unit_text = name
+    size = _PARENTHESIZED_SIZE.match(name)
+    if size:
+        unit_text = size.group("rest")
+
+    first, separator, remainder = unit_text.partition(" ")
+    recognized_unit = _UNITS_BY_LOWER.get(first.rstrip(".").lower())
+    if quantity is not None and separator and recognized_unit:
+        unit = recognized_unit
+        name = _without_alternate_measurement(remainder.strip(), unit)
+        note = size.group("note").strip() if size else None
+
+    return {"name": name, "quantity": quantity, "unit": unit, "note": note}
+
+
+def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
+    title = None
+    section = None
+    description_lines: list[str] = []
+    ingredients: list[dict] = []
+    instructions: list[dict] = []
+    current_group: dict | None = None
+    values: dict[str, int] = {}
+
+    lines = [_plain_line(line) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+        following = lines[index + 1] if index + 1 < len(lines) else None
+        index += 1
+
+        section_name = _SECTION_NAMES.get(line.rstrip(":").lower())
+        if section_name:
+            section = section_name
+            current_group = None
+            continue
+
+        metadata = _metadata(line, following)
+        if metadata is None and section is None:
+            embedded_servings = _EMBEDDED_SERVINGS.search(line)
+            if embedded_servings:
+                metadata = (
+                    "servings",
+                    int(embedded_servings.group("value")),
+                    False,
+                )
+        if metadata:
+            key, value, consumed_following = metadata
+            if consumed_following:
+                index += 1
+            if key == "yield" and isinstance(value, str):
+                description_lines.append(f"Yield: {value}")
+            elif key in {"servings", "prep_time_minutes", "cook_time_minutes"}:
+                if isinstance(value, int):
+                    values[key] = value
+            continue
+
+        if section in {"ingredients", "instructions"} and line.endswith(":"):
+            current_group = {
+                "title": _without_list_prefix(line[:-1]) or None,
+                "items" if section == "ingredients" else "steps": [],
+            }
+            groups = ingredients if section == "ingredients" else instructions
+            groups.append(current_group)
+            continue
+
+        if section == "ingredients":
+            if current_group is None:
+                current_group = {"title": None, "items": []}
+                ingredients.append(current_group)
+            ingredient = _ingredient(line)
+            if ingredient["name"]:
+                current_group["items"].append(ingredient)
+            continue
+
+        if section == "instructions":
+            if current_group is None:
+                current_group = {"title": None, "steps": []}
+                instructions.append(current_group)
+            instruction = _without_list_prefix(line)
+            if instruction:
+                current_group["steps"].append({"text": instruction})
+            continue
+
+        if section == "notes":
+            note = _without_list_prefix(line)
+            if note:
+                description_lines.append(note)
+            continue
+
+        if title is None:
+            title = _without_list_prefix(line)
+
+    ingredients = [group for group in ingredients if group["items"]]
+    instructions = [group for group in instructions if group["steps"]]
+    signals = sum((bool(title), bool(ingredients), bool(instructions)))
+    if signals < 2:
+        raise ValueError("Could not identify enough recipe information")
+
+    return ImportedRecipeTextDraft(
+        title=title,
+        description="\n".join(description_lines) or None,
+        ingredients=ingredients,
+        instructions=instructions,
+        servings=values.get("servings"),
+        prep_time_minutes=values.get("prep_time_minutes"),
+        cook_time_minutes=values.get("cook_time_minutes"),
+    )
 
 
 def get_supabase(access_token: str | None = None) -> Client:
@@ -258,6 +600,20 @@ def recipes_with_signed_images(
     return results
 
 
+@app.post("/recipes/import/text", response_model=ImportedRecipeTextDraft)
+def import_recipe_text(
+    payload: ImportRecipeTextRequest,
+    _auth: AuthContext = Depends(get_current_user),
+):
+    try:
+        return parse_recipe_text(payload.text)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not identify enough recipe information",
+        ) from exc
+
+
 # PERFORMANCE: supabase-py is synchronous. Regular def handlers run in FastAPI's
 # thread pool instead of serializing unrelated requests on the event loop.
 @app.get("/recipes")
@@ -328,7 +684,7 @@ def update_recipe(
     payload: CreateRecipe,
     auth: AuthContext = Depends(get_current_user),
 ):
-    get_owned_recipe(auth, recipe_id)
+    started_at = perf_counter()
     logger.info("Updating recipe recipe_id=%s", recipe_id)
     try:
         response = (
@@ -339,11 +695,24 @@ def update_recipe(
             .eq("owner_user_id", auth.user.id)
             .execute()
         )
-        logger.info("Recipe updated recipe_id=%s", recipe_id)
-        return recipe_with_signed_image(auth, response.data[0])
     except Exception as exc:
-        logger.exception("Failed to update recipe recipe_id=%s", recipe_id)
+        logger.exception(
+            "Failed to update recipe recipe_id=%s duration_ms=%.1f",
+            recipe_id,
+            (perf_counter() - started_at) * 1000,
+        )
         raise HTTPException(status_code=500, detail="Could not update recipe") from exc
+
+    if not response.data:
+        logger.info("Recipe not found during update recipe_id=%s", recipe_id)
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    logger.info(
+        "Recipe updated recipe_id=%s duration_ms=%.1f",
+        recipe_id,
+        (perf_counter() - started_at) * 1000,
+    )
+    return recipe_with_signed_image(auth, response.data[0])
 
 
 # NOTE: Ownership is recipe-scoped; household roles grant no delete authority.

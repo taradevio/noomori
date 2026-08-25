@@ -83,6 +83,10 @@ export default function RecipesScreen() {
       <AddRecipeBottomSheet
         isOpen={isAddRecipeOpen}
         onDismiss={() => setIsAddRecipeOpen(false)}
+        onImportFromText={() => {
+          setIsAddRecipeOpen(false);
+          router.push("/recipe/import-text");
+        }}
         onWriteFromScratch={() => {
           // NOTE: Close the native chooser before entering the full-screen form.
           setIsAddRecipeOpen(false);

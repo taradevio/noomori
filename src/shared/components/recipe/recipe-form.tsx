@@ -41,6 +41,8 @@ import {
   type PreparedRecipePhoto,
 } from "./recipe-image";
 
+export { createBlankRecipeDraft } from "./recipe-draft";
+
 type RecipeFormProps = {
   initialDraft: RecipeDraft;
   mode: RecipeFormMode;
@@ -83,25 +85,6 @@ function cloneDraft(draft: RecipeDraft): RecipeDraft {
   };
 }
 
-export function createBlankRecipeDraft(): RecipeDraft {
-  // NOTE: Product-approved Create defaults: one serving, no source, and no
-  // fabricated ingredient or instruction rows.
-  return {
-    title: "",
-    photo: null,
-    prepMinutes: null,
-    cookMinutes: null,
-    servings: 1,
-    ingredientGroups: [],
-    instructionGroups: [],
-    notes: "",
-    nutrition: Object.fromEntries(
-      nutritionFields.map(([key]) => [key, ""]),
-    ) as RecipeNutrition,
-    source: { type: null, name: "", url: "" },
-  };
-}
-
 function formatScaledAmount(snapshot: AmountSnapshot, servings: number) {
   if (servings === snapshot.baseServings) return snapshot.baseRaw;
   const scaled = (snapshot.baseAmount * servings) / snapshot.baseServings;
@@ -131,6 +114,7 @@ function FieldLabel({
 
 function FormInput({
   accessibilityLabel,
+  compactMultiline,
   error,
   multiline,
   keyboardType,
@@ -140,6 +124,7 @@ function FormInput({
   value,
 }: {
   accessibilityLabel: string;
+  compactMultiline?: boolean;
   error?: string | null;
   multiline?: boolean;
   keyboardType?: KeyboardTypeOptions;
@@ -149,6 +134,7 @@ function FormInput({
   value: string;
 }) {
   const [focused, setFocused] = useState(false);
+  const wraps = multiline || compactMultiline;
   const border = error
     ? "border-error"
     : focused
@@ -161,7 +147,7 @@ function FormInput({
         accessibilityLabel={accessibilityLabel}
         className={`${multiline ? "min-h-[112px]" : "min-h-[52px]"} rounded-xl border-2 bg-surface px-4 py-3 text-base font-normal leading-6 text-text-primary ${border}`}
         keyboardType={keyboardType}
-        multiline={multiline}
+        multiline={wraps}
         onBlur={() => {
           setFocused(false);
           onBlur?.();
@@ -170,8 +156,9 @@ function FormInput({
         onFocus={() => setFocused(true)}
         placeholder={placeholder}
         placeholderTextColor={colorTokens.textSecondary}
+        scrollEnabled={compactMultiline ? false : undefined}
         selectionColor={colorTokens.primaryStrong}
-        textAlignVertical={multiline ? "top" : "center"}
+        textAlignVertical={wraps ? "top" : "center"}
         value={value}
       />
       {error ? (
@@ -1004,6 +991,7 @@ export function RecipeForm({
                             <FieldLabel label="Ingredient name" />
                             <FormInput
                               accessibilityLabel={`Ingredient ${index + 1} name`}
+                              compactMultiline
                               onChangeText={(name) =>
                                 updateIngredient(group.id, ingredient.id, {
                                   name,

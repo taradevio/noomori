@@ -57,7 +57,10 @@ export default function EditRecipeRoute() {
         {
           headers: { Authorization: `Bearer ${session?.access_token}` },
           // PERFORMANCE: Abort stale editor loads rather than finishing unused work.
-          signal,
+          signal: AbortSignal.any([
+            signal,
+            AbortSignal.timeout(apiConfig.timeout),
+          ]),
         },
       );
       if (!response.ok) throw new Error("Could not load recipe.");
@@ -144,6 +147,7 @@ export default function EditRecipeRoute() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(toRecipeCreatePayload(submission.draft)),
+          signal: AbortSignal.timeout(apiConfig.timeout),
         },
       );
       if (!response.ok) {

@@ -52,6 +52,7 @@ export async function attachRecipeImage(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ image_path: imagePath }),
+      signal: AbortSignal.timeout(apiConfig.timeout),
     },
   );
   if (response.ok) {
@@ -96,6 +97,7 @@ export async function removeRecipeImage(
     {
       method: "DELETE",
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(apiConfig.timeout),
     },
   );
   if (!response.ok) {

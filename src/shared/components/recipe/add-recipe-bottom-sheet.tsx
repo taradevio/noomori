@@ -8,6 +8,7 @@ import { colorTokens } from "@/shared/design-system";
 type AddRecipeBottomSheetProps = {
   isOpen: boolean;
   onDismiss: () => void;
+  onImportFromText?: () => void;
   onWriteFromScratch?: () => void;
 };
 
@@ -56,6 +57,7 @@ const recipeOptions: readonly RecipeOption[] = [
 export function AddRecipeBottomSheet({
   isOpen,
   onDismiss,
+  onImportFromText,
   onWriteFromScratch,
 }: AddRecipeBottomSheetProps) {
   const safeAreaInsets = useSafeAreaInsets();
@@ -104,42 +106,44 @@ export function AddRecipeBottomSheet({
             </View>
 
             <View className="mt-4 gap-3">
-              {recipeOptions.map((option) => (
-                // NOTE: Write from scratch is the only connected path. Import
-                // options remain visibly and semantically disabled placeholders.
-                <Pressable
-                  key={option.id}
-                  accessibilityRole="button"
-                  accessibilityState={{
-                    disabled: option.id !== "write" || !onWriteFromScratch,
-                  }}
-                  disabled={option.id !== "write" || !onWriteFromScratch}
-                  onPress={
-                    option.id === "write" ? onWriteFromScratch : undefined
-                  }
-                  className={`min-h-[76px] flex-row items-center gap-4 rounded-2xl border border-border bg-surface-subtle px-4 py-3 focus:border-primary-strong active:opacity-[0.82] ${option.id !== "write" || !onWriteFromScratch ? "opacity-50" : ""}`}
-                  testID={`add-recipe-option-${option.id}`}
-                >
-                  <View
-                    accessible={false}
-                    className="h-12 w-12 items-center justify-center rounded-xl bg-surface"
+              {recipeOptions.map((option) => {
+                const onPress =
+                  option.id === "write"
+                    ? onWriteFromScratch
+                    : option.id === "copy"
+                      ? onImportFromText
+                      : undefined;
+                return (
+                  <Pressable
+                    key={option.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: !onPress }}
+                    disabled={!onPress}
+                    onPress={onPress}
+                    className={`min-h-[76px] flex-row items-center gap-4 rounded-2xl border border-border bg-surface-subtle px-4 py-3 focus:border-primary-strong active:opacity-[0.82] ${!onPress ? "opacity-50" : ""}`}
+                    testID={`add-recipe-option-${option.id}`}
                   >
-                    <SymbolView
-                      name={option.icon}
-                      size={24}
-                      tintColor={colorTokens.primaryStrong}
-                    />
-                  </View>
-                  <View className="shrink flex-1">
-                    <Text className="text-base font-bold leading-6 text-text-primary">
-                      {option.title}
-                    </Text>
-                    <Text className="mt-0.5 text-sm font-normal leading-5 text-text-secondary">
-                      {option.body}
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
+                    <View
+                      accessible={false}
+                      className="h-12 w-12 items-center justify-center rounded-xl bg-surface"
+                    >
+                      <SymbolView
+                        name={option.icon}
+                        size={24}
+                        tintColor={colorTokens.primaryStrong}
+                      />
+                    </View>
+                    <View className="shrink flex-1">
+                      <Text className="text-base font-bold leading-6 text-text-primary">
+                        {option.title}
+                      </Text>
+                      <Text className="mt-0.5 text-sm font-normal leading-5 text-text-secondary">
+                        {option.body}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
         </View>

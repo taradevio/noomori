@@ -7,6 +7,7 @@ export const apiConfig = {
   endpoints: {
     health: "/health",
     addRecipes: "/add-recipes",
+    importRecipeText: "/recipes/import/text",
     recipes: "/recipes",
     recipe: (recipeId: string) => `/recipes/${recipeId}`,
     recipeImage: (recipeId: string) => `/recipes/${recipeId}/image`,

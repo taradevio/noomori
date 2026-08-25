@@ -4,7 +4,7 @@ import {
 } from "@expo/ui/community/bottom-sheet";
 import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -22,7 +22,8 @@ import { colorTokens, MaxContentWidth } from "@/shared/design-system";
 import type { RecipeDetailModel } from "@/shared/types";
 
 import {
-  calculateNutritionPerServing,
+  formatIngredientMeasurement,
+  type MeasurementDisplayMode,
   nutritionFields,
 } from "./recipe-calculations";
 
@@ -35,6 +36,12 @@ type RecipeDetailViewProps = {
   onImageError?: () => void;
   recipe: RecipeDetailModel;
 };
+
+const measurementModes = [
+  ["original", "Original"],
+  ["metric", "Metric"],
+  ["us", "US"],
+] as const satisfies readonly (readonly [MeasurementDisplayMode, string])[];
 
 function formatDuration(minutes: number | null) {
   if (!minutes) return null;
@@ -74,18 +81,13 @@ export function RecipeDetailView({
   const pendingAction = useRef<(() => void) | null>(null);
   const safeAreaInsets = useSafeAreaInsets();
   const baseServings = Math.max(1, recipe.servings);
+  // NOTE: Serving and unit selections are display-only. Ingredient amounts derive
+  // from the saved recipe while nutrition remains the saved per-serving value.
   const [displayedServings, setDisplayedServings] = useState(baseServings);
-  const nutrition = useMemo(
-    () =>
-      calculateNutritionPerServing(
-        recipe.nutrition,
-        baseServings,
-        displayedServings,
-      ),
-    [baseServings, displayedServings, recipe.nutrition],
-  );
+  const [measurementMode, setMeasurementMode] =
+    useState<MeasurementDisplayMode>("original");
   const visibleNutrition = nutritionFields.filter(
-    ([key]) => nutrition[key] !== "",
+    ([key]) => recipe.nutrition[key] !== "",
   );
   const prep = formatDuration(recipe.prepMinutes);
   const cook = formatDuration(recipe.cookMinutes);
@@ -307,6 +309,31 @@ export function RecipeDetailView({
             >
               Ingredients
             </Text>
+            <View
+              accessibilityLabel="Ingredient measurement units"
+              accessibilityRole="tablist"
+              className="min-h-14 flex-row rounded-2xl bg-surface-subtle p-1"
+            >
+              {measurementModes.map(([mode, label]) => {
+                const selected = measurementMode === mode;
+                return (
+                  <Pressable
+                    key={mode}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}
+                    className={`min-h-12 flex-1 items-center justify-center rounded-xl border px-3 py-2 focus:border-primary-strong active:opacity-[0.78] ${selected ? "border-border bg-surface" : "border-transparent bg-transparent"}`}
+                    onPress={() => setMeasurementMode(mode)}
+                    testID={`recipe-measurement-${mode}`}
+                  >
+                    <Text
+                      className={`text-center text-base font-bold leading-6 ${selected ? "text-text-primary" : "text-text-secondary"}`}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
             {recipe.ingredientGroups.map((group) => (
               <View key={group.id} className="gap-3">
                 {group.title?.trim() ? (
@@ -317,24 +344,33 @@ export function RecipeDetailView({
                     {group.title.trim()}
                   </Text>
                 ) : null}
-                {group.ingredients.map((ingredient) => (
-                  <View
-                    key={ingredient.id}
-                    className="flex-row gap-3 border-b border-border pb-3"
-                  >
-                    <Text className="shrink-0 font-bold leading-6 text-text-primary">
-                      {[ingredient.amount, ingredient.unit]
-                        .filter(Boolean)
-                        .join(" ")}
-                    </Text>
-                    <Text className="shrink flex-1 leading-6 text-text-primary">
-                      {ingredient.name}
-                      {ingredient.note.trim()
-                        ? `, ${ingredient.note.trim()}`
-                        : ""}
-                    </Text>
-                  </View>
-                ))}
+                {group.ingredients.map((ingredient) => {
+                  const measurement = formatIngredientMeasurement(
+                    ingredient.amount,
+                    ingredient.unit,
+                    baseServings,
+                    displayedServings,
+                    measurementMode,
+                  );
+                  return (
+                    <View
+                      key={ingredient.id}
+                      className="flex-row gap-3 border-b border-border pb-3"
+                    >
+                      <Text className="max-w-[40%] shrink font-bold leading-6 text-text-primary">
+                        {[measurement.amount, measurement.unit]
+                          .filter(Boolean)
+                          .join(" ")}
+                      </Text>
+                      <Text className="min-w-0 shrink flex-1 leading-6 text-text-primary">
+                        {ingredient.name}
+                        {ingredient.note.trim()
+                          ? `, ${ingredient.note.trim()}`
+                          : ""}
+                      </Text>
+                    </View>
+                  );
+                })}
               </View>
             ))}
           </View>
@@ -388,17 +424,12 @@ export function RecipeDetailView({
 
           {visibleNutrition.length ? (
             <View className="gap-4">
-              <View>
-                <Text
-                  accessibilityRole="header"
-                  className="text-2xl font-bold leading-8 text-text-primary"
-                >
-                  Nutrition per serving
-                </Text>
-                <Text className="mt-1 text-sm leading-5 text-text-secondary">
-                  Based on {displayedServings} displayed servings.
-                </Text>
-              </View>
+              <Text
+                accessibilityRole="header"
+                className="text-2xl font-bold leading-8 text-text-primary"
+              >
+                Nutrition per serving
+              </Text>
               <View className="overflow-hidden rounded-2xl border border-border bg-surface">
                 {visibleNutrition.map(([key, label, unit], index) => (
                   <View
@@ -409,7 +440,7 @@ export function RecipeDetailView({
                       {label}
                     </Text>
                     <Text className="font-bold leading-6 text-text-primary">
-                      {nutrition[key]}
+                      {recipe.nutrition[key]}
                       {unit ? ` ${unit}` : ""}
                     </Text>
                   </View>
