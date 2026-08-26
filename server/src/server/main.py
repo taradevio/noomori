@@ -156,6 +156,7 @@ class ImportedRecipeTextDraft(BaseModel):
     servings: int | None = Field(default=None, gt=0)
     prep_time_minutes: int | None = Field(default=None, ge=0)
     cook_time_minutes: int | None = Field(default=None, ge=0)
+    nutrition_per_serving: RecipeNutrition | None = None
 
 
 _SECTION_NAMES = {
@@ -168,6 +169,19 @@ _SECTION_NAMES = {
     "method": "instructions",
     "note": "notes",
     "notes": "notes",
+    "key notes": "notes",
+    "recipe notes": "notes",
+    "chef's notes": "notes",
+    "chef’s notes": "notes",
+    "cook's notes": "notes",
+    "cook’s notes": "notes",
+    "important notes": "notes",
+    "additional notes": "notes",
+    "helpful notes": "notes",
+    "tips & notes": "notes",
+    "tips and notes": "notes",
+    "notes & tips": "notes",
+    "notes and tips": "notes",
 }
 _LIST_PREFIX = re.compile(r"^(?:[-*\u2022]\s+|\d+[.)]\s+)")
 _VULGAR_FRACTIONS = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞"
@@ -187,6 +201,41 @@ _EMBEDDED_SERVINGS = re.compile(
     re.IGNORECASE,
 )
 _PARENTHESIZED_SIZE = re.compile(r"^\((?P<note>[^)]+)\)\s+(?P<rest>.+)$")
+_NUTRITION_HEADING = re.compile(
+    r"^nutrition(?:al)?(?:\s+(?:facts|information))?(?:\s*(?:\(\s*per\s+serving\s*\)|per\s+serving))?$",
+    re.IGNORECASE,
+)
+_NUTRITION_VALUE = re.compile(
+    r"^(?P<value>(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))\s*(?P<unit>[A-Za-z]+)\.?$"
+)
+# NOTE: Text import fills only the nutrition fields already supported by the
+# recipe model; trans fat, percentages, and unknown nutrients are ignored.
+_NUTRITION_LABELS = (
+    ("total carbohydrates", "carbs_g", "g"),
+    ("total carbohydrate", "carbs_g", "g"),
+    ("dietary fiber", "fiber_g", "g"),
+    ("dietary fibre", "fiber_g", "g"),
+    ("saturated fat", "saturated_fat_g", "g"),
+    ("total sugars", "sugar_g", "g"),
+    ("total fat", "fat_g", "g"),
+    ("carbohydrates", "carbs_g", "g"),
+    ("carbohydrate", "carbs_g", "g"),
+    ("cholesterol", "cholesterol_mg", "mg"),
+    ("calories", "calories_kcal", "cal"),
+    ("protein", "protein_g", "g"),
+    ("sodium", "sodium_mg", "mg"),
+    ("fiber", "fiber_g", "g"),
+    ("fibre", "fiber_g", "g"),
+    ("sugars", "sugar_g", "g"),
+    ("sugar", "sugar_g", "g"),
+    ("carbs", "carbs_g", "g"),
+    ("fat", "fat_g", "g"),
+)
+_NUTRITION_UNITS = {
+    "cal": {"cal", "kcal"},
+    "g": {"g", "gram", "grams"},
+    "mg": {"mg", "milligram", "milligrams"},
+}
 _UNIT_ALIASES = {
     "teaspoon": "tsp",
     "teaspoons": "tsp",
@@ -304,10 +353,18 @@ def _quantity(value: str) -> float:
 def _without_alternate_measurement(name: str, primary_unit: str) -> str:
     # NOTE: The left-hand measurement is canonical. Remove only a valid
     # same-dimension alternate so uncertain or density-based text remains reviewable.
-    if not name.startswith("/"):
+    if name.startswith("/"):
+        alternate = name[1:].strip()
+        trailing_name = None
+    elif name.startswith("(") and ")" in name:
+        alternate, trailing_name = name[1:].split(")", 1)
+        alternate = alternate.strip()
+        trailing_name = trailing_name.strip()
+        if not trailing_name:
+            return name
+    else:
         return name
 
-    alternate = name[1:].strip()
     quantity = _QUANTITY_PREFIX.match(alternate)
     if not quantity:
         return name
@@ -318,8 +375,13 @@ def _without_alternate_measurement(name: str, primary_unit: str) -> str:
         return name
 
     unit_text = alternate[quantity.end():].strip()
-    first, separator, remainder = unit_text.partition(" ")
-    alternate_unit = _UNITS_BY_LOWER.get(first.rstrip(".").lower())
+    if trailing_name is None:
+        first, separator, remainder = unit_text.partition(" ")
+        alternate_unit = _UNITS_BY_LOWER.get(first.rstrip(".").lower())
+    else:
+        separator = " "
+        remainder = trailing_name
+        alternate_unit = _UNITS_BY_LOWER.get(unit_text.rstrip(".").lower())
     if (
         not separator
         or not remainder.strip()
@@ -359,6 +421,51 @@ def _ingredient(line: str) -> dict:
     return {"name": name, "quantity": quantity, "unit": unit, "note": note}
 
 
+def _nutrition_value(value: str, unit_kind: str) -> float | None:
+    match = _NUTRITION_VALUE.fullmatch(value.strip())
+    if not match or match.group("unit").lower() not in _NUTRITION_UNITS[unit_kind]:
+        return None
+    return float(match.group("value").replace(",", ""))
+
+
+def _nutrition_line(
+    line: str,
+    pending: tuple[str, str] | None,
+) -> tuple[tuple[str, str] | None, dict[str, float]]:
+    found: dict[str, float] = {}
+    for raw_segment in line.split("|"):
+        segment = _without_list_prefix(raw_segment)
+        normalized = segment.lower()
+        matched_label = False
+
+        for label, key, unit_kind in _NUTRITION_LABELS:
+            if normalized == label:
+                pending = (key, unit_kind)
+                matched_label = True
+                break
+            if normalized.startswith(f"{label}:") or normalized.startswith(
+                f"{label} "
+            ):
+                raw_value = segment[len(label):].lstrip(" :")
+                value = _nutrition_value(raw_value, unit_kind)
+                pending = None
+                if value is not None:
+                    found.setdefault(key, value)
+                matched_label = True
+                break
+
+        if matched_label:
+            continue
+        if pending is not None:
+            key, unit_kind = pending
+            value = _nutrition_value(segment, unit_kind)
+            pending = None
+            if value is not None:
+                found.setdefault(key, value)
+
+    return pending, found
+
+
 def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
     title = None
     section = None
@@ -367,6 +474,8 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
     instructions: list[dict] = []
     current_group: dict | None = None
     values: dict[str, int] = {}
+    nutrition_values: dict[str, float] = {}
+    pending_nutrition: tuple[str, str] | None = None
 
     lines = [_plain_line(line) for line in text.splitlines()]
     lines = [line for line in lines if line]
@@ -377,10 +486,18 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
         following = lines[index + 1] if index + 1 < len(lines) else None
         index += 1
 
-        section_name = _SECTION_NAMES.get(line.rstrip(":").lower())
+        normalized_heading = line.rstrip(":").strip()
+        if _NUTRITION_HEADING.fullmatch(normalized_heading):
+            section = "nutrition"
+            current_group = None
+            pending_nutrition = None
+            continue
+
+        section_name = _SECTION_NAMES.get(normalized_heading.lower())
         if section_name:
             section = section_name
             current_group = None
+            pending_nutrition = None
             continue
 
         metadata = _metadata(line, following)
@@ -401,6 +518,14 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
             elif key in {"servings", "prep_time_minutes", "cook_time_minutes"}:
                 if isinstance(value, int):
                     values[key] = value
+            continue
+
+        if section == "nutrition":
+            pending_nutrition, found = _nutrition_line(line, pending_nutrition)
+            for key, value in found.items():
+                # NOTE: Preserve the first valid source value when a pasted
+                # nutrition table repeats a nutrient in another column or row.
+                nutrition_values.setdefault(key, value)
             continue
 
         if section in {"ingredients", "instructions"} and line.endswith(":"):
@@ -453,6 +578,9 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
         servings=values.get("servings"),
         prep_time_minutes=values.get("prep_time_minutes"),
         cook_time_minutes=values.get("cook_time_minutes"),
+        nutrition_per_serving=(
+            RecipeNutrition(**nutrition_values) if nutrition_values else None
+        ),
     )
 
 

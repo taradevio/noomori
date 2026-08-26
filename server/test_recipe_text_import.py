@@ -39,6 +39,7 @@ class RecipeTextParserTest(unittest.TestCase):
         self.assertEqual("14.1 ounce/2 count", items[0].note)
         self.assertEqual((0.5, "cup"), (items[5].quantity, items[5].unit))
         self.assertEqual((0.25, "tsp"), (items[7].quantity, items[7].unit))
+        self.assertIsNone(draft.nutrition_per_serving)
 
     def test_imports_case2_servings(self):
         draft = parse_recipe_text(CASE2_PATH.read_text())
@@ -49,6 +50,21 @@ class RecipeTextParserTest(unittest.TestCase):
         self.assertEqual((166.67, "g"), (first.quantity, first.unit))
         self.assertTrue(first.name.startswith("prawns / shrimp"))
         self.assertNotIn("0.33 lb", first.name)
+        self.assertNotIn("Serving: 194g", draft.description)
+        self.assertEqual(
+            {
+                "calories_kcal": 410,
+                "protein_g": 52,
+                "carbs_g": 20,
+                "fat_g": 12,
+                "saturated_fat_g": 6,
+                "cholesterol_mg": 630,
+                "fiber_g": None,
+                "sugar_g": 17,
+                "sodium_mg": 2802,
+            },
+            draft.nutrition_per_serving.model_dump(),
+        )
 
     def test_keeps_only_same_dimension_primary_measurements(self):
         cases = [
@@ -57,9 +73,21 @@ class RecipeTextParserTest(unittest.TestCase):
                 "prawns / shrimp",
             ),
             ("500 ml / 2 cups broth", "broth"),
+            ("320 g (11 oz) spaghetti", "spaghetti"),
+            (
+                "150 g (5.3 oz) guanciale, cut into small strips or cubes",
+                "guanciale, cut into small strips or cubes",
+            ),
+            (
+                "100 g (3.5 oz) Pecorino Romano, finely grated",
+                "Pecorino Romano, finely grated",
+            ),
             ("1 cup / 120 g flour", "/ 120 g flour"),
+            ("1 cup (120 g) flour", "(120 g) flour"),
             ("1 cup / 2 scoops flour", "/ 2 scoops flour"),
+            ("1 cup (2 scoops) flour", "(2 scoops) flour"),
             ("1 cup / nope tbsp broth", "/ nope tbsp broth"),
+            ("1 cup (nope tbsp) broth", "(nope tbsp) broth"),
             ("1 cup prawns / shrimp", "prawns / shrimp"),
         ]
 
@@ -68,6 +96,132 @@ class RecipeTextParserTest(unittest.TestCase):
                 draft = parse_recipe_text(f"Pie\nIngredients\n{line}")
                 ingredient = draft.ingredients[0].items[0]
                 self.assertEqual(expected_name, ingredient.name)
+
+    def test_recognizes_common_notes_headings_without_matching_instruction_prose(self):
+        headings = [
+            "Note",
+            "Notes",
+            "Key Notes",
+            "Recipe Notes",
+            "Chef's Notes",
+            "Chef’s Notes",
+            "Cook's Notes",
+            "Cook’s Notes",
+            "Important Notes",
+            "Additional Notes",
+            "Helpful Notes",
+            "Tips & Notes",
+            "Tips and Notes",
+            "Notes & Tips",
+            "Notes and Tips",
+        ]
+
+        for heading in headings:
+            for rendered_heading in (heading, heading.upper(), f"{heading}:"):
+                with self.subTest(heading=rendered_heading):
+                    draft = parse_recipe_text(
+                        f"""Pie
+Ingredients
+1 cup flour
+Instructions
+1. Note the texture before serving.
+{rendered_heading}
+Keep the skillet off the heat.
+"""
+                    )
+
+                    self.assertEqual(
+                        ["Note the texture before serving."],
+                        [step.text for step in draft.instructions[0].steps],
+                    )
+                    self.assertEqual(
+                        "Keep the skillet off the heat.",
+                        draft.description,
+                    )
+
+    def test_extracts_salmon_nutrition_table(self):
+        draft = parse_recipe_text(
+            """Pan-Seared Salmon with Lemon Dill Cream Sauce
+Nutritional Facts (Per Serving)
+Nutrient
+Amount Per Serving
+Calories
+480 kcal
+Protein
+36 g
+Total Fat
+34 g
+Saturated Fat
+12 g
+Trans Fat
+0 g
+Carbohydrates
+4 g
+Dietary Fiber
+0.5 g
+Sugars
+2 g
+Sodium
+420 mg
+Cholesterol
+125 mg
+Ingredients
+1 tbsp olive oil
+Instructions
+Sear the salmon.
+Recipe Notes
+Serve immediately.
+"""
+        )
+
+        self.assertEqual(
+            {
+                "calories_kcal": 480,
+                "protein_g": 36,
+                "carbs_g": 4,
+                "fat_g": 34,
+                "saturated_fat_g": 12,
+                "cholesterol_mg": 125,
+                "fiber_g": 0.5,
+                "sugar_g": 2,
+                "sodium_mg": 420,
+            },
+            draft.nutrition_per_serving.model_dump(),
+        )
+        self.assertEqual("Serve immediately.", draft.description)
+        self.assertEqual(1, len(draft.ingredients[0].items))
+        self.assertEqual(1, len(draft.instructions[0].steps))
+        self.assertNotIn("trans", draft.nutrition_per_serving.model_dump())
+
+    def test_supports_nutrition_headings_and_ignores_invalid_values(self):
+        headings = [
+            "Nutrition",
+            "Nutrition:",
+            "NUTRITION FACTS",
+            "Nutritional Facts (Per Serving):",
+            "Nutrition Information Per Serving",
+            "Nutritional Information",
+        ]
+
+        for heading in headings:
+            with self.subTest(heading=heading):
+                draft = parse_recipe_text(
+                    f"""Pie
+{heading}
+Calories: 1,200 kcal | Calories: 999 kcal | Protein: .5 grams
+Sodium: 420 milligrams | Fat: -1 g | Cholesterol: 2 g | Trans Fat: 0 g
+Ingredients
+1 cup flour
+"""
+                )
+                nutrition = draft.nutrition_per_serving
+
+                self.assertEqual(1200, nutrition.calories_kcal)
+                self.assertEqual(0.5, nutrition.protein_g)
+                self.assertEqual(420, nutrition.sodium_mg)
+                self.assertIsNone(nutrition.fat_g)
+                self.assertIsNone(nutrition.cholesterol_mg)
+                self.assertIsNone(nutrition.carbs_g)
 
     def test_extracts_sections_metadata_notes_and_known_units(self):
         draft = parse_recipe_text(
