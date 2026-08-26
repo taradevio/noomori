@@ -45,6 +45,8 @@ export { createBlankRecipeDraft } from "./recipe-draft";
 
 type RecipeFormProps = {
   initialDraft: RecipeDraft;
+  initialPreparedPhoto?: PreparedRecipePhoto | null;
+  notice?: string | null;
   mode: RecipeFormMode;
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -220,6 +222,8 @@ function SectionHeading({ body, title }: { body: string; title: string }) {
 
 export function RecipeForm({
   initialDraft,
+  initialPreparedPhoto = null,
+  notice = null,
   mode,
   onClose,
   onDirtyChange,
@@ -230,7 +234,11 @@ export function RecipeForm({
   const initialSignature = useRef(JSON.stringify(initialDraft));
   const amountSnapshots = useRef(new Map<string, AmountSnapshot>());
   const photoGeneration = useRef(0);
-  const preparedPhoto = useRef<PreparedRecipePhoto | null>(null);
+  // NOTE: Website imports seed bytes prepared before review, avoiding a second
+  // conversion while keeping picker replacement and removal behavior unchanged.
+  const preparedPhoto = useRef<PreparedRecipePhoto | null>(
+    initialPreparedPhoto,
+  );
   // PERFORMANCE: A synchronous ref closes the render-sized gap where rapid taps
   // could start duplicate POST/PUT requests before disabled state is painted.
   const submitLock = useRef(false);
@@ -707,6 +715,19 @@ export function RecipeForm({
           keyboardShouldPersistTaps="handled"
         >
           <View className="w-full max-w-[720px] self-center gap-8 px-5 pt-6">
+            {/* NOTE: Import warnings are inline and non-blocking so users can
+                review or replace the photo immediately. */}
+            {notice ? (
+              <View
+                accessibilityLiveRegion="polite"
+                accessibilityRole="alert"
+                className="rounded-xl border border-border bg-surface-subtle px-4 py-3"
+              >
+                <Text className="text-sm font-medium leading-5 text-text-secondary">
+                  {notice}
+                </Text>
+              </View>
+            ) : null}
             <View className="gap-4">
               <SectionHeading
                 body="Optional. Choose one photo that helps you recognize this recipe."

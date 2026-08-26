@@ -19,9 +19,7 @@ const imported: ImportedRecipeTextDraft = {
       ],
     },
   ],
-  instructions: [
-    { title: null, steps: [{ text: "Stir and serve." }] },
-  ],
+  instructions: [{ title: null, steps: [{ text: "Stir and serve." }] }],
   servings: null,
   prep_time_minutes: 10,
   cook_time_minutes: null,
@@ -36,6 +34,7 @@ const imported: ImportedRecipeTextDraft = {
     sugar_g: 2,
     sodium_mg: 420,
   },
+  image_url: null,
 };
 
 const draft = toImportedRecipeDraft(imported);

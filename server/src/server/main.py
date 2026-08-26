@@ -12,6 +12,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from server.api.health import router as health_router
 from server.config import settings
+from server.recipe_url_import import (
+    ExtractedRecipe,
+    WebsiteImportError,
+    extract_recipe,
+    fetch_public_html,
+    fetch_public_image,
+)
 from dotenv import load_dotenv
 from supabase import create_client, Client, ClientOptions
 from typing import Literal
@@ -23,6 +30,7 @@ logger = logging.getLogger(__name__)
 RECIPE_IMAGE_BUCKET = "noomori-recipe-images"
 RECIPE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 RECIPE_TEXT_MAX_CHARS = 20_000
+RECIPE_URL_MAX_CHARS = 2_048
 RECIPE_UNITS = (
     "tsp",
     "tbsp",
@@ -148,6 +156,10 @@ class ImportRecipeTextRequest(BaseModel):
         return text
 
 
+class ImportRecipeUrlRequest(BaseModel):
+    url: HttpUrl = Field(max_length=RECIPE_URL_MAX_CHARS)
+
+
 class ImportedRecipeTextDraft(BaseModel):
     title: str | None = None
     description: str | None = None
@@ -157,6 +169,9 @@ class ImportedRecipeTextDraft(BaseModel):
     prep_time_minutes: int | None = Field(default=None, ge=0)
     cook_time_minutes: int | None = Field(default=None, ge=0)
     nutrition_per_serving: RecipeNutrition | None = None
+    # NOTE: Text imports keep the default null; website imports may provide a
+    # transient source URL that the client must fetch through the image proxy.
+    image_url: HttpUrl | None = None
 
 
 _SECTION_NAMES = {
@@ -184,6 +199,9 @@ _SECTION_NAMES = {
     "notes and tips": "notes",
 }
 _LIST_PREFIX = re.compile(r"^(?:[-*\u2022]\s+|\d+[.)]\s+)")
+_MARKDOWN_EMPHASIS = re.compile(
+    r"(?<!\w)(?P<mark>\*{1,3}|_{1,3})(?=\S)(?P<text>.+?)(?<=\S)(?P=mark)(?!\w)"
+)
 _VULGAR_FRACTIONS = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞"
 _QUANTITY_PREFIX = re.compile(
     rf"^(?P<quantity>(?:(?:\d+\s*)?[{_VULGAR_FRACTIONS}])|(?:\d+\s+\d+/\d+)|(?:\d+/\d+)|(?:\d+(?:\.\d+)?)|(?:\.\d+))(?=\s|[A-Za-z]|$)"
@@ -232,7 +250,7 @@ _NUTRITION_LABELS = (
     ("fat", "fat_g", "g"),
 )
 _NUTRITION_UNITS = {
-    "cal": {"cal", "kcal"},
+    "cal": {"cal", "kcal", "calorie", "calories"},
     "g": {"g", "gram", "grams"},
     "mg": {"mg", "milligram", "milligrams"},
 }
@@ -261,6 +279,7 @@ _UNIT_ALIASES = {
     "ounces": "oz",
     "pound": "lb",
     "pounds": "lb",
+    "lbs": "lb",
     "package": "pack",
     "packages": "pack",
     "pieces": "piece",
@@ -282,7 +301,24 @@ _UNIT_DIMENSIONS = {
 
 
 def _plain_line(line: str) -> str:
-    return line.strip().lstrip("#").strip().strip("*_").strip()
+    line = line.strip().lstrip("#").strip()
+    return _MARKDOWN_EMPHASIS.sub(r"\g<text>", line).strip()
+
+
+def _markdown_cells(line: str) -> list[str] | None:
+    if not line.startswith("|") or not line.endswith("|"):
+        return None
+    return [cell.strip() for cell in line[1:-1].split("|")]
+
+
+def _is_markdown_rule(line: str) -> bool:
+    compact = re.sub(r"\s+", "", line)
+    if re.fullmatch(r"(?:-{3,}|\*{3,}|_{3,})", compact):
+        return True
+    cells = _markdown_cells(line)
+    return bool(
+        cells and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
+    )
 
 
 def _without_list_prefix(line: str) -> str:
@@ -478,7 +514,32 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
     pending_nutrition: tuple[str, str] | None = None
 
     lines = [_plain_line(line) for line in text.splitlines()]
-    lines = [line for line in lines if line]
+    lines = [line for line in lines if line and not _is_markdown_rule(line)]
+    expanded_lines: list[str] = []
+    index = 0
+    while index < len(lines):
+        headers = _markdown_cells(lines[index])
+        following = (
+            _markdown_cells(lines[index + 1])
+            if index + 1 < len(lines)
+            else None
+        )
+        metadata_lines = (
+            [
+                f"{header}: {value}"
+                for header, value in zip(headers, following)
+                if _METADATA_LINE.match(header)
+            ]
+            if headers and following and len(headers) == len(following)
+            else []
+        )
+        if metadata_lines:
+            expanded_lines.extend(metadata_lines)
+            index += 2
+        else:
+            expanded_lines.append(lines[index])
+            index += 1
+    lines = expanded_lines
     index = 0
 
     while index < len(lines):
@@ -581,6 +642,98 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
         nutrition_per_serving=(
             RecipeNutrition(**nutrition_values) if nutrition_values else None
         ),
+    )
+
+
+_SERVING_YIELD = re.compile(
+    r"^(?P<count>[1-9]\d*)\s+servings?\s*$",
+    re.IGNORECASE,
+)
+_WEBSITE_NUTRITION_AMOUNT = re.compile(r"^\s*[\d,.]+\s*[A-Za-z]+")
+_WEBSITE_NUTRITION_FIELDS = {
+    "calories": ("calories_kcal", "cal"),
+    "proteinContent": ("protein_g", "g"),
+    "carbohydrateContent": ("carbs_g", "g"),
+    "fatContent": ("fat_g", "g"),
+    "saturatedFatContent": ("saturated_fat_g", "g"),
+    "cholesterolContent": ("cholesterol_mg", "mg"),
+    "fiberContent": ("fiber_g", "g"),
+    "sugarContent": ("sugar_g", "g"),
+    "sodiumContent": ("sodium_mg", "mg"),
+}
+
+
+def _website_nutrition_value(value: str, unit_kind: str) -> float | None:
+    amount = _WEBSITE_NUTRITION_AMOUNT.match(value)
+    return _nutrition_value(amount.group(), unit_kind) if amount else None
+
+
+def normalize_imported_website_recipe(
+    extracted: ExtractedRecipe,
+) -> ImportedRecipeTextDraft:
+    ingredients = []
+    for group in extracted.ingredient_groups:
+        items = []
+        for line in group.ingredients:
+            ingredient = _ingredient(line)
+            if ingredient["name"]:
+                ingredient["name"] = ingredient["name"][:300]
+                items.append(RecipeIngredient(**ingredient))
+        if items:
+            ingredients.append(
+                RecipeIngredientGroup(
+                    title=group.title[:200] if group.title else None,
+                    items=items,
+                )
+            )
+
+    instruction_steps = [
+        RecipeInstruction(text=instruction[:2000])
+        for instruction in extracted.instructions
+        if instruction
+    ]
+    instructions = (
+        [RecipeInstructionGroup(title=None, steps=instruction_steps)]
+        if instruction_steps
+        else []
+    )
+
+    description_parts = [extracted.description] if extracted.description else []
+    servings = None
+    if extracted.yield_text:
+        serving_yield = _SERVING_YIELD.fullmatch(extracted.yield_text)
+        if serving_yield:
+            servings = int(serving_yield.group("count"))
+        else:
+            description_parts.append(f"Yield: {extracted.yield_text}")
+
+    signals = sum((bool(extracted.title), bool(ingredients), bool(instructions)))
+    if signals < 2:
+        raise ValueError("Could not identify enough recipe information")
+
+    nutrition_values = {}
+    for source_key, (target_key, unit_kind) in _WEBSITE_NUTRITION_FIELDS.items():
+        raw_value = extracted.nutrients.get(source_key)
+        value = (
+            _website_nutrition_value(raw_value, unit_kind)
+            if raw_value is not None
+            else None
+        )
+        if value is not None:
+            nutrition_values[target_key] = value
+
+    return ImportedRecipeTextDraft(
+        title=extracted.title,
+        description="\n".join(description_parts) or None,
+        ingredients=ingredients,
+        instructions=instructions,
+        servings=servings,
+        prep_time_minutes=extracted.prep_time_minutes,
+        cook_time_minutes=extracted.cook_time_minutes,
+        nutrition_per_serving=(
+            RecipeNutrition(**nutrition_values) if nutrition_values else None
+        ),
+        image_url=extracted.image_url,
     )
 
 
@@ -740,6 +893,112 @@ def import_recipe_text(
             status_code=422,
             detail="Could not identify enough recipe information",
         ) from exc
+
+
+_WEBSITE_IMPORT_STATUS_CODES = {
+    "unsafe_url": 400,
+    "page_too_large": 413,
+    "unsupported_content_type": 415,
+    "recipe_not_found": 422,
+    "page_unavailable": 502,
+    "fetch_timeout": 504,
+}
+
+
+@app.post("/recipes/import/url", response_model=ImportedRecipeTextDraft)
+def import_recipe_url(
+    payload: ImportRecipeUrlRequest,
+    _auth: AuthContext = Depends(get_current_user),
+):
+    started_at = perf_counter()
+    hostname = payload.url.host or "unknown"
+    result = "page_unavailable"
+    response_size = 0
+    ingredient_count = 0
+    instruction_count = 0
+
+    try:
+        page = fetch_public_html(str(payload.url))
+        hostname = page.hostname
+        response_size = page.response_size
+        extracted = extract_recipe(page.html, page.url)
+        ingredient_count = sum(
+            len(group.ingredients) for group in extracted.ingredient_groups
+        )
+        instruction_count = len(extracted.instructions)
+        draft = normalize_imported_website_recipe(extracted)
+        result = "success"
+        return draft
+    except WebsiteImportError as exc:
+        result = exc.detail
+        raise HTTPException(
+            status_code=_WEBSITE_IMPORT_STATUS_CODES[exc.detail],
+            detail=exc.detail,
+        ) from exc
+    except ValueError as exc:
+        result = "recipe_not_found"
+        raise HTTPException(status_code=422, detail=result) from exc
+    except Exception as exc:
+        result = "recipe_not_found"
+        logger.warning(
+            "Website recipe extraction failed hostname=%s",
+            hostname,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=422, detail=result) from exc
+    finally:
+        logger.info(
+            "Website recipe import hostname=%s result=%s duration_ms=%.1f "
+            "response_size=%s ingredient_count=%s instruction_count=%s",
+            hostname,
+            result,
+            (perf_counter() - started_at) * 1000,
+            response_size,
+            ingredient_count,
+            instruction_count,
+        )
+
+
+@app.post("/recipes/import/image")
+def import_recipe_image(
+    payload: ImportRecipeUrlRequest,
+    _auth: AuthContext = Depends(get_current_user),
+):
+    started_at = perf_counter()
+    hostname = payload.url.host or "unknown"
+    result = "page_unavailable"
+    response_size = 0
+
+    try:
+        # NOTE: This endpoint is a byte proxy only. Recipe creation and Storage
+        # persistence remain in the existing authenticated client save flow.
+        image = fetch_public_image(str(payload.url))
+        hostname = image.hostname
+        response_size = image.response_size
+        result = "success"
+        return Response(
+            content=image.body,
+            media_type=image.content_type,
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except WebsiteImportError as exc:
+        result = exc.detail
+        raise HTTPException(
+            status_code=_WEBSITE_IMPORT_STATUS_CODES[exc.detail],
+            detail=exc.detail,
+        ) from exc
+    finally:
+        logger.info(
+            "Website recipe image import hostname=%s result=%s duration_ms=%.1f "
+            "response_size=%s",
+            hostname,
+            result,
+            (perf_counter() - started_at) * 1000,
+            response_size,
+        )
 
 
 # PERFORMANCE: supabase-py is synchronous. Regular def handlers run in FastAPI's

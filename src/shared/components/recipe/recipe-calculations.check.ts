@@ -18,7 +18,7 @@ const cases: Case[] = [
   {
     amount: "2",
     displayedServings: 8,
-    expected: { amount: "4", unit: "cup" },
+    expected: { amount: "4", unit: "cups" },
     mode: "original",
     savedServings: 4,
     unit: "cup",
@@ -26,50 +26,152 @@ const cases: Case[] = [
   {
     amount: "2",
     displayedServings: 8,
-    expected: { amount: "946.4", unit: "ml" },
+    expected: { amount: "950", unit: "ml" },
     mode: "metric",
     savedServings: 4,
     unit: "cup",
   },
   {
     amount: "1",
-    expected: { amount: "236.6", unit: "ml" },
+    expected: { amount: "240", unit: "ml" },
     mode: "metric",
     unit: "cup",
   },
   {
-    amount: "1",
-    expected: { amount: "4.93", unit: "ml" },
+    amount: "0.1",
+    expected: { amount: "24", unit: "ml" },
+    mode: "metric",
+    unit: "cup",
+  },
+  {
+    amount: "0.25",
+    expected: { amount: "60", unit: "ml" },
+    mode: "metric",
+    unit: "cup",
+  },
+  {
+    amount: "1/3",
+    expected: { amount: "80", unit: "ml" },
+    mode: "metric",
+    unit: "cup",
+  },
+  {
+    amount: "0.5",
+    expected: { amount: "120", unit: "ml" },
+    mode: "metric",
+    unit: "cup",
+  },
+  {
+    amount: "0.75",
+    expected: { amount: "180", unit: "ml" },
+    mode: "metric",
+    unit: "cup",
+  },
+  {
+    amount: "1.5",
+    expected: { amount: "360", unit: "ml" },
+    mode: "metric",
+    unit: "cup",
+  },
+  {
+    amount: "4",
+    expected: { amount: "950", unit: "ml" },
+    mode: "metric",
+    unit: "cup",
+  },
+  {
+    amount: "8",
+    expected: { amount: "1.95", unit: "L" },
+    mode: "metric",
+    unit: "cup",
+  },
+  {
+    amount: "0.25",
+    expected: { amount: "1.25", unit: "ml" },
+    mode: "metric",
+    unit: "tsp",
+  },
+  {
+    amount: "0.5",
+    expected: { amount: "2.5", unit: "ml" },
     mode: "metric",
     unit: "tsp",
   },
   {
     amount: "1",
-    expected: { amount: "14.8", unit: "ml" },
+    expected: { amount: "5", unit: "ml" },
+    mode: "metric",
+    unit: "tsp",
+  },
+  {
+    amount: "2.5",
+    expected: { amount: "12.5", unit: "ml" },
+    mode: "metric",
+    unit: "tsp",
+  },
+  {
+    amount: "1",
+    expected: { amount: "15", unit: "ml" },
     mode: "metric",
     unit: "tbsp",
   },
   {
     amount: "1",
-    expected: { amount: "29.6", unit: "ml" },
+    expected: { amount: "30", unit: "ml" },
+    mode: "metric",
+    unit: "fl oz",
+  },
+  {
+    amount: "32",
+    expected: { amount: "950", unit: "ml" },
+    mode: "metric",
+    unit: "fl oz",
+  },
+  {
+    amount: "64",
+    expected: { amount: "1.95", unit: "L" },
     mode: "metric",
     unit: "fl oz",
   },
   {
     amount: "1",
-    expected: { amount: "28.35", unit: "g" },
+    expected: { amount: "28", unit: "g" },
     mode: "metric",
     unit: "oz",
   },
   {
+    amount: "4",
+    expected: { amount: "114", unit: "g" },
+    mode: "metric",
+    unit: "oz",
+  },
+  {
+    amount: "16",
+    expected: { amount: "454", unit: "g" },
+    mode: "metric",
+    unit: "oz",
+  },
+  {
+    amount: "0.25",
+    expected: { amount: "114", unit: "g" },
+    mode: "metric",
+    unit: "lb",
+  },
+  {
     amount: "1",
-    expected: { amount: "453.59", unit: "g" },
+    expected: { amount: "454", unit: "g" },
+    mode: "metric",
+    unit: "lb",
+  },
+  {
+    amount: "2.2",
+    expected: { amount: "1", unit: "kg" },
     mode: "metric",
     unit: "lb",
   },
   {
     amount: "0.00881849",
-    expected: { amount: "250", unit: "mg" },
+    expected: { amount: "246.918", unit: "mg" },
     mode: "metric",
     unit: "oz",
   },
@@ -123,25 +225,25 @@ const cases: Case[] = [
   },
   {
     amount: "59.147059125",
-    expected: { amount: "¼", unit: "cup" },
+    expected: { amount: "1/4", unit: "cup" },
     mode: "us",
     unit: "ml",
   },
   {
     amount: "1000",
-    expected: { amount: "4.227", unit: "cup" },
+    expected: { amount: "4.227", unit: "cups" },
     mode: "us",
     unit: "ml",
   },
   {
     amount: "1",
-    expected: { amount: "4.227", unit: "cup" },
+    expected: { amount: "4.227", unit: "cups" },
     mode: "us",
     unit: "L",
   },
   {
     amount: "59.194",
-    expected: { amount: "¼", unit: "cup" },
+    expected: { amount: "1/4", unit: "cup" },
     mode: "us",
     unit: "ml",
   },
@@ -150,6 +252,72 @@ const cases: Case[] = [
     expected: { amount: "0.29", unit: "cup" },
     mode: "us",
     unit: "ml",
+  },
+  {
+    amount: "0.125",
+    expected: { amount: "1/8", unit: "tsp" },
+    mode: "original",
+    unit: "tsp",
+  },
+  {
+    amount: "0.25",
+    expected: { amount: "1/4", unit: "cup" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
+    amount: "0.3333333333333333",
+    expected: { amount: "1/3", unit: "cup" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
+    amount: "0.5",
+    expected: { amount: "1/2", unit: "cup" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
+    amount: "0.6666666666666666",
+    expected: { amount: "2/3", unit: "cup" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
+    amount: "0.75",
+    expected: { amount: "3/4", unit: "cup" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
+    amount: "1.5",
+    expected: { amount: "1 1/2", unit: "cups" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
+    amount: "0.2498",
+    expected: { amount: "1/4", unit: "cup" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
+    amount: "0.29",
+    expected: { amount: "0.29", unit: "cup" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
+    amount: "0.75",
+    expected: { amount: "3/4", unit: "cup" },
+    mode: "us",
+    unit: "cup",
+  },
+  {
+    amount: "2",
+    expected: { amount: "2", unit: "cloves" },
+    mode: "metric",
+    unit: "clove",
   },
   {
     amount: "1/2",
@@ -175,6 +343,18 @@ const cases: Case[] = [
     savedServings: 4,
     unit: "",
   },
+  {
+    amount: "179.9999999997",
+    expected: { amount: "180", unit: "ml" },
+    mode: "metric",
+    unit: "ml",
+  },
+  {
+    amount: "0.000000000001",
+    expected: { amount: "2.4e-10", unit: "ml" },
+    mode: "metric",
+    unit: "cup",
+  },
 ];
 
 for (const testCase of cases) {
@@ -193,6 +373,7 @@ for (const testCase of cases) {
 }
 
 const canonical = { amount: "2", unit: "cup" };
+const canonicalBefore = JSON.stringify(canonical);
 formatIngredientMeasurement(canonical.amount, canonical.unit, 4, 8, "metric");
 formatIngredientMeasurement(canonical.amount, canonical.unit, 4, 2, "us");
 const restored = formatIngredientMeasurement(
@@ -203,7 +384,8 @@ const restored = formatIngredientMeasurement(
   "original",
 );
 if (
-  JSON.stringify(restored) !== JSON.stringify(canonical) ||
+  JSON.stringify(restored) !== JSON.stringify({ amount: "2", unit: "cups" }) ||
+  JSON.stringify(canonical) !== canonicalBefore ||
   canonical.amount !== "2" ||
   canonical.unit !== "cup"
 ) {

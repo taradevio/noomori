@@ -87,6 +87,10 @@ export default function RecipesScreen() {
           setIsAddRecipeOpen(false);
           router.push("/recipe/import-text");
         }}
+        onImportFromWebsite={() => {
+          setIsAddRecipeOpen(false);
+          router.push("/recipe/import-url");
+        }}
         onWriteFromScratch={() => {
           // NOTE: Close the native chooser before entering the full-screen form.
           setIsAddRecipeOpen(false);

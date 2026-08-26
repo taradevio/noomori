@@ -26,11 +26,17 @@ type RecipeSubmission = {
 
 type RecipeCreateScreenProps = {
   initialDraft: RecipeDraft;
+  // NOTE: Import-only context is passed through to the existing form instead of
+  // introducing a separate review screen or image save path.
+  initialNotice?: string | null;
+  initialPreparedPhoto?: PreparedRecipePhoto | null;
   initiallyDirty?: boolean;
 };
 
 export function RecipeCreateScreen({
   initialDraft,
+  initialNotice = null,
+  initialPreparedPhoto = null,
   initiallyDirty = false,
 }: RecipeCreateScreenProps) {
   const navigation = useNavigation();
@@ -220,6 +226,8 @@ export function RecipeCreateScreen({
     <>
       <RecipeForm
         initialDraft={initialDraft}
+        notice={initialNotice}
+        initialPreparedPhoto={initialPreparedPhoto}
         mode="create"
         onClose={closeEditor}
         onDirtyChange={setFormDirty}

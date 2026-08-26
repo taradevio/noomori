@@ -9,6 +9,7 @@ type AddRecipeBottomSheetProps = {
   isOpen: boolean;
   onDismiss: () => void;
   onImportFromText?: () => void;
+  onImportFromWebsite?: () => void;
   onWriteFromScratch?: () => void;
 };
 
@@ -42,7 +43,7 @@ const recipeOptions: readonly RecipeOption[] = [
   },
   {
     id: "url",
-    title: "Import from URL",
+    title: "Import from website",
     body: "Bring in a recipe from a website.",
     icon: { ios: "link", android: "link", web: "link" },
   },
@@ -58,6 +59,7 @@ export function AddRecipeBottomSheet({
   isOpen,
   onDismiss,
   onImportFromText,
+  onImportFromWebsite,
   onWriteFromScratch,
 }: AddRecipeBottomSheetProps) {
   const safeAreaInsets = useSafeAreaInsets();
@@ -112,7 +114,9 @@ export function AddRecipeBottomSheet({
                     ? onWriteFromScratch
                     : option.id === "copy"
                       ? onImportFromText
-                      : undefined;
+                      : option.id === "url"
+                        ? onImportFromWebsite
+                        : undefined;
                 return (
                   <Pressable
                     key={option.id}

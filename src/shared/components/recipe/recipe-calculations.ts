@@ -22,6 +22,8 @@ export type MeasurementDisplayMode = "original" | "metric" | "us";
 
 type ConvertibleUnit = {
   dimension: "mass" | "volume";
+  kitchenEquivalents?: readonly (readonly [number, number])[];
+  kitchenToBase?: number;
   system: Exclude<MeasurementDisplayMode, "original">;
   toBase: number;
   unit: string;
@@ -33,12 +35,22 @@ const convertibleUnits: Record<string, ConvertibleUnit> = {
   kg: { dimension: "mass", system: "metric", toBase: 1_000, unit: "kg" },
   oz: {
     dimension: "mass",
+    kitchenEquivalents: [
+      [4, 114],
+      [16, 454],
+    ],
+    kitchenToBase: 28,
     system: "us",
     toBase: 28.349523125,
     unit: "oz",
   },
   lb: {
     dimension: "mass",
+    kitchenEquivalents: [
+      [0.25, 114],
+      [2.2, 1_000],
+    ],
+    kitchenToBase: 454,
     system: "us",
     toBase: 453.59237,
     unit: "lb",
@@ -52,24 +64,36 @@ const convertibleUnits: Record<string, ConvertibleUnit> = {
   },
   tsp: {
     dimension: "volume",
+    kitchenToBase: 5,
     system: "us",
     toBase: 4.92892159375,
     unit: "tsp",
   },
   tbsp: {
     dimension: "volume",
+    kitchenToBase: 15,
     system: "us",
     toBase: 14.78676478125,
     unit: "tbsp",
   },
   "fl oz": {
     dimension: "volume",
+    kitchenEquivalents: [
+      [32, 950],
+      [64, 1_950],
+    ],
+    kitchenToBase: 30,
     system: "us",
     toBase: 29.5735295625,
     unit: "fl oz",
   },
   cup: {
     dimension: "volume",
+    kitchenEquivalents: [
+      [4, 950],
+      [8, 1_950],
+    ],
+    kitchenToBase: 240,
     system: "us",
     toBase: 236.5882365,
     unit: "cup",
@@ -78,17 +102,35 @@ const convertibleUnits: Record<string, ConvertibleUnit> = {
 
 const cookingFractions = [
   { value: 0, label: "" },
-  { value: 1 / 8, label: "⅛" },
-  { value: 1 / 4, label: "¼" },
-  { value: 1 / 3, label: "⅓" },
-  { value: 1 / 2, label: "½" },
-  { value: 2 / 3, label: "⅔" },
-  { value: 3 / 4, label: "¾" },
+  { value: 1 / 8, label: "1/8" },
+  { value: 1 / 4, label: "1/4" },
+  { value: 1 / 3, label: "1/3" },
+  { value: 1 / 2, label: "1/2" },
+  { value: 2 / 3, label: "2/3" },
+  { value: 3 / 4, label: "3/4" },
   { value: 1, label: "" },
 ] as const;
 
+const pluralUnits: Record<string, string> = {
+  bunch: "bunches",
+  can: "cans",
+  clove: "cloves",
+  cup: "cups",
+  pack: "packs",
+  piece: "pieces",
+  pinch: "pinches",
+  slice: "slices",
+};
+
 function decimal(value: number, maximumDigits: number) {
-  return Number(value.toFixed(maximumDigits)).toString();
+  const rounded = Number(value.toFixed(maximumDigits));
+  return (
+    value > 0 && rounded === 0 ? Number(value.toPrecision(3)) : rounded
+  ).toString();
+}
+
+function displayUnit(unit: string, value: number) {
+  return value > 1 ? (pluralUnits[unit.trim().toLowerCase()] ?? unit) : unit;
 }
 
 function targetUnit(
@@ -140,6 +182,21 @@ function cookingAmount(value: number) {
   return decimal(value, 3);
 }
 
+function baseAmountForMode(
+  value: number,
+  source: ConvertibleUnit,
+  mode: "metric" | "us",
+) {
+  if (mode !== "metric" || source.system !== "us") {
+    return value * source.toBase;
+  }
+
+  const equivalent = source.kitchenEquivalents?.find(
+    ([quantity]) => Math.abs(value - quantity) <= 1e-9,
+  );
+  return equivalent?.[1] ?? value * (source.kitchenToBase ?? source.toBase);
+}
+
 function convertedAmount(value: number, target: ConvertibleUnit) {
   if (target.system === "us") {
     return target.dimension === "volume" && target.unit !== "fl oz"
@@ -173,21 +230,27 @@ export function formatIngredientMeasurement(
   const scaled = (parsed * servings) / baseServings;
   const source = convertibleUnits[unit.trim().toLowerCase()];
 
-  if (mode === "original" || !source) {
+  if (!source) {
     return {
       amount: servings === baseServings ? amount : decimal(scaled, 4),
-      unit,
+      unit: displayUnit(unit, scaled),
     };
   }
 
-  const baseAmount = scaled * source.toBase;
-  const target = targetUnit(source, baseAmount, mode);
-  if (servings === baseServings && target.unit === source.unit) {
-    return { amount, unit };
+  if (mode === "original") {
+    const usesCookingFractions = ["tsp", "tbsp", "cup"].includes(source.unit);
+    return {
+      amount: usesCookingFractions ? cookingAmount(scaled) : decimal(scaled, 4),
+      unit: displayUnit(unit, scaled),
+    };
   }
 
+  const baseAmount = baseAmountForMode(scaled, source, mode);
+  const target = targetUnit(source, baseAmount, mode);
+  const converted = baseAmount / target.toBase;
+
   return {
-    amount: convertedAmount(baseAmount / target.toBase, target),
-    unit: target.unit,
+    amount: convertedAmount(converted, target),
+    unit: displayUnit(target.unit, converted),
   };
 }

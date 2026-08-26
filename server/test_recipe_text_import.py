@@ -358,6 +358,87 @@ Cool before frosting.
                     ),
                 )
 
+    def test_imports_markdown_tables_and_removes_formatting(self):
+        draft = parse_recipe_text(
+            """# **Markdown Pie**
+
+| Prep Time | Cook Time | Total Time | Servings |
+| :--- | :--- | :--- | :--- |
+| 20 mins | 15 mins | 35 mins | 4 |
+
+---
+
+## Nutritional Facts (Per Serving)
+| Nutrient | Amount Per Serving |
+| :--- | :--- |
+| **Calories** | 390 kcal |
+| **Protein** | 28 g |
+| **Total Fat** | 26 g |
+| **Saturated Fat** | 10 g |
+| **Trans Fat** | 0.5 g |
+| **Carbohydrates** | 11 g |
+| **Dietary Fiber** | 1.5 g |
+| **Sugars** | 2 g |
+| **Sodium** | 580 mg |
+| **Cholesterol** | 95 mg |
+
+## Ingredients
+### **Filling:**
+* **500g (1.1 lbs)** beef
+* **2 cloves** garlic
+* olive_oil 2 * 3
+
+---
+
+## Instructions
+1. **Mix:** Stir _gently_; keep olive_oil at 2 * 3.
+
+## Recipe Notes
+* **Tip:** Keep _covered_.
+"""
+        )
+
+        self.assertEqual("Markdown Pie", draft.title)
+        self.assertEqual(20, draft.prep_time_minutes)
+        self.assertEqual(15, draft.cook_time_minutes)
+        self.assertEqual(4, draft.servings)
+        self.assertEqual(
+            {
+                "calories_kcal": 390,
+                "protein_g": 28,
+                "carbs_g": 11,
+                "fat_g": 26,
+                "saturated_fat_g": 10,
+                "cholesterol_mg": 95,
+                "fiber_g": 1.5,
+                "sugar_g": 2,
+                "sodium_mg": 580,
+            },
+            draft.nutrition_per_serving.model_dump(),
+        )
+        self.assertEqual("Filling", draft.ingredients[0].title)
+        self.assertEqual(
+            [
+                (500, "g", "beef"),
+                (2, "clove", "garlic"),
+                (None, None, "olive_oil 2 * 3"),
+            ],
+            [
+                (item.quantity, item.unit, item.name)
+                for item in draft.ingredients[0].items
+            ],
+        )
+        self.assertEqual(
+            "Mix: Stir gently; keep olive_oil at 2 * 3.",
+            draft.instructions[0].steps[0].text,
+        )
+        self.assertEqual("Tip: Keep covered.", draft.description)
+        serialized = draft.model_dump_json()
+        self.assertNotIn("**", serialized)
+        self.assertNotIn("_gently_", serialized)
+        self.assertNotIn("_covered_", serialized)
+        self.assertNotIn("---", serialized)
+
     def test_preserves_yield_as_notes_without_changing_servings(self):
         recipe = "\nPie\nIngredients\n1 cup flour"
         cases = [
@@ -386,6 +467,9 @@ Freeze leftovers.
 
     def test_supports_quantity_and_unit_edge_cases(self):
         cases = [
+            ("1/2 cup milk", 0.5, "cup", "milk", None),
+            ("3/4 cup milk", 0.75, "cup", "milk", None),
+            ("1 1/2 cup flour", 1.5, "cup", "flour", None),
             ("½ cup flour", 0.5, "cup", "flour", None),
             ("¼ teaspoon salt", 0.25, "tsp", "salt", None),
             ("1½ cups flour", 1.5, "cup", "flour", None),

@@ -8,6 +8,8 @@ export const apiConfig = {
     health: "/health",
     addRecipes: "/add-recipes",
     importRecipeText: "/recipes/import/text",
+    importRecipeUrl: "/recipes/import/url",
+    importRecipeImage: "/recipes/import/image",
     recipes: "/recipes",
     recipe: (recipeId: string) => `/recipes/${recipeId}`,
     recipeImage: (recipeId: string) => `/recipes/${recipeId}/image`,

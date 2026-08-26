@@ -32,6 +32,8 @@ export type ImportedRecipeTextDraft = {
     sugar_g: number | null;
     sodium_mg: number | null;
   } | null;
+  // NOTE: Only website imports populate this transient acquisition URL.
+  image_url: string | null;
 };
 
 function textNumber(value: number | null | undefined) {
@@ -60,15 +62,9 @@ export function toImportedRecipeDraft(
       cholesterolMilligrams: textNumber(
         imported.nutrition_per_serving?.cholesterol_mg,
       ),
-      sodiumMilligrams: textNumber(
-        imported.nutrition_per_serving?.sodium_mg,
-      ),
-      carbohydrateGrams: textNumber(
-        imported.nutrition_per_serving?.carbs_g,
-      ),
-      dietaryFiberGrams: textNumber(
-        imported.nutrition_per_serving?.fiber_g,
-      ),
+      sodiumMilligrams: textNumber(imported.nutrition_per_serving?.sodium_mg),
+      carbohydrateGrams: textNumber(imported.nutrition_per_serving?.carbs_g),
+      dietaryFiberGrams: textNumber(imported.nutrition_per_serving?.fiber_g),
       sugarGrams: textNumber(imported.nutrition_per_serving?.sugar_g),
       proteinGrams: textNumber(imported.nutrition_per_serving?.protein_g),
     },
