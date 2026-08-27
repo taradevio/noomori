@@ -38,7 +38,7 @@ type LibraryListItem =
 
 const GRID_GAP = 12;
 
-function OptionalIconAction({
+function IconAction({
   accessibilityHint,
   accessibilityLabel,
   icon,
@@ -48,47 +48,30 @@ function OptionalIconAction({
   accessibilityHint: string;
   accessibilityLabel: string;
   icon: {
-    ios: "person.crop.circle" | "plus";
-    android: "account_circle" | "add";
-    web: "account_circle" | "add";
+    ios: "plus";
+    android: "add";
+    web: "add";
   };
-  onPress?: () => void;
+  onPress: () => void;
   testID: string;
 }) {
-  const content = (
-    <SymbolView
-      accessible={false}
-      name={icon}
-      size={20}
-      tintColor={colorTokens.textPrimary}
-    />
-  );
-
-  if (onPress) {
-    return (
-      <Pressable
-        accessibilityHint={accessibilityHint}
-        accessibilityLabel={accessibilityLabel}
-        accessibilityRole="button"
-        hitSlop={4}
-        onPress={onPress}
-        className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
-        testID={testID}
-      >
-        {content}
-      </Pressable>
-    );
-  }
-
   return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      className="h-12 w-12 items-center justify-center rounded-full"
-      testID={`${testID}-shell`}
+    <Pressable
+      accessibilityHint={accessibilityHint}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      hitSlop={4}
+      onPress={onPress}
+      className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
+      testID={testID}
     >
-      {content}
-    </View>
+      <SymbolView
+        accessible={false}
+        name={icon}
+        size={20}
+        tintColor={colorTokens.textPrimary}
+      />
+    </Pressable>
   );
 }
 
@@ -160,43 +143,6 @@ function SearchField({
   );
 }
 
-function LibrarySegment({
-  activeSection,
-  onChange,
-}: {
-  activeSection: LibrarySection;
-  onChange: (section: LibrarySection) => void;
-}) {
-  return (
-    <View
-      accessibilityRole="tablist"
-      className="mt-6 min-h-14 flex-row rounded-2xl bg-surface-subtle p-1"
-    >
-      {(["recipes", "cookbooks"] as const).map((section) => {
-        const selected = section === activeSection;
-        const label = section === "recipes" ? "Recipes" : "Cookbooks";
-
-        return (
-          <Pressable
-            key={section}
-            accessibilityRole="tab"
-            accessibilityState={{ selected }}
-            onPress={() => onChange(section)}
-            className={`min-h-12 flex-1 items-center justify-center rounded-xl border px-3 py-2 focus:border-primary-strong active:opacity-[0.78] ${selected ? "border-border bg-surface" : "border-transparent bg-transparent"}`}
-            testID={`library-segment-${section}`}
-          >
-            <Text
-              className={`text-center text-base font-bold leading-6 ${selected ? "text-text-primary" : "text-text-secondary"}`}
-            >
-              {label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 /** Data-ready personal library surface. No backend or fixture data is owned here. */
 export function RecipesLibraryView({
   recipes,
@@ -205,7 +151,6 @@ export function RecipesLibraryView({
   onAddRecipe,
   onCookbookPress,
   onCreateCookbook,
-  onProfilePress,
   onRecipeImageError,
   onRecipePress,
   onRetryCookbooks,
@@ -214,12 +159,8 @@ export function RecipesLibraryView({
 }: RecipesLibraryViewProps) {
   const { fontScale, height, width } = useWindowDimensions();
   const safeAreaInsets = useSafeAreaInsets();
-  const [activeSection, setActiveSection] =
-    useState<LibrarySection>(initialSection);
-  const [queries, setQueries] = useState<Record<LibrarySection, string>>({
-    recipes: "",
-    cookbooks: "",
-  });
+  const activeSection = initialSection;
+  const [query, setQueryState] = useState("");
 
   const safeContentWidth = width - safeAreaInsets.left - safeAreaInsets.right;
   const isTablet = Math.min(width, height) >= 600;
@@ -229,7 +170,6 @@ export function RecipesLibraryView({
     Math.min(safeContentWidth, MaxContentWidth) - horizontalGutter * 2;
   const cardWidth =
     (availableWidth - GRID_GAP * (columnCount - 1)) / columnCount;
-  const query = queries[activeSection];
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const activeResource = activeSection === "recipes" ? recipes : cookbooks;
   const activeStatus = activeResource.status;
@@ -279,10 +219,7 @@ export function RecipesLibraryView({
   ]);
 
   const setQuery = (nextQuery: string) => {
-    setQueries((current) => ({
-      ...current,
-      [activeSection]: nextQuery,
-    }));
+    setQueryState(nextQuery);
     onSearchQueryChange?.(activeSection, nextQuery);
   };
 
@@ -352,7 +289,6 @@ export function RecipesLibraryView({
               ? "Your recipes will live here."
               : "Your cookbooks will live here."
           }
-          visualActionShell
         />
       );
     }
@@ -371,7 +307,7 @@ export function RecipesLibraryView({
     <SafeAreaView
       edges={["top", "left", "right"]}
       className="flex-1 bg-background"
-      testID="recipes-library-screen"
+      testID={`${activeSection}-library-screen`}
     >
       <StatusBar style="dark" />
 
@@ -416,7 +352,7 @@ export function RecipesLibraryView({
           ListHeaderComponent={
             <View className="pb-5">
               <View
-                className="h-14 flex-row items-center justify-between border-b border-border"
+                className="min-h-14 flex-row items-center justify-between border-b border-border py-2"
                 style={{
                   marginHorizontal: -horizontalGutter,
                   paddingHorizontal: horizontalGutter,
@@ -426,19 +362,8 @@ export function RecipesLibraryView({
                   accessibilityRole="header"
                   className="text-2xl font-bold leading-[30px] text-text-primary"
                 >
-                  Recipes
+                  {activeSection === "recipes" ? "Recipes" : "Cookbooks"}
                 </Text>
-                <OptionalIconAction
-                  accessibilityHint="Opens your profile."
-                  accessibilityLabel="Open profile"
-                  icon={{
-                    ios: "person.crop.circle",
-                    android: "account_circle",
-                    web: "account_circle",
-                  }}
-                  onPress={onProfilePress}
-                  testID="library-profile-action"
-                />
               </View>
 
               <View className="pt-5">
@@ -447,10 +372,6 @@ export function RecipesLibraryView({
                   onClear={() => setQuery("")}
                   section={activeSection}
                   value={query}
-                />
-                <LibrarySegment
-                  activeSection={activeSection}
-                  onChange={setActiveSection}
                 />
               </View>
 
@@ -467,7 +388,7 @@ export function RecipesLibraryView({
                   >
                     {activeSection === "recipes"
                       ? "Recently saved"
-                      : "Cookbooks"}
+                      : "All cookbooks"}
                   </Text>
 
                   <View className="flex-row items-center gap-1">
@@ -484,8 +405,8 @@ export function RecipesLibraryView({
                       </Text>
                     ) : null}
 
-                    {activeSection === "cookbooks" ? (
-                      <OptionalIconAction
+                    {activeSection === "cookbooks" && onCreateCookbook ? (
+                      <IconAction
                         accessibilityHint="Starts a new cookbook."
                         accessibilityLabel="Create cookbook"
                         icon={{ ios: "plus", android: "add", web: "add" }}

@@ -10,17 +10,14 @@ type LibraryFeedbackProps = {
   onAction?: () => void;
   testID: string;
   title: string;
-  visualActionShell?: boolean;
 };
 
 function FeedbackAction({
   label,
   onPress,
-  visualShell,
 }: {
   label: string;
-  onPress?: () => void;
-  visualShell: boolean;
+  onPress: () => void;
 }) {
   const content = (
     <Text className="text-center text-base font-bold leading-6 text-on-primary">
@@ -28,23 +25,10 @@ function FeedbackAction({
     </Text>
   );
 
-  if (onPress) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        onPress={onPress}
-        className="mt-6 min-h-12 min-w-[176px] items-center justify-center rounded-xl border-2 border-primary-strong bg-primary-strong px-5 py-3 focus:border-text-primary active:opacity-[0.82]"
-      >
-        {content}
-      </Pressable>
-    );
-  }
-
-  if (!visualShell) return null;
-
   return (
     <Pressable
       accessibilityRole="button"
+      onPress={onPress}
       className="mt-6 min-h-12 min-w-[176px] items-center justify-center rounded-xl border-2 border-primary-strong bg-primary-strong px-5 py-3 focus:border-text-primary active:opacity-[0.82]"
     >
       {content}
@@ -60,7 +44,6 @@ export function LibraryFeedback({
   onAction,
   testID,
   title,
-  visualActionShell = false,
 }: LibraryFeedbackProps) {
   return (
     <View
@@ -93,12 +76,8 @@ export function LibraryFeedback({
         {body}
       </Text>
 
-      {actionLabel ? (
-        <FeedbackAction
-          label={actionLabel}
-          onPress={onAction}
-          visualShell={visualActionShell}
-        />
+      {actionLabel && onAction ? (
+        <FeedbackAction label={actionLabel} onPress={onAction} />
       ) : null}
     </View>
   );

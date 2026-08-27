@@ -6,39 +6,46 @@ import { noomoriTheme } from "@/shared/design-system";
 export default function AppTabs() {
   return (
     <NativeTabs
+      backBehavior="history"
       backgroundColor={noomoriTheme.surface}
+      iconColor={{
+        default: noomoriTheme.textSecondary,
+        selected: noomoriTheme.primaryStrong,
+      }}
       indicatorColor={noomoriTheme.surfaceSubtle}
-      labelStyle={{ selected: { color: noomoriTheme.textPrimary } }}
+      labelStyle={{
+        default: { color: noomoriTheme.textSecondary },
+        selected: { color: noomoriTheme.textPrimary, fontWeight: "700" },
+      }}
+      labelVisibilityMode="labeled"
     >
       <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Recipes</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/home.png")}
-          renderingMode="template"
+          md={{ default: "menu_book", selected: "menu_book" }}
+          sf={{ default: "book.closed", selected: "book.closed.fill" }}
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="cookbooks">
+        <NativeTabs.Trigger.Label>Cookbooks</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/explore.png")}
-          renderingMode="template"
+          md={{ default: "library_books", selected: "library_books" }}
+          sf={{
+            default: "books.vertical",
+            selected: "books.vertical.fill",
+          }}
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="activity">
-        <NativeTabs.Trigger.Label>Activity</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="account">
+        <NativeTabs.Trigger.Label>Account</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/explore.png")}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="onboarding">
-        <NativeTabs.Trigger.Label>Onboarding</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/explore.png")}
-          renderingMode="template"
+          md={{ default: "account_circle", selected: "account_circle" }}
+          sf={{
+            default: "person.crop.circle",
+            selected: "person.crop.circle.fill",
+          }}
         />
       </NativeTabs.Trigger>
     </NativeTabs>

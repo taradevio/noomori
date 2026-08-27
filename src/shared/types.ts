@@ -30,7 +30,6 @@ export type RecipesLibraryViewProps = {
   onAddRecipe?: () => void;
   onCookbookPress?: (cookbookId: string) => void;
   onCreateCookbook?: () => void;
-  onProfilePress?: () => void;
   onRecipeImageError?: (imagePath: string) => void;
   onRecipePress?: (recipeId: string) => void;
   onRetryCookbooks?: () => void;
