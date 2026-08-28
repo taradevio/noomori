@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import {
@@ -17,6 +18,7 @@ import {
 import { useSession } from "@/shared/providers/session-providers";
 
 type AccountRow = {
+  href?: "/household";
   icon: SymbolViewProps["name"];
   subtitle: string;
   title: string;
@@ -31,6 +33,7 @@ const accountSections: readonly {
     rows: [
       {
         icon: { ios: "house", android: "home", web: "home" },
+        href: "/household",
         title: "Household",
         subtitle: "Manage your shared recipes",
       },
@@ -90,9 +93,14 @@ const accountSections: readonly {
   },
 ];
 
-function AccountInfoRow({ icon, subtitle, title }: AccountRow) {
-  return (
-    <View className="min-h-24 flex-row items-center gap-4 rounded-2xl border border-border bg-surface px-4 py-3">
+function AccountInfoRow({
+  icon,
+  onPress,
+  subtitle,
+  title,
+}: AccountRow & { onPress?: () => void }) {
+  const content = (
+    <>
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
@@ -113,12 +121,40 @@ function AccountInfoRow({ icon, subtitle, title }: AccountRow) {
           {subtitle}
         </Text>
       </View>
+      {onPress ? (
+        <SymbolView
+          accessible={false}
+          name={{
+            ios: "chevron.right",
+            android: "chevron_right",
+            web: "chevron_right",
+          }}
+          size={20}
+          tintColor={colorTokens.textSecondary}
+        />
+      ) : null}
+    </>
+  );
+
+  return onPress ? (
+    <Pressable
+      accessibilityHint={`Opens ${title} settings`}
+      accessibilityRole="button"
+      className="min-h-24 flex-row items-center gap-4 rounded-2xl border border-border bg-surface px-4 py-3 focus:border-primary-strong active:bg-surface-subtle"
+      onPress={onPress}
+    >
+      {content}
+    </Pressable>
+  ) : (
+    <View className="min-h-24 flex-row items-center gap-4 rounded-2xl border border-border bg-surface px-4 py-3">
+      {content}
     </View>
   );
 }
 
 /** Session identity and currently available account information. */
 export default function AccountScreen() {
+  const router = useRouter();
   const { session } = useSession();
   const queryClient = useQueryClient();
   const safeAreaInsets = useSafeAreaInsets();
@@ -205,7 +241,13 @@ export default function AccountScreen() {
                   {section.title}
                 </Text>
                 {section.rows.map((row) => (
-                  <AccountInfoRow key={row.title} {...row} />
+                  <AccountInfoRow
+                    key={row.title}
+                    {...row}
+                    onPress={
+                      row.href ? () => router.push("/household") : undefined
+                    }
+                  />
                 ))}
               </View>
             ))}

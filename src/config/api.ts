@@ -14,5 +14,8 @@ export const apiConfig = {
     recipe: (recipeId: string) => `/recipes/${recipeId}`,
     recipeImage: (recipeId: string) => `/recipes/${recipeId}/image`,
     households: "/household",
+    householdInvite: "/household/invite",
+    householdJoinPreview: "/household/join/preview",
+    householdJoin: "/household/join",
   },
 } as const;

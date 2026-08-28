@@ -1,6 +1,9 @@
 import uvicorn
+import hashlib
+import hmac
 import logging
 import re
+import secrets
 import unicodedata
 
 from fastapi import FastAPI, HTTPException, Depends, Response
@@ -79,6 +82,18 @@ class AuthContext:
 
 class CreateHousehold(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+
+
+class HouseholdJoinCodeRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=32)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        code = re.sub(r"[ -]", "", value.strip())
+        if not re.fullmatch(r"\d{6}", code):
+            raise ValueError("Code must contain exactly six digits")
+        return code
 
 
 class RecipeIngredient(BaseModel):
@@ -774,6 +789,90 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     return AuthContext(user=response.user, supabase=supabase)
 
 
+HOUSEHOLD_JOIN_CODE_CONTEXT = b"noomori:household-join-code:v1:"
+
+
+def household_join_code_digest(code: str) -> str:
+    key = settings.household_join_code_hmac_key.get_secret_value().encode("utf-8")
+    return hmac.new(
+        key,
+        HOUSEHOLD_JOIN_CODE_CONTEXT + code.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def household_rpc_result(response: object) -> dict:
+    data = getattr(response, "data", None)
+    if not isinstance(data, dict) or not isinstance(data.get("status"), str):
+        raise RuntimeError("Household RPC returned an invalid response")
+    return data
+
+
+def database_error_code(exc: Exception) -> str | None:
+    code = getattr(exc, "code", None)
+    if isinstance(code, str):
+        return code
+    details = getattr(exc, "json", None)
+    if callable(details):
+        value = details()
+        if isinstance(value, dict) and isinstance(value.get("code"), str):
+            return value["code"]
+    return None
+
+
+def raise_household_rpc_error(result: dict) -> None:
+    status = result["status"]
+    if status == "FORBIDDEN":
+        raise HTTPException(status_code=403, detail="Owner access is required")
+    if status == "NO_HOUSEHOLD":
+        raise HTTPException(status_code=404, detail="Household not found")
+    if status == "ALREADY_MEMBER":
+        raise HTTPException(
+            status_code=409,
+            detail="You already belong to a household",
+        )
+    if status == "INVALID_OR_EXPIRED":
+        raise HTTPException(
+            status_code=400,
+            detail="This invite code is invalid or has expired",
+        )
+    if status == "RATE_LIMITED":
+        retry_after = max(1, int(result.get("retry_after_seconds", 600)))
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Please try again later",
+            headers={"Retry-After": str(retry_after)},
+        )
+    raise RuntimeError(f"Unexpected household RPC status: {status}")
+
+
+def execute_household_rpc(
+    auth: AuthContext,
+    name: str,
+    params: dict | None = None,
+) -> dict:
+    try:
+        response = auth.supabase.rpc(name, params or {}).execute()
+        return household_rpc_result(response)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "Household RPC failed operation=%s user_id=%s",
+            name,
+            auth.user.id,
+        )
+        if database_error_code(exc) == "23505":
+            raise HTTPException(
+                status_code=409,
+                detail="Household membership conflict",
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail="Could not complete the household request",
+        ) from exc
+
+
 def get_owned_recipe(auth: AuthContext, recipe_id: UUID) -> dict:
     response = (
         auth.supabase
@@ -1259,6 +1358,89 @@ def remove_recipe_image(
         except Exception:
             logger.exception("Failed to delete recipe image object recipe_id=%s", recipe_id)
     return recipe_with_signed_image(auth, updated)
+
+
+@app.get("/household")
+def get_household_settings(auth: AuthContext = Depends(get_current_user)):
+    result = execute_household_rpc(auth, "get_household_settings")
+    if result["status"] != "OK":
+        raise_household_rpc_error(result)
+    return {key: value for key, value in result.items() if key != "status"}
+
+
+@app.post("/household/invite")
+def replace_household_join_code(auth: AuthContext = Depends(get_current_user)):
+    for _attempt in range(5):
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        digest = household_join_code_digest(code)
+        try:
+            response = (
+                auth.supabase
+                .rpc(
+                    "replace_household_join_code",
+                    {"p_code_digest": digest},
+                )
+                .execute()
+            )
+            result = household_rpc_result(response)
+        except Exception as exc:
+            if database_error_code(exc) == "23505":
+                continue
+            logger.exception(
+                "Could not replace household join code user_id=%s",
+                auth.user.id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Could not generate a join code",
+            ) from exc
+
+        if result["status"] != "OK":
+            raise_household_rpc_error(result)
+        return {"code": code, "expires_at": result["expires_at"]}
+
+    raise HTTPException(
+        status_code=503,
+        detail="Could not generate a unique join code",
+    )
+
+
+@app.delete("/household/invite", status_code=204)
+def revoke_household_join_code(auth: AuthContext = Depends(get_current_user)):
+    result = execute_household_rpc(auth, "revoke_household_join_code")
+    if result["status"] != "OK":
+        raise_household_rpc_error(result)
+    return Response(status_code=204)
+
+
+@app.post("/household/join/preview")
+def preview_household_join_code(
+    payload: HouseholdJoinCodeRequest,
+    auth: AuthContext = Depends(get_current_user),
+):
+    result = execute_household_rpc(
+        auth,
+        "preview_household_join_code",
+        {"p_code_digest": household_join_code_digest(payload.code)},
+    )
+    if result["status"] != "OK":
+        raise_household_rpc_error(result)
+    return {key: value for key, value in result.items() if key != "status"}
+
+
+@app.post("/household/join")
+def join_household_with_code(
+    payload: HouseholdJoinCodeRequest,
+    auth: AuthContext = Depends(get_current_user),
+):
+    result = execute_household_rpc(
+        auth,
+        "join_household_with_code",
+        {"p_code_digest": household_join_code_digest(payload.code)},
+    )
+    if result["status"] not in {"JOINED", "ALREADY_MEMBER"}:
+        raise_household_rpc_error(result)
+    return result
 
 
 # Create the household, establish its first owner, and complete onboarding.

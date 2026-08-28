@@ -1,3 +1,4 @@
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,6 +7,7 @@ class Settings(BaseSettings):
 
     supabase_url: str
     supabase_key: str
+    household_join_code_hmac_key: SecretStr = Field(min_length=32)
 
     cors_origins: list[str] = [
         "http://localhost:8081",

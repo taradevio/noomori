@@ -14,13 +14,13 @@ src/
 
 Current route ownership:
 
-| Route | Screen |
-|---|---|
-| `/` | `app/(tabs)/index.tsx` |
-| `/explore` | `app/(tabs)/explore.tsx` |
-| `/activity` | `app/(tabs)/activity.tsx` |
+| Route                | Screen                                   |
+| -------------------- | ---------------------------------------- |
+| `/`                  | `app/(tabs)/index.tsx`                   |
+| `/cookbooks`         | `app/(tabs)/cookbooks.tsx`               |
+| `/account`           | `app/(tabs)/account.tsx`                 |
 | `/auth` and `/login` | `shared/components/auth/auth-screen.tsx` |
-| `/onboarding/*` | `app/onboarding/` |
+| `/onboarding/*`      | `app/onboarding/`                        |
 
 Keep route composition in `app`. Group reusable product UI by feature under
 `shared/components`, and keep shared model types in `shared/types.ts`. Keep

@@ -41,6 +41,14 @@ function RootNavigator() {
         <Stack.Screen name="recipe/import-url" />
         <Stack.Screen name="recipe/[id]/index" />
         <Stack.Screen name="recipe/[id]/edit" />
+        <Stack.Screen
+          name="household"
+          options={{
+            headerBackTitle: "Back",
+            headerShown: true,
+            title: "Household",
+          }}
+        />
       </Stack.Protected>
     </Stack>
   );
