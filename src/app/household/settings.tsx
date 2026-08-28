@@ -37,6 +37,7 @@ function formatExpiry(value: string) {
   }).format(new Date(value));
 }
 
+/** Household membership and invite settings, separate from shared recipes. */
 export default function HouseholdSettingsScreen() {
   const { session } = useSession();
   const queryClient = useQueryClient();

@@ -1,5 +1,5 @@
 import { apiConfig } from "@/config/api";
-import { type Href, useRouter } from "expo-router";
+import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useRef, useState } from "react";
 
 import { AddRecipeBottomSheet } from "@/shared/components/recipe/add-recipe-bottom-sheet";
@@ -27,9 +27,11 @@ const emptyCookbooks: LibraryResource<CookbookCardModel> = {
 
 export default function RecipesScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ section?: string }>();
   const queryClient = useQueryClient();
   const { session } = useSession();
   const [isAddRecipeOpen, setIsAddRecipeOpen] = useState(false);
+  const section = params.section === "cookbooks" ? "cookbooks" : "recipes";
   const retriedRecipeImages = useRef(false);
   const recipesQuery = useQuery<ApiRecipe[]>({
     enabled: Boolean(session?.access_token),
@@ -79,6 +81,10 @@ export default function RecipesScreen() {
           recipesQuery.refetch();
         }}
         onRetryRecipes={() => recipesQuery.refetch()}
+        onSectionChange={(nextSection) =>
+          router.setParams({ section: nextSection })
+        }
+        section={section}
       />
       <AddRecipeBottomSheet
         isOpen={isAddRecipeOpen}

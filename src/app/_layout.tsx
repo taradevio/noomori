@@ -41,12 +41,13 @@ function RootNavigator() {
         <Stack.Screen name="recipe/import-url" />
         <Stack.Screen name="recipe/[id]/index" />
         <Stack.Screen name="recipe/[id]/edit" />
+        {/* NOTE: /household belongs to the tab; management stays on a nested route. */}
         <Stack.Screen
-          name="household"
+          name="household/settings"
           options={{
             headerBackTitle: "Back",
             headerShown: true,
-            title: "Household",
+            title: "Household settings",
           }}
         />
       </Stack.Protected>

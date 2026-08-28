@@ -18,7 +18,7 @@ import {
 import { useSession } from "@/shared/providers/session-providers";
 
 type AccountRow = {
-  href?: "/household";
+  href?: "/household/settings";
   icon: SymbolViewProps["name"];
   subtitle: string;
   title: string;
@@ -33,9 +33,9 @@ const accountSections: readonly {
     rows: [
       {
         icon: { ios: "house", android: "home", web: "home" },
-        href: "/household",
+        href: "/household/settings",
         title: "Household",
-        subtitle: "Manage your shared recipes",
+        subtitle: "Manage your household",
       },
     ],
   },
@@ -245,7 +245,9 @@ export default function AccountScreen() {
                     key={row.title}
                     {...row}
                     onPress={
-                      row.href ? () => router.push("/household") : undefined
+                      row.href
+                        ? () => router.push("/household/settings")
+                        : undefined
                     }
                   />
                 ))}

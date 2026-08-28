@@ -4,6 +4,7 @@ import type { ApiRecipe } from "./recipe-response";
 
 export const recipeKeys = {
   list: ["recipes"] as const,
+  householdList: ["recipes", "household"] as const,
   detail: (id: string) => ["recipes", id] as const,
 };
 
@@ -49,11 +50,27 @@ export function cacheUpdatedRecipe(
   queryClient.setQueryData<ApiRecipe[]>(recipeKeys.list, (recipes) =>
     recipes?.map((existing) => (existing.id === recipe.id ? recipe : existing)),
   );
+  // NOTE: Sharing changes add/remove the recipe without fabricating a household
+  // cache before that tab has loaded.
+  queryClient.setQueryData<ApiRecipe[]>(recipeKeys.householdList, (recipes) => {
+    if (!recipes) return recipes;
+    if (!recipe.is_shared) {
+      return recipes.filter((existing) => existing.id !== recipe.id);
+    }
+    return recipes.some((existing) => existing.id === recipe.id)
+      ? recipes.map((existing) =>
+          existing.id === recipe.id ? recipe : existing,
+        )
+      : [recipe, ...recipes];
+  });
 }
 
 // NOTE: Delete cache entries only after the API returns success; deletion is not optimistic.
 export function cacheDeletedRecipe(queryClient: QueryClient, recipeId: string) {
   queryClient.setQueryData<ApiRecipe[]>(recipeKeys.list, (recipes) =>
+    recipes?.filter((recipe) => recipe.id !== recipeId),
+  );
+  queryClient.setQueryData<ApiRecipe[]>(recipeKeys.householdList, (recipes) =>
     recipes?.filter((recipe) => recipe.id !== recipeId),
   );
   queryClient.removeQueries({

@@ -24,11 +24,9 @@ export default function AppTabs() {
               label="Recipes"
             />
           </TabTrigger>
-          <TabTrigger name="cookbooks" href="/cookbooks" asChild>
-            <TabButton
-              icon={{ ios: "books.vertical", web: "library_books" }}
-              label="Cookbooks"
-            />
+          {/* NOTE: Keep web navigation aligned with the native top-level tabs. */}
+          <TabTrigger name="household" href="/household" asChild>
+            <TabButton icon={{ ios: "house", web: "home" }} label="Household" />
           </TabTrigger>
           <TabTrigger name="account" href="/account" asChild>
             <TabButton

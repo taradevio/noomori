@@ -98,9 +98,15 @@ export default function EditRecipeRoute() {
   };
 
   const finish = async (recipe: ApiRecipe) => {
-    // PERFORMANCE: Stop only the in-flight library request, then apply the full
-    // mutation response so detail navigation never waits for refetches.
-    await queryClient.cancelQueries({ queryKey: recipeKeys.list, exact: true });
+    // PERFORMANCE: Stop both list requests before applying the authoritative
+    // response so a stale household request cannot overwrite an edited recipe.
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey: recipeKeys.list, exact: true }),
+      queryClient.cancelQueries({
+        queryKey: recipeKeys.householdList,
+        exact: true,
+      }),
+    ]);
     cacheUpdatedRecipe(queryClient, recipe);
     setIsHandlingPhotoFailure(false);
     allowNavigation.current = true;

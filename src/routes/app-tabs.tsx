@@ -27,13 +27,14 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="cookbooks">
-        <NativeTabs.Trigger.Label>Cookbooks</NativeTabs.Trigger.Label>
+      {/* NOTE: Cookbooks now live inside Recipes; Household takes the top-level slot. */}
+      <NativeTabs.Trigger name="household">
+        <NativeTabs.Trigger.Label>Household</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          md={{ default: "library_books", selected: "library_books" }}
+          md={{ default: "home", selected: "home" }}
           sf={{
-            default: "books.vertical",
-            selected: "books.vertical.fill",
+            default: "house",
+            selected: "house.fill",
           }}
         />
       </NativeTabs.Trigger>

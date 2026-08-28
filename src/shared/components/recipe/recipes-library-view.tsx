@@ -26,6 +26,7 @@ import { LibraryFeedback, SkeletonCard } from "./library-feedback";
 import { RecipeCard } from "./recipe-card";
 import type {
   CookbookCardModel,
+  LibraryMode,
   LibrarySection,
   RecipeCardModel,
   RecipesLibraryViewProps,
@@ -37,6 +38,7 @@ type LibraryListItem =
   | { kind: "skeleton"; id: string };
 
 const GRID_GAP = 12;
+const LIBRARY_SECTIONS: readonly LibrarySection[] = ["recipes", "cookbooks"];
 
 function IconAction({
   accessibilityHint,
@@ -76,18 +78,25 @@ function IconAction({
 }
 
 function SearchField({
+  mode,
   onChangeText,
   onClear,
   section,
   value,
 }: {
+  mode: LibraryMode;
   onChangeText: (value: string) => void;
   onClear: () => void;
   section: LibrarySection;
   value: string;
 }) {
   const [focused, setFocused] = useState(false);
-  const noun = section === "recipes" ? "recipes" : "cookbooks";
+  const noun =
+    mode === "household"
+      ? "shared recipes"
+      : section === "recipes"
+        ? "recipes"
+        : "cookbooks";
 
   return (
     <View
@@ -143,11 +152,12 @@ function SearchField({
   );
 }
 
-/** Data-ready personal library surface. No backend or fixture data is owned here. */
+/** Data-ready library surface. No backend or fixture data is owned here. */
 export function RecipesLibraryView({
   recipes,
   cookbooks,
-  initialSection = "recipes",
+  householdName,
+  mode = "personal",
   onAddRecipe,
   onCookbookPress,
   onCreateCookbook,
@@ -155,12 +165,19 @@ export function RecipesLibraryView({
   onRecipePress,
   onRetryCookbooks,
   onRetryRecipes,
+  onSectionChange,
   onSearchQueryChange,
+  onShareRecipe,
+  section: activeSection = "recipes",
 }: RecipesLibraryViewProps) {
   const { fontScale, height, width } = useWindowDimensions();
   const safeAreaInsets = useSafeAreaInsets();
-  const activeSection = initialSection;
-  const [query, setQueryState] = useState("");
+  const [queries, setQueries] = useState<Record<LibrarySection, string>>({
+    recipes: "",
+    cookbooks: "",
+  });
+  const query = queries[activeSection];
+  const isHousehold = mode === "household";
 
   const safeContentWidth = width - safeAreaInsets.left - safeAreaInsets.right;
   const isTablet = Math.min(width, height) >= 600;
@@ -219,13 +236,21 @@ export function RecipesLibraryView({
   ]);
 
   const setQuery = (nextQuery: string) => {
-    setQueryState(nextQuery);
+    setQueries((current) => ({
+      ...current,
+      [activeSection]: nextQuery,
+    }));
     onSearchQueryChange?.(activeSection, nextQuery);
   };
 
   const renderEmptyState = () => {
-    const noun = activeSection === "recipes" ? "recipes" : "cookbooks";
+    const noun = isHousehold
+      ? "shared recipes"
+      : activeSection === "recipes"
+        ? "recipes"
+        : "cookbooks";
     const isRecipes = activeSection === "recipes";
+    const stateKey = isHousehold ? "shared-recipes" : noun;
     const hasSourceData = activeCount != null && activeCount > 0;
 
     if (activeStatus === "error") {
@@ -243,7 +268,7 @@ export function RecipesLibraryView({
             web: "sync_problem",
           }}
           onAction={isRecipes ? onRetryRecipes : onRetryCookbooks}
-          testID={`library-${noun}-error`}
+          testID={`library-${stateKey}-error`}
           title={activeMessage?.trim() || `Couldn’t load your ${noun}.`}
         />
       );
@@ -256,13 +281,26 @@ export function RecipesLibraryView({
           body={`Try a different ${isRecipes ? "name or keyword" : "cookbook name"}.`}
           icon={{ ios: "magnifyingglass", android: "search", web: "search" }}
           onAction={() => setQuery("")}
-          testID={`library-${noun}-no-results`}
+          testID={`library-${stateKey}-no-results`}
           title={`No ${noun} found`}
         />
       );
     }
 
     if (activeStatus === "ready") {
+      if (isHousehold) {
+        return (
+          <LibraryFeedback
+            actionLabel="Share a recipe"
+            body="Choose a recipe from your personal library to share with your household."
+            icon={{ ios: "person.2", android: "group", web: "group" }}
+            onAction={onShareRecipe}
+            testID="library-shared-recipes-empty"
+            title="No shared recipes yet"
+          />
+        );
+      }
+
       return (
         <LibraryFeedback
           actionLabel={
@@ -299,6 +337,7 @@ export function RecipesLibraryView({
   const floatingBottom =
     BottomTabInset + Math.max(safeAreaInsets.bottom, 12) + 12;
   const showRecipeFab =
+    !isHousehold &&
     activeSection === "recipes" &&
     recipes.status === "ready" &&
     recipes.data.length > 0;
@@ -307,7 +346,11 @@ export function RecipesLibraryView({
     <SafeAreaView
       edges={["top", "left", "right"]}
       className="flex-1 bg-background"
-      testID={`${activeSection}-library-screen`}
+      testID={
+        isHousehold
+          ? "household-recipes-library-screen"
+          : `${activeSection}-library-screen`
+      }
     >
       <StatusBar style="dark" />
 
@@ -362,12 +405,15 @@ export function RecipesLibraryView({
                   accessibilityRole="header"
                   className="text-2xl font-bold leading-[30px] text-text-primary"
                 >
-                  {activeSection === "recipes" ? "Recipes" : "Cookbooks"}
+                  {isHousehold
+                    ? householdName?.trim() || "Household"
+                    : "Recipes"}
                 </Text>
               </View>
 
               <View className="pt-5">
                 <SearchField
+                  mode={mode}
                   onChangeText={setQuery}
                   onClear={() => setQuery("")}
                   section={activeSection}
@@ -375,20 +421,56 @@ export function RecipesLibraryView({
                 />
               </View>
 
+              {/* NOTE: Cookbooks are a secondary Recipes view, not a bottom-nav destination. */}
+              {!isHousehold ? (
+                <View
+                  accessibilityLabel="Recipe library sections"
+                  accessibilityRole="tablist"
+                  className="mt-5 min-h-14 flex-row rounded-2xl bg-surface-subtle p-1"
+                  testID="library-section-tabs"
+                >
+                  {LIBRARY_SECTIONS.map((section) => {
+                    const selected = section === activeSection;
+                    const label =
+                      section === "recipes" ? "Recipes" : "Cookbooks";
+                    return (
+                      <Pressable
+                        key={section}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected }}
+                        className={`min-h-12 flex-1 items-center justify-center rounded-xl border px-3 py-2 focus:border-primary-strong active:opacity-[0.78] ${selected ? "border-border bg-surface" : "border-transparent bg-transparent"}`}
+                        onPress={() => onSectionChange?.(section)}
+                        testID={`library-section-${section}`}
+                      >
+                        <Text
+                          className={`text-center text-base font-bold leading-6 ${selected ? "text-text-primary" : "text-text-secondary"}`}
+                        >
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
               <View className="mt-8">
                 <Text className="text-[13px] font-bold uppercase leading-[18px] tracking-[0.5px] text-primary-strong">
-                  {activeSection === "recipes"
-                    ? "Personal library"
-                    : "Your collections"}
+                  {isHousehold
+                    ? "Household"
+                    : activeSection === "recipes"
+                      ? "Personal library"
+                      : "Your collections"}
                 </Text>
                 <View className="mt-1.5 min-h-12 flex-row items-center justify-between gap-4">
                   <Text
                     accessibilityRole="header"
                     className="shrink text-[28px] font-bold leading-[34px] text-text-primary"
                   >
-                    {activeSection === "recipes"
-                      ? "Recently saved"
-                      : "All cookbooks"}
+                    {isHousehold
+                      ? "Shared recipes"
+                      : activeSection === "recipes"
+                        ? "Recently saved"
+                        : "All cookbooks"}
                   </Text>
 
                   <View className="flex-row items-center gap-1">
@@ -405,7 +487,9 @@ export function RecipesLibraryView({
                       </Text>
                     ) : null}
 
-                    {activeSection === "cookbooks" && onCreateCookbook ? (
+                    {!isHousehold &&
+                    activeSection === "cookbooks" &&
+                    onCreateCookbook ? (
                       <IconAction
                         accessibilityHint="Starts a new cookbook."
                         accessibilityLabel="Create cookbook"

@@ -10,9 +10,12 @@ from server.main import (
     create_recipe,
     delete_recipe,
     get_recipe,
+    list_household_recipes,
     list_recipes,
     recipes_with_signed_images,
     remove_recipe_image,
+    share_recipe,
+    unshare_recipe,
     update_recipe,
     valid_recipe_image_path,
 )
@@ -114,12 +117,15 @@ class RecipeImageBatchSigningTest(unittest.TestCase):
     def test_supabase_backed_handlers_are_synchronous(self):
         handlers = (
             list_recipes,
+            list_household_recipes,
             get_recipe,
             create_recipe,
             delete_recipe,
             update_recipe,
             activate_recipe_image,
             remove_recipe_image,
+            share_recipe,
+            unshare_recipe,
             create_household,
         )
         self.assertTrue(all(not iscoroutinefunction(handler) for handler in handlers))
@@ -138,6 +144,9 @@ class FakeUpdateTable:
 
     def eq(self, column, value):
         self.filters[column] = value
+        return self
+
+    def select(self, _columns):
         return self
 
     def execute(self):

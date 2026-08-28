@@ -2,12 +2,14 @@ import { apiConfig } from "@/config/api";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useRef } from "react";
-import { Pressable, Text, View } from "react-native";
+import { AccessibilityInfo, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { getHouseholdSettings } from "@/shared/household-api";
 import { RecipeDetailView } from "@/shared/components/recipe/recipe-detail-view";
 import {
   cacheDeletedRecipe,
+  cacheUpdatedRecipe,
   RECIPE_DETAIL_STALE_TIME,
   recipeKeys,
 } from "@/shared/components/recipe/recipe-query";
@@ -28,6 +30,7 @@ export default function RecipeDetailRoute() {
   const retriedImage = useRef(false);
   const recipeId = Array.isArray(params.id) ? params.id[0] : params.id;
   const normalizedRecipeId = recipeId?.trim() || "";
+  const accessToken = session?.access_token ?? "";
   const recipeQuery = useQuery<ApiRecipe>({
     enabled: Boolean(normalizedRecipeId && session?.access_token),
     queryKey: recipeKeys.detail(normalizedRecipeId),
@@ -51,6 +54,46 @@ export default function RecipeDetailRoute() {
   const recipe = recipeQuery.data ? toRecipeDetail(recipeQuery.data) : null;
   // NOTE: Recipe ownership—not household role—controls mutation actions.
   const canManage = recipeQuery.data?.owner_user_id === session?.user.id;
+  const householdQuery = useQuery({
+    enabled: Boolean(canManage && accessToken),
+    queryKey: ["household"],
+    queryFn: () => getHouseholdSettings(accessToken),
+    retry: false,
+  });
+
+  const shareMutation = useMutation<ApiRecipe, Error, boolean>({
+    mutationFn: async (shared) => {
+      if (!accessToken) throw new Error("Authentication required.");
+      const response = await fetch(
+        `${apiConfig.backendUrl}${apiConfig.endpoints.recipeShare(normalizedRecipeId)}`,
+        {
+          method: shared ? "PUT" : "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(apiConfig.timeout),
+        },
+      );
+      if (!response.ok) throw new Error("Could not change recipe sharing.");
+      return response.json();
+    },
+    onSuccess: async (updatedRecipe, shared) => {
+      await Promise.all([
+        queryClient.cancelQueries({
+          queryKey: recipeKeys.list,
+          exact: true,
+        }),
+        queryClient.cancelQueries({
+          queryKey: recipeKeys.householdList,
+          exact: true,
+        }),
+      ]);
+      cacheUpdatedRecipe(queryClient, updatedRecipe);
+      AccessibilityInfo.announceForAccessibility(
+        shared
+          ? "Recipe shared with household"
+          : "Recipe unshared from household",
+      );
+    },
+  });
 
   // NOTE: Keep the detail and caches intact until the server confirms deletion.
   const deleteMutation = useMutation({
@@ -97,10 +140,16 @@ export default function RecipeDetailRoute() {
       deleteStarted.current = false;
     },
     onSuccess: async () => {
-      await queryClient.cancelQueries({
-        queryKey: recipeKeys.list,
-        exact: true,
-      });
+      await Promise.all([
+        queryClient.cancelQueries({
+          queryKey: recipeKeys.list,
+          exact: true,
+        }),
+        queryClient.cancelQueries({
+          queryKey: recipeKeys.householdList,
+          exact: true,
+        }),
+      ]);
       cacheDeletedRecipe(queryClient, normalizedRecipeId);
       if (__DEV__) {
         console.debug("[recipe-delete] cache_updated_and_navigating", {
@@ -121,6 +170,8 @@ export default function RecipeDetailRoute() {
       <RecipeDetailView
         deleteError={deleteMutation.isError}
         isDeleting={deleteMutation.isPending}
+        isSharing={shareMutation.isPending}
+        householdName={householdQuery.data?.household_name}
         onBack={close}
         onDelete={
           canManage
@@ -150,7 +201,25 @@ export default function RecipeDetailRoute() {
           retriedImage.current = true;
           recipeQuery.refetch();
         }}
+        onRetryShare={
+          shareMutation.isError && shareMutation.variables !== undefined
+            ? () => shareMutation.mutate(shareMutation.variables!)
+            : undefined
+        }
+        onSetShared={
+          canManage &&
+          (recipe.isShared || (householdQuery.data?.member_count ?? 0) >= 2)
+            ? (shared) => shareMutation.mutate(shared)
+            : undefined
+        }
         recipe={recipe}
+        shareErrorMode={
+          shareMutation.isError
+            ? shareMutation.variables
+              ? "share"
+              : "unshare"
+            : undefined
+        }
       />
     );
   }

@@ -22,11 +22,13 @@ export type LibraryResource<T> =
   | { status: "ready"; data: readonly T[] };
 
 export type LibrarySection = "recipes" | "cookbooks";
+export type LibraryMode = "personal" | "household";
 
 export type RecipesLibraryViewProps = {
   recipes: LibraryResource<RecipeCardModel>;
   cookbooks: LibraryResource<CookbookCardModel>;
-  initialSection?: LibrarySection;
+  householdName?: string;
+  mode?: LibraryMode;
   onAddRecipe?: () => void;
   onCookbookPress?: (cookbookId: string) => void;
   onCreateCookbook?: () => void;
@@ -34,7 +36,10 @@ export type RecipesLibraryViewProps = {
   onRecipePress?: (recipeId: string) => void;
   onRetryCookbooks?: () => void;
   onRetryRecipes?: () => void;
+  onSectionChange?: (section: LibrarySection) => void;
   onSearchQueryChange?: (section: LibrarySection, query: string) => void;
+  onShareRecipe?: () => void;
+  section?: LibrarySection;
 };
 
 export type RecipeFormMode = "create" | "edit";
@@ -112,4 +117,5 @@ export type RecipeDetailModel = Omit<RecipeDraft, "photo"> & {
   id: string;
   imagePath: string | null;
   imageUrl: string | null;
+  isShared: boolean;
 };

@@ -8,6 +8,7 @@ import type {
 
 type ApiRecipe = {
   id: string;
+  is_shared: boolean;
   owner_user_id: string;
   title: string;
   description: string | null;
@@ -90,6 +91,7 @@ export function toRecipeCard(recipe: ApiRecipe): RecipeCardModel {
     imagePath: recipe.image_path,
     imageUrl: recipe.image_url,
     cookingTimeMinutes: prep + cook || null,
+    isShared: recipe.is_shared,
   };
 }
 
@@ -99,6 +101,7 @@ export function toRecipeDetail(recipe: ApiRecipe): RecipeDetailModel {
     title: recipe.title,
     imagePath: recipe.image_path,
     imageUrl: recipe.image_url,
+    isShared: recipe.is_shared,
     prepMinutes: recipe.prep_time_minutes,
     cookMinutes: recipe.cook_time_minutes,
     servings: recipe.servings,
@@ -128,7 +131,13 @@ export function toRecipeDetail(recipe: ApiRecipe): RecipeDetailModel {
 }
 
 export function toRecipeDraft(recipe: ApiRecipe): RecipeDraft {
-  const { id: _id, imagePath, imageUrl, ...draft } = toRecipeDetail(recipe);
+  const {
+    id: _id,
+    imagePath,
+    imageUrl,
+    isShared: _isShared,
+    ...draft
+  } = toRecipeDetail(recipe);
   return {
     ...draft,
     photo: imagePath

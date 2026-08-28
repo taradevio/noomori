@@ -34,6 +34,8 @@ RECIPE_IMAGE_BUCKET = "noomori-recipe-images"
 RECIPE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 RECIPE_TEXT_MAX_CHARS = 20_000
 RECIPE_URL_MAX_CHARS = 2_048
+RECIPE_SELECT = "*,household_recipe_shares(recipe_id)"
+HOUSEHOLD_RECIPE_SELECT = "*,household_recipe_shares!inner(recipe_id)"
 RECIPE_UNITS = (
     "tsp",
     "tbsp",
@@ -826,6 +828,13 @@ def raise_household_rpc_error(result: dict) -> None:
         raise HTTPException(status_code=403, detail="Owner access is required")
     if status == "NO_HOUSEHOLD":
         raise HTTPException(status_code=404, detail="Household not found")
+    if status == "HOUSEHOLD_NOT_READY":
+        raise HTTPException(
+            status_code=409,
+            detail="Add another household member before sharing recipes",
+        )
+    if status == "RECIPE_NOT_FOUND":
+        raise HTTPException(status_code=404, detail="Recipe not found")
     if status == "ALREADY_MEMBER":
         raise HTTPException(
             status_code=409,
@@ -893,7 +902,7 @@ def get_readable_recipe(auth: AuthContext, recipe_id: UUID) -> dict:
     response = (
         auth.supabase
         .table("recipes")
-        .select("*")
+        .select(RECIPE_SELECT)
         .eq("id", str(recipe_id))
         .limit(1)
         .execute()
@@ -901,6 +910,12 @@ def get_readable_recipe(auth: AuthContext, recipe_id: UUID) -> dict:
     if not response.data:
         raise HTTPException(status_code=404, detail="Recipe not found")
     return response.data[0]
+
+
+def recipe_with_share_state(recipe: dict) -> dict:
+    result = dict(recipe)
+    result["is_shared"] = bool(result.pop("household_recipe_shares", []))
+    return result
 
 
 def valid_recipe_image_path(path: str, user_id: str, recipe_id: UUID) -> bool:
@@ -918,7 +933,7 @@ def valid_recipe_image_path(path: str, user_id: str, recipe_id: UUID) -> bool:
 
 
 def recipe_with_signed_image(auth: AuthContext, recipe: dict) -> dict:
-    result = dict(recipe)
+    result = recipe_with_share_state(recipe)
     image_path = result.get("image_path")
     result["image_url"] = None
     if image_path:
@@ -943,7 +958,7 @@ def recipes_with_signed_images(
     results = []
     paths = []
     for recipe in recipes:
-        result = dict(recipe)
+        result = recipe_with_share_state(recipe)
         result["image_url"] = None
         results.append(result)
         if result.get("image_path"):
@@ -1108,7 +1123,8 @@ def list_recipes(auth: AuthContext = Depends(get_current_user)):
     response = (
         auth.supabase
         .table("recipes")
-        .select("*")
+        .select(RECIPE_SELECT)
+        .eq("owner_user_id", auth.user.id)
         .order("created_at", desc=True)
         .execute()
     )
@@ -1117,6 +1133,30 @@ def list_recipes(auth: AuthContext = Depends(get_current_user)):
     # dominating library load latency.
     logger.info(
         "Recipes listed user_id=%s recipe_count=%s image_count=%s duration_ms=%.1f",
+        auth.user.id,
+        len(recipes),
+        sum(1 for recipe in recipes if recipe.get("image_path")),
+        (perf_counter() - started_at) * 1000,
+    )
+    return recipes
+
+
+# NOTE: The personal endpoint above is owner-filtered; this inner share relation
+# includes both the user's and other household members' shared recipes here.
+@app.get("/household/recipes")
+def list_household_recipes(auth: AuthContext = Depends(get_current_user)):
+    started_at = perf_counter()
+    response = (
+        auth.supabase
+        .table("recipes")
+        .select(HOUSEHOLD_RECIPE_SELECT)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    recipes = recipes_with_signed_images(auth, response.data)
+    logger.info(
+        "Household recipes listed user_id=%s recipe_count=%s image_count=%s "
+        "duration_ms=%.1f",
         auth.user.id,
         len(recipes),
         sum(1 for recipe in recipes if recipe.get("image_path")),
@@ -1146,7 +1186,13 @@ def create_recipe(
     values["image_path"] = None
     logger.info("Creating recipe user_id=%s", auth.user.id)
     try:
-        response = auth.supabase.table("recipes").insert(values).execute()
+        response = (
+            auth.supabase
+            .table("recipes")
+            .insert(values)
+            .select(RECIPE_SELECT)
+            .execute()
+        )
         recipe = response.data[0]
         logger.info(
             "Recipe created recipe_id=%s user_id=%s duration_ms=%.1f",
@@ -1179,6 +1225,7 @@ def update_recipe(
             .update(payload.model_dump(mode="json"))
             .eq("id", str(recipe_id))
             .eq("owner_user_id", auth.user.id)
+            .select(RECIPE_SELECT)
             .execute()
         )
     except Exception as exc:
@@ -1199,6 +1246,37 @@ def update_recipe(
         (perf_counter() - started_at) * 1000,
     )
     return recipe_with_signed_image(auth, response.data[0])
+
+
+def set_recipe_shared(
+    recipe_id: UUID,
+    shared: bool,
+    auth: AuthContext,
+):
+    result = execute_household_rpc(
+        auth,
+        "set_recipe_household_shared",
+        {"p_recipe_id": str(recipe_id), "p_shared": shared},
+    )
+    if result["status"] != "OK":
+        raise_household_rpc_error(result)
+    return recipe_with_signed_image(auth, get_readable_recipe(auth, recipe_id))
+
+
+@app.put("/recipes/{recipe_id}/share")
+def share_recipe(
+    recipe_id: UUID,
+    auth: AuthContext = Depends(get_current_user),
+):
+    return set_recipe_shared(recipe_id, True, auth)
+
+
+@app.delete("/recipes/{recipe_id}/share")
+def unshare_recipe(
+    recipe_id: UUID,
+    auth: AuthContext = Depends(get_current_user),
+):
+    return set_recipe_shared(recipe_id, False, auth)
 
 
 # NOTE: Ownership is recipe-scoped; household roles grant no delete authority.
@@ -1312,6 +1390,7 @@ def activate_recipe_image(
             .update({"image_path": payload.image_path})
             .eq("id", str(recipe_id))
             .eq("owner_user_id", auth.user.id)
+            .select(RECIPE_SELECT)
             .execute()
         )
         updated = response.data[0]
@@ -1343,6 +1422,7 @@ def remove_recipe_image(
             .update({"image_path": None})
             .eq("id", str(recipe_id))
             .eq("owner_user_id", auth.user.id)
+            .select(RECIPE_SELECT)
             .execute()
         )
         updated = response.data[0]
