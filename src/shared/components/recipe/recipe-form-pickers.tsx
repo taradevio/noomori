@@ -5,7 +5,7 @@ import {
   BottomSheetView,
 } from "@expo/ui/community/bottom-sheet";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -102,14 +102,6 @@ export function RecipeDurationPicker({
   const [hours, setHours] = useState("");
   const [minutes, setMinutes] = useState("");
 
-  useEffect(() => {
-    if (!isOpen) {
-      setShowCustom(false);
-      setHours("");
-      setMinutes("");
-    }
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   // NOTE: Custom durations are normalized to integer minutes in local form state.
@@ -117,9 +109,18 @@ export function RecipeDurationPicker({
     Math.max(0, Number.parseInt(hours || "0", 10) || 0) * 60 +
     Math.min(59, Math.max(0, Number.parseInt(minutes || "0", 10) || 0));
 
+  // NOTE: Reset picker-local input during dismissal to avoid cascading
+  // renders from synchronously setting state inside an effect.
+  const dismiss = () => {
+    setShowCustom(false);
+    setHours("");
+    setMinutes("");
+    onDismiss();
+  };
+
   const select = (nextValue: number | null) => {
     onSelect(nextValue);
-    onDismiss();
+    dismiss();
   };
 
   return (
@@ -139,7 +140,7 @@ export function RecipeDurationPicker({
           style={{ paddingBottom: Math.max(insets.bottom, 20) }}
         >
           <View className="w-full max-w-[640px] self-center">
-            <SheetHeader title={label} onDismiss={onDismiss} />
+            <SheetHeader title={label} onDismiss={dismiss} />
 
             {showCustom ? (
               <View className="mt-4 gap-5">
@@ -262,17 +263,20 @@ export function RecipeUnitPicker({
   const insets = useSafeAreaInsets();
   const [customUnit, setCustomUnit] = useState("");
 
-  useEffect(() => {
-    if (!isOpen) setCustomUnit("");
-  }, [isOpen]);
-
   if (!isOpen) return null;
+
+  // NOTE: Reset picker-local input during dismissal to avoid cascading
+  // renders from synchronously setting state inside an effect.
+  const dismiss = () => {
+    setCustomUnit("");
+    onDismiss();
+  };
 
   // NOTE: Custom units are preserved exactly after trimming; no conversion
   // meaning is inferred for user-defined values.
   const select = (unit: string) => {
     onSelect(unit);
-    onDismiss();
+    dismiss();
   };
 
   return (
@@ -292,7 +296,7 @@ export function RecipeUnitPicker({
         keyboardShouldPersistTaps="handled"
       >
         <View className="w-full max-w-[640px] self-center">
-          <SheetHeader title="Choose a unit" onDismiss={onDismiss} />
+          <SheetHeader title="Choose a unit" onDismiss={dismiss} />
           <View className="mt-4 gap-2">
             {["", ...recipeUnits].map((unit) => {
               const selected = unit === value;

@@ -14,7 +14,13 @@ export const apiConfig = {
     recipe: (recipeId: string) => `/recipes/${recipeId}`,
     recipeShare: (recipeId: string) => `/recipes/${recipeId}/share`,
     recipeImage: (recipeId: string) => `/recipes/${recipeId}/image`,
+    cookbooks: "/cookbooks",
+    cookbook: (cookbookId: string) => `/cookbooks/${cookbookId}`,
+    cookbookRecipes: (cookbookId: string) =>
+      `/cookbooks/${cookbookId}/recipes`,
     households: "/household",
+    householdActivity: "/household/activity",
+    householdActivityRead: "/household/activity/read",
     householdRecipes: "/household/recipes",
     householdInvite: "/household/invite",
     householdJoinPreview: "/household/join/preview",

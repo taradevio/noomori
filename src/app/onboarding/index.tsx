@@ -47,15 +47,6 @@ export default function Onboarding() {
             onPress={() => router.push("/onboarding/join-household")}
             variant="secondary"
           />
-          <View className="min-h-6 flex-row items-start justify-center gap-2 px-2 pt-1">
-            <View
-              accessible={false}
-              className="mt-1.5 h-[7px] w-[7px] rounded bg-secondary"
-            />
-            <Text className="shrink text-center text-sm font-medium leading-5 text-text-secondary">
-              Joining isn’t available in this build yet.
-            </Text>
-          </View>
         </View>
       </View>
     </OnboardingScreen>

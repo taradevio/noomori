@@ -20,6 +20,7 @@ from server.main import (  # noqa: E402
     get_household_settings,
     household_join_code_digest,
     join_household_with_code,
+    leave_household,
     preview_household_join_code,
     replace_household_join_code,
 )
@@ -152,6 +153,13 @@ class HouseholdEndpointTest(unittest.TestCase):
             "household_name": "Our kitchen",
             "role": "owner",
             "member_count": 1,
+            "members": [
+                {
+                    "user_id": "22222222-2222-4222-8222-222222222222",
+                    "display_name": "Nanda",
+                    "role": "owner",
+                }
+            ],
             "active_code_expires_at": None,
         }
 
@@ -159,6 +167,31 @@ class HouseholdEndpointTest(unittest.TestCase):
 
         self.assertNotIn("status", response)
         self.assertEqual("Our kitchen", response["household_name"])
+        self.assertEqual("Nanda", response["members"][0]["display_name"])
+
+    def test_member_can_leave_household(self):
+        context = auth({"status": "LEFT"})
+
+        response = leave_household(context)
+
+        self.assertEqual(204, response.status_code)
+        self.assertEqual([("leave_household", {})], context.supabase.calls)
+
+    def test_owner_cannot_leave_household(self):
+        with self.assertRaises(HTTPException) as raised:
+            leave_household(auth({"status": "OWNER_CANNOT_LEAVE"}))
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual(
+            "Household owners cannot leave their household",
+            raised.exception.detail,
+        )
+
+    def test_leave_requires_a_household(self):
+        with self.assertRaises(HTTPException) as raised:
+            leave_household(auth({"status": "NO_HOUSEHOLD"}))
+
+        self.assertEqual(404, raised.exception.status_code)
 
 
 if __name__ == "__main__":

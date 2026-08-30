@@ -1609,6 +1609,11 @@ dependencies = [
     { name = "urllib3" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.141.1" },
@@ -1616,6 +1621,9 @@ requires-dist = [
     { name = "supabase", specifier = ">=2.31.0" },
     { name = "urllib3", specifier = ">=2.7.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "httpx", specifier = ">=0.28.1" }]
 
 [[package]]
 name = "shellingham"

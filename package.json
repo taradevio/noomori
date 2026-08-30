@@ -38,10 +38,14 @@
     "react-native-worklets": "0.8.3"
   },
   "devDependencies": {
+    "@testing-library/react-native": "^14.0.1",
+    "@types/jest": "29.5.14",
     "@types/react": "~19.2.2",
     "babel-preset-expo": "~56.0.0",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~56.0.4",
+    "jest": "~29.7.0",
+    "jest-expo": "~56.0.5",
     "prettier-plugin-tailwindcss": "^0.5.11",
     "supabase": "^2.116.0",
     "tailwindcss": "^3.4.17",
@@ -53,7 +57,11 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:functional:fe": "jest --config tests/frontend/jest.config.js --runInBand",
+    "test:functional:be": "cd server && .venv/bin/python -m unittest discover -s tests -p 'test_functional_*.py' -v",
+    "test:functional": "bun run test:functional:fe && bun run test:functional:be",
+    "test:be": "cd server && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v"
   },
   "private": true
 }

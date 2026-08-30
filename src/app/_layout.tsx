@@ -35,12 +35,16 @@ function RootNavigator() {
       <Stack.Protected guard={state === "ready"}>
         {/* <Stack.Screen name="auth" options={{ headerShown: false }} /> */}
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="activity" />
         {/* NOTE: Recipe editors remain inside the authenticated route boundary. */}
         <Stack.Screen name="recipe/new" />
         <Stack.Screen name="recipe/import-text" />
         <Stack.Screen name="recipe/import-url" />
         <Stack.Screen name="recipe/[id]/index" />
         <Stack.Screen name="recipe/[id]/edit" />
+        <Stack.Screen name="cookbook/new" />
+        <Stack.Screen name="cookbook/[id]/index" />
+        <Stack.Screen name="cookbook/[id]/recipes" />
         {/* NOTE: /household belongs to the tab; management stays on a nested route. */}
         <Stack.Screen
           name="household/settings"

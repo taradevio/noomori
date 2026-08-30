@@ -81,7 +81,7 @@ export default function HouseholdRecipesScreen() {
         if (recipe) {
           seedRecipeDetail(queryClient, recipe, recipesQuery.dataUpdatedAt);
         }
-        router.push(`/recipe/${id}` as Href);
+        router.navigate(`/recipe/${id}` as Href);
       }}
       onRetryRecipes={() => recipesQuery.refetch()}
       onShareRecipe={() =>

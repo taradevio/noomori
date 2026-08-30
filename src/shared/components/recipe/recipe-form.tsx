@@ -24,22 +24,22 @@ import type {
   RecipeSourceType,
 } from "@/shared/types";
 
+import { nutritionFields } from "./recipe-calculations";
 import {
   formatDuration,
   RecipeDurationPicker,
   RecipeUnitPicker,
 } from "./recipe-form-pickers";
-import { nutritionFields } from "./recipe-calculations";
-import {
-  hasRecipeDraftErrors,
-  parseRecipeAmount,
-  validateRecipeDraft,
-} from "./recipe-payload";
 import {
   debugRecipeImage,
   prepareRecipeImage,
   type PreparedRecipePhoto,
 } from "./recipe-image";
+import {
+  hasRecipeDraftErrors,
+  parseRecipeAmount,
+  validateRecipeDraft,
+} from "./recipe-payload";
 
 export { createBlankRecipeDraft } from "./recipe-draft";
 
@@ -231,7 +231,7 @@ export function RecipeForm({
   isSubmitting = false,
 }: RecipeFormProps) {
   const insets = useSafeAreaInsets();
-  const initialSignature = useRef(JSON.stringify(initialDraft));
+  const [initialSignature] = useState(() => JSON.stringify(initialDraft));
   const amountSnapshots = useRef(new Map<string, AmountSnapshot>());
   const photoGeneration = useRef(0);
   // NOTE: Website imports seed bytes prepared before review, avoiding a second
@@ -264,8 +264,8 @@ export function RecipeForm({
   const [unitIngredientId, setUnitIngredientId] = useState<string | null>(null);
 
   const dirty = useMemo(
-    () => JSON.stringify(draft) !== initialSignature.current,
-    [draft],
+    () => JSON.stringify(draft) !== initialSignature,
+    [draft, initialSignature],
   );
 
   useEffect(() => {

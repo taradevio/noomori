@@ -620,10 +620,20 @@ export function RecipeDetailView({
                     </Text>
                   </Pressable>
                   <Pressable
-                    accessibilityHint="Opens a confirmation before permanently deleting this recipe."
-                    accessibilityLabel="Delete recipe"
+                    accessibilityHint={
+                      recipe.isShared
+                        ? "Unshare this recipe before deleting it."
+                        : "Opens a confirmation before permanently deleting this recipe."
+                    }
+                    accessibilityLabel={
+                      recipe.isShared
+                        ? "Delete recipe. Unshare before deleting."
+                        : "Delete recipe"
+                    }
                     accessibilityRole="button"
-                    className="min-h-12 flex-row items-center gap-4 rounded-xl border-2 border-error bg-surface px-4 py-3 focus:border-text-primary active:bg-surface-subtle"
+                    accessibilityState={{ disabled: recipe.isShared }}
+                    className={`min-h-12 flex-row items-center gap-4 rounded-xl border-2 px-4 py-3 ${recipe.isShared ? "border-border bg-surface-subtle opacity-50" : "border-error bg-surface focus:border-text-primary active:bg-surface-subtle"}`}
+                    disabled={recipe.isShared}
                     onPress={() =>
                       dismissActions(() =>
                         confirmationSheetRef.current?.present(),
@@ -634,11 +644,24 @@ export function RecipeDetailView({
                       accessible={false}
                       name={{ ios: "trash", android: "delete", web: "delete" }}
                       size={22}
-                      tintColor={colorTokens.error}
+                      tintColor={
+                        recipe.isShared
+                          ? colorTokens.textSecondary
+                          : colorTokens.error
+                      }
                     />
-                    <Text className="text-base font-bold leading-6 text-error">
-                      Delete
-                    </Text>
+                    <View>
+                      <Text
+                        className={`text-base font-bold leading-6 ${recipe.isShared ? "text-text-secondary" : "text-error"}`}
+                      >
+                        Delete
+                      </Text>
+                      {recipe.isShared ? (
+                        <Text className="text-sm leading-5 text-text-secondary">
+                          Unshare before deleting
+                        </Text>
+                      ) : null}
+                    </View>
                   </Pressable>
                 </View>
               </View>

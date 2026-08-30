@@ -1,3 +1,4 @@
+import logging
 import socket
 import unittest
 from pathlib import Path
@@ -31,7 +32,7 @@ from server.recipe_url_import import (
 )
 
 
-FIXTURE_PATH = Path(__file__).parent / "fixtures" / "recipe_url_import.html"
+FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "recipe_url_import.html"
 PUBLIC_ANSWER = [
     (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
 ]
@@ -443,6 +444,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
         with (
             patch("server.main.fetch_public_html", return_value=page),
             patch("server.main.extract_recipe", return_value=extracted_recipe()),
+            patch("server.main.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url="https://example.com/recipe"),
@@ -452,6 +454,8 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
         self.assertEqual("Soup", response.title)
         self.assertIn("ingredients", response.model_dump())
         self.assertEqual([], auth.supabase.mock_calls)
+        self.assertEqual(logging.INFO, log.call_args.args[0])
+        self.assertFalse(log.call_args.kwargs["exc_info"])
 
     def test_maps_stable_error_details(self):
         expected = {
@@ -464,9 +468,12 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
         }
         for detail, status in expected.items():
             with self.subTest(detail=detail):
-                with patch(
-                    "server.main.fetch_public_html",
-                    side_effect=WebsiteImportError(detail),
+                with (
+                    patch(
+                        "server.main.fetch_public_html",
+                        side_effect=WebsiteImportError(detail),
+                    ),
+                    patch("server.main.logger.log") as log,
                 ):
                     with self.assertRaises(HTTPException) as caught:
                         import_recipe_url(
@@ -475,6 +482,8 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                         )
                 self.assertEqual(status, caught.exception.status_code)
                 self.assertEqual(detail, caught.exception.detail)
+                self.assertEqual(logging.WARNING, log.call_args.args[0])
+                self.assertTrue(log.call_args.kwargs["exc_info"])
 
 
 class ImportRecipeImageEndpointTest(unittest.TestCase):

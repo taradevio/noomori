@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import { apiConfig } from "@/config/api";
 import type { ApiRecipe } from "./recipe-response";
 
 export const recipeKeys = {
@@ -11,6 +12,23 @@ export const recipeKeys = {
 // PERFORMANCE: List-seeded and mutation-returned details stay fresh long enough
 // to open immediately without a blocking detail request.
 export const RECIPE_DETAIL_STALE_TIME = 60_000;
+
+export async function getPersonalRecipes(
+  accessToken: string,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(
+    `${apiConfig.backendUrl}${apiConfig.endpoints.recipes}`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(apiConfig.timeout)])
+        : AbortSignal.timeout(apiConfig.timeout),
+    },
+  );
+  if (!response.ok) throw new Error("Could not load recipes.");
+  return response.json() as Promise<ApiRecipe[]>;
+}
 
 // PERFORMANCE: Preserve the list query's timestamp when promoting a list item;
 // old data still renders immediately but refreshes in the background.

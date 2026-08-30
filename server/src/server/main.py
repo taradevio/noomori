@@ -36,6 +36,7 @@ RECIPE_TEXT_MAX_CHARS = 20_000
 RECIPE_URL_MAX_CHARS = 2_048
 RECIPE_SELECT = "*,household_recipe_shares(recipe_id)"
 HOUSEHOLD_RECIPE_SELECT = "*,household_recipe_shares!inner(recipe_id)"
+COOKBOOK_SELECT = "id,title,created_at"
 RECIPE_UNITS = (
     "tsp",
     "tbsp",
@@ -86,6 +87,26 @@ class CreateHousehold(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class CookbookTitle(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        title = value.strip()
+        if not title:
+            raise ValueError("Cookbook title cannot be blank")
+        return title
+
+
+class CreateCookbook(CookbookTitle):
+    recipe_ids: list[UUID] = Field(default_factory=list)
+
+
+class ReplaceCookbookRecipes(BaseModel):
+    recipe_ids: list[UUID] = Field(default_factory=list)
+
+
 class HouseholdJoinCodeRequest(BaseModel):
     code: str = Field(min_length=6, max_length=32)
 
@@ -96,6 +117,10 @@ class HouseholdJoinCodeRequest(BaseModel):
         if not re.fullmatch(r"\d{6}", code):
             raise ValueError("Code must contain exactly six digits")
         return code
+
+
+class HouseholdActivityRead(BaseModel):
+    through_activity_id: int = Field(gt=0)
 
 
 class RecipeIngredient(BaseModel):
@@ -826,6 +851,11 @@ def raise_household_rpc_error(result: dict) -> None:
     status = result["status"]
     if status == "FORBIDDEN":
         raise HTTPException(status_code=403, detail="Owner access is required")
+    if status == "OWNER_CANNOT_LEAVE":
+        raise HTTPException(
+            status_code=409,
+            detail="Household owners cannot leave their household",
+        )
     if status == "NO_HOUSEHOLD":
         raise HTTPException(status_code=404, detail="Household not found")
     if status == "HOUSEHOLD_NOT_READY":
@@ -835,6 +865,8 @@ def raise_household_rpc_error(result: dict) -> None:
         )
     if status == "RECIPE_NOT_FOUND":
         raise HTTPException(status_code=404, detail="Recipe not found")
+    if status == "INVALID_ACTIVITY":
+        raise HTTPException(status_code=400, detail="Activity marker is invalid")
     if status == "ALREADY_MEMBER":
         raise HTTPException(
             status_code=409,
@@ -949,6 +981,38 @@ def recipe_with_signed_image(auth: AuthContext, recipe: dict) -> dict:
     return result
 
 
+def signed_recipe_image_urls(
+    auth: AuthContext,
+    image_paths: list[str],
+) -> dict[str, str]:
+    unique_paths = list(dict.fromkeys(path for path in image_paths if path))
+    if not unique_paths:
+        return {}
+
+    try:
+        signed_images = (
+            auth.supabase.storage
+            .from_(RECIPE_IMAGE_BUCKET)
+            .create_signed_urls(unique_paths, 3600)
+        )
+    except Exception:
+        logger.exception(
+            "Failed to batch-sign recipe images count=%s",
+            len(unique_paths),
+        )
+        return {}
+
+    urls_by_path = {}
+    for signed in signed_images:
+        path = signed.get("path")
+        url = signed.get("signedURL") or signed.get("signedUrl")
+        if path and url and not signed.get("error"):
+            urls_by_path[path] = url
+        elif path:
+            logger.warning("Failed to sign recipe image path=%s", path)
+    return urls_by_path
+
+
 # PERFORMANCE: Sign every unique path in one Storage round trip. Individual
 # failures remain null so one broken image cannot delay or fail the library.
 def recipes_with_signed_images(
@@ -964,35 +1028,152 @@ def recipes_with_signed_images(
         if result.get("image_path"):
             paths.append(result["image_path"])
 
-    unique_paths = list(dict.fromkeys(paths))
-    if not unique_paths:
-        return results
-
-    try:
-        signed_images = (
-            auth.supabase.storage
-            .from_(RECIPE_IMAGE_BUCKET)
-            .create_signed_urls(unique_paths, 3600)
-        )
-    except Exception:
-        logger.exception(
-            "Failed to batch-sign recipe images count=%s",
-            len(unique_paths),
-        )
-        return results
-
-    urls_by_path = {}
-    for signed in signed_images:
-        path = signed.get("path")
-        url = signed.get("signedURL") or signed.get("signedUrl")
-        if path and url and not signed.get("error"):
-            urls_by_path[path] = url
-        elif path:
-            logger.warning("Failed to sign recipe image path=%s", path)
+    urls_by_path = signed_recipe_image_urls(auth, paths)
 
     for result in results:
         result["image_url"] = urls_by_path.get(result.get("image_path"))
     return results
+
+
+def execute_cookbook_rpc(
+    auth: AuthContext,
+    name: str,
+    params: dict,
+) -> dict:
+    try:
+        response = auth.supabase.rpc(name, params).execute()
+        result = household_rpc_result(response)
+    except Exception as exc:
+        logger.exception(
+            "Cookbook RPC failed operation=%s user_id=%s",
+            name,
+            auth.user.id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Could not save the cookbook",
+        ) from exc
+
+    if result["status"] == "INVALID_RECIPE":
+        raise HTTPException(status_code=400, detail="A selected recipe is unavailable")
+    if result["status"] == "COOKBOOK_NOT_FOUND":
+        raise HTTPException(status_code=404, detail="Cookbook not found")
+    if result["status"] != "OK":
+        raise RuntimeError(f"Unexpected cookbook RPC status: {result['status']}")
+    return result
+
+
+def get_owned_cookbook(auth: AuthContext, cookbook_id: UUID) -> dict:
+    response = (
+        auth.supabase
+        .table("cookbooks")
+        .select(COOKBOOK_SELECT)
+        .eq("id", str(cookbook_id))
+        .eq("owner_user_id", auth.user.id)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Cookbook not found")
+    return response.data[0]
+
+
+def cookbook_member_recipe_ids(auth: AuthContext, cookbook_id: UUID) -> list[str]:
+    response = (
+        auth.supabase
+        .table("cookbook_recipes")
+        .select("recipe_id")
+        .eq("cookbook_id", str(cookbook_id))
+        .execute()
+    )
+    return [row["recipe_id"] for row in response.data]
+
+
+def cookbook_summary_rows(auth: AuthContext, cookbooks: list[dict]) -> list[dict]:
+    if not cookbooks:
+        return []
+
+    cookbook_ids = [cookbook["id"] for cookbook in cookbooks]
+    membership_response = (
+        auth.supabase
+        .table("cookbook_recipes")
+        .select("cookbook_id,recipe_id")
+        .in_("cookbook_id", cookbook_ids)
+        .execute()
+    )
+    member_ids: dict[str, list[str]] = {cookbook_id: [] for cookbook_id in cookbook_ids}
+    for membership in membership_response.data:
+        member_ids.setdefault(membership["cookbook_id"], []).append(
+            membership["recipe_id"]
+        )
+
+    recipe_ids = list(dict.fromkeys(
+        recipe_id
+        for cookbook_recipe_ids in member_ids.values()
+        for recipe_id in cookbook_recipe_ids
+    ))
+    recipe_rows = []
+    if recipe_ids:
+        recipe_rows = (
+            auth.supabase
+            .table("recipes")
+            .select("id,image_path,created_at")
+            .eq("owner_user_id", auth.user.id)
+            .in_("id", recipe_ids)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+        )
+
+    cover_paths: dict[str, list[str]] = {}
+    all_cover_paths: list[str] = []
+    for cookbook_id, ids in member_ids.items():
+        ids_set = set(ids)
+        paths = [
+            recipe["image_path"]
+            for recipe in recipe_rows
+            if recipe["id"] in ids_set and recipe.get("image_path")
+        ][:4]
+        cover_paths[cookbook_id] = paths
+        all_cover_paths.extend(paths)
+    image_urls = signed_recipe_image_urls(auth, all_cover_paths)
+
+    return [
+        {
+            "id": cookbook["id"],
+            "title": cookbook["title"],
+            "recipe_count": len(member_ids.get(cookbook["id"], [])),
+            "cover_image_urls": [
+                image_urls[path]
+                for path in cover_paths.get(cookbook["id"], [])
+                if path in image_urls
+            ],
+        }
+        for cookbook in cookbooks
+    ]
+
+
+def cookbook_detail(auth: AuthContext, cookbook_id: UUID) -> dict:
+    cookbook = get_owned_cookbook(auth, cookbook_id)
+    recipe_ids = cookbook_member_recipe_ids(auth, cookbook_id)
+    recipes = []
+    if recipe_ids:
+        response = (
+            auth.supabase
+            .table("recipes")
+            .select(RECIPE_SELECT)
+            .eq("owner_user_id", auth.user.id)
+            .in_("id", recipe_ids)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        recipes = recipes_with_signed_images(auth, response.data)
+    return {
+        "id": cookbook["id"],
+        "title": cookbook["title"],
+        "recipe_count": len(recipes),
+        "recipes": recipes,
+    }
 
 
 @app.post("/recipes/import/text", response_model=ImportedRecipeTextDraft)
@@ -1054,22 +1235,20 @@ def import_recipe_url(
         raise HTTPException(status_code=422, detail=result) from exc
     except Exception as exc:
         result = "recipe_not_found"
-        logger.warning(
-            "Website recipe extraction failed hostname=%s",
-            hostname,
-            exc_info=True,
-        )
         raise HTTPException(status_code=422, detail=result) from exc
     finally:
-        logger.info(
-            "Website recipe import hostname=%s result=%s duration_ms=%.1f "
+        logger.log(
+            logging.INFO if result == "success" else logging.WARNING,
+            "Website recipe import url=%s hostname=%s result=%s duration_ms=%.1f "
             "response_size=%s ingredient_count=%s instruction_count=%s",
+            payload.url,
             hostname,
             result,
             (perf_counter() - started_at) * 1000,
             response_size,
             ingredient_count,
             instruction_count,
+            exc_info=result != "success",
         )
 
 
@@ -1163,6 +1342,106 @@ def list_household_recipes(auth: AuthContext = Depends(get_current_user)):
         (perf_counter() - started_at) * 1000,
     )
     return recipes
+
+
+@app.get("/cookbooks")
+def list_cookbooks(auth: AuthContext = Depends(get_current_user)):
+    response = (
+        auth.supabase
+        .table("cookbooks")
+        .select(COOKBOOK_SELECT)
+        .eq("owner_user_id", auth.user.id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return cookbook_summary_rows(auth, response.data)
+
+
+@app.post("/cookbooks")
+def create_cookbook(
+    payload: CreateCookbook,
+    auth: AuthContext = Depends(get_current_user),
+):
+    result = execute_cookbook_rpc(
+        auth,
+        "create_personal_cookbook",
+        {
+            "p_title": payload.title,
+            "p_recipe_ids": list(dict.fromkeys(map(str, payload.recipe_ids))),
+        },
+    )
+    return cookbook_detail(auth, UUID(result["cookbook_id"]))
+
+
+@app.get("/cookbooks/{cookbook_id}")
+def get_cookbook(
+    cookbook_id: UUID,
+    auth: AuthContext = Depends(get_current_user),
+):
+    return cookbook_detail(auth, cookbook_id)
+
+
+@app.put("/cookbooks/{cookbook_id}")
+def rename_cookbook(
+    cookbook_id: UUID,
+    payload: CookbookTitle,
+    auth: AuthContext = Depends(get_current_user),
+):
+    try:
+        response = (
+            auth.supabase
+            .table("cookbooks")
+            .update({"title": payload.title})
+            .eq("id", str(cookbook_id))
+            .eq("owner_user_id", auth.user.id)
+            .select(COOKBOOK_SELECT)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("Could not rename cookbook cookbook_id=%s", cookbook_id)
+        raise HTTPException(status_code=500, detail="Could not rename cookbook") from exc
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Cookbook not found")
+    return cookbook_detail(auth, cookbook_id)
+
+
+@app.put("/cookbooks/{cookbook_id}/recipes")
+def replace_cookbook_recipes(
+    cookbook_id: UUID,
+    payload: ReplaceCookbookRecipes,
+    auth: AuthContext = Depends(get_current_user),
+):
+    execute_cookbook_rpc(
+        auth,
+        "replace_personal_cookbook_recipes",
+        {
+            "p_cookbook_id": str(cookbook_id),
+            "p_recipe_ids": list(dict.fromkeys(map(str, payload.recipe_ids))),
+        },
+    )
+    return cookbook_detail(auth, cookbook_id)
+
+
+@app.delete("/cookbooks/{cookbook_id}", status_code=204)
+def delete_cookbook(
+    cookbook_id: UUID,
+    auth: AuthContext = Depends(get_current_user),
+):
+    try:
+        response = (
+            auth.supabase
+            .table("cookbooks")
+            .delete()
+            .eq("id", str(cookbook_id))
+            .eq("owner_user_id", auth.user.id)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("Could not delete cookbook cookbook_id=%s", cookbook_id)
+        raise HTTPException(status_code=500, detail="Could not delete cookbook") from exc
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Cookbook not found")
+    return Response(status_code=204)
 
 
 @app.get("/recipes/{recipe_id}")
@@ -1303,13 +1582,6 @@ def delete_recipe(
             .eq("owner_user_id", auth.user.id)
             .execute()
         )
-        if not response.data:
-            raise RuntimeError("Recipe row was not deleted")
-        logger.info(
-            "Recipe row deleted recipe_id=%s duration_ms=%.1f",
-            recipe_id,
-            (perf_counter() - row_delete_started_at) * 1000,
-        )
     except Exception as exc:
         logger.exception(
             "Failed to delete recipe row recipe_id=%s duration_ms=%.1f",
@@ -1317,6 +1589,17 @@ def delete_recipe(
             (perf_counter() - row_delete_started_at) * 1000,
         )
         raise HTTPException(status_code=500, detail="Could not delete recipe") from exc
+    if not response.data:
+        logger.info("Shared recipe delete blocked recipe_id=%s", recipe_id)
+        raise HTTPException(
+            status_code=409,
+            detail="Unshare recipe before deleting",
+        )
+    logger.info(
+        "Recipe row deleted recipe_id=%s duration_ms=%.1f",
+        recipe_id,
+        (perf_counter() - row_delete_started_at) * 1000,
+    )
 
     image_path = recipe.get("image_path")
     image_cleanup = "not_needed"
@@ -1446,6 +1729,37 @@ def get_household_settings(auth: AuthContext = Depends(get_current_user)):
     if result["status"] != "OK":
         raise_household_rpc_error(result)
     return {key: value for key, value in result.items() if key != "status"}
+
+
+@app.get("/household/activity")
+def get_household_activity(auth: AuthContext = Depends(get_current_user)):
+    result = execute_household_rpc(auth, "get_household_activity")
+    if result["status"] != "OK":
+        raise_household_rpc_error(result)
+    return {key: value for key, value in result.items() if key != "status"}
+
+
+@app.put("/household/activity/read", status_code=204)
+def mark_household_activity_read(
+    payload: HouseholdActivityRead,
+    auth: AuthContext = Depends(get_current_user),
+):
+    result = execute_household_rpc(
+        auth,
+        "mark_household_activity_read",
+        {"p_through_activity_id": payload.through_activity_id},
+    )
+    if result["status"] != "OK":
+        raise_household_rpc_error(result)
+    return Response(status_code=204)
+
+
+@app.delete("/household", status_code=204)
+def leave_household(auth: AuthContext = Depends(get_current_user)):
+    result = execute_household_rpc(auth, "leave_household")
+    if result["status"] != "LEFT":
+        raise_household_rpc_error(result)
+    return Response(status_code=204)
 
 
 @app.post("/household/invite")

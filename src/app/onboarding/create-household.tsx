@@ -12,7 +12,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { AccessibilityInfo, Text, TextInput, View } from "react-native";
 
-type CreateHousehold = {
+type CreateHouseholdName = {
   name: string;
 };
 
@@ -26,7 +26,7 @@ export default function CreateHousehold() {
 
   const isDisabled = household.trim() === "";
 
-  const createHouseholdName = async (householdName: CreateHousehold) => {
+  const createHouseholdName = async (householdName: CreateHouseholdName) => {
     const res = await fetch(
       `${apiConfig.backendUrl}${apiConfig.endpoints.households}`,
       {

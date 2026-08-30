@@ -11,8 +11,8 @@ from server.main import (
     parse_recipe_text,
 )
 
-CASE_PATH = Path(__file__).resolve().parents[1] / "case.txt"
-CASE2_PATH = Path(__file__).resolve().parents[1] / "case2.txt"
+CASE_PATH = Path(__file__).resolve().parents[2] / "case.txt"
+CASE2_PATH = Path(__file__).resolve().parents[2] / "case2.txt"
 
 
 class RecipeTextRequestTest(unittest.TestCase):

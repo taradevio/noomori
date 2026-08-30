@@ -1,10 +1,12 @@
 import {
   generateHouseholdCode,
   getHouseholdSettings,
+  leaveHousehold,
   revokeHouseholdCode,
   type GeneratedHouseholdCode,
 } from "@/shared/household-api";
 import { OnboardingButton } from "@/shared/components/onboarding/onboarding-button";
+import { recipeKeys } from "@/shared/components/recipe/recipe-query";
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,7 +41,7 @@ function formatExpiry(value: string) {
 
 /** Household membership and invite settings, separate from shared recipes. */
 export default function HouseholdSettingsScreen() {
-  const { session } = useSession();
+  const { refreshUserState, session } = useSession();
   const queryClient = useQueryClient();
   const safeAreaInsets = useSafeAreaInsets();
   const accessToken = session?.access_token ?? "";
@@ -65,6 +67,29 @@ export default function HouseholdSettingsScreen() {
     },
     onError: () => {
       setActionError("Couldn’t revoke the join code. Try again.");
+    },
+  });
+
+  const leaveMutation = useMutation({
+    mutationFn: () => leaveHousehold(accessToken),
+    onSuccess: async () => {
+      setActionError(null);
+      queryClient.removeQueries({
+        exact: true,
+        queryKey: recipeKeys.householdList,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: recipeKeys.list,
+        refetchType: "none",
+      });
+      await refreshUserState();
+      queryClient.removeQueries({ queryKey: ["household"] });
+      queryClient.removeQueries({ queryKey: ["profile"] });
+    },
+    onError: () => {
+      setActionError(
+        "Couldn’t leave the household. Check your connection and try again.",
+      );
     },
   });
 
@@ -117,6 +142,23 @@ export default function HouseholdSettingsScreen() {
           text: "Revoke",
           style: "destructive",
           onPress: () => revokeMutation.mutate(),
+        },
+      ],
+    );
+  }
+
+  function confirmLeave() {
+    if (!settingsQuery.data || leaveMutation.isPending) return;
+
+    Alert.alert(
+      `Leave “${settingsQuery.data.household_name}”?`,
+      "You’ll lose access to this household’s shared recipes. Recipes you shared will also be removed from the household. You can create or join another household afterward.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave household",
+          style: "destructive",
+          onPress: () => leaveMutation.mutate(),
         },
       ],
     );
@@ -246,6 +288,49 @@ export default function HouseholdSettingsScreen() {
             </View>
           </View>
 
+          <View className="mt-8 rounded-xl border border-border bg-surface p-5">
+            <View className="gap-1">
+              <Text
+                accessibilityRole="header"
+                className="text-xl font-bold leading-7 text-text-primary"
+              >
+                Members
+              </Text>
+              <Text className="text-sm leading-5 text-text-secondary">
+                {settings.member_count}{" "}
+                {settings.member_count === 1 ? "person" : "people"} in this
+                household
+              </Text>
+            </View>
+
+            <View className="mt-4">
+              {settings.members.map((member, index) => {
+                const isCurrentUser = member.user_id === session?.user.id;
+                const roleLabel =
+                  member.role === "owner" ? "Owner" : "Member";
+
+                return (
+                  <View key={member.user_id}>
+                    {index > 0 ? <View className="h-px bg-border" /> : null}
+                    <View
+                      accessibilityLabel={`${member.display_name}, ${roleLabel}${isCurrentUser ? ", you" : ""}`}
+                      accessible
+                      className="min-h-[56px] flex-row items-center gap-4 py-3"
+                    >
+                      <Text className="min-w-0 flex-1 text-base font-bold leading-6 text-text-primary">
+                        {member.display_name}
+                        {isCurrentUser ? " (You)" : ""}
+                      </Text>
+                      <Text className="shrink-0 text-sm font-medium leading-5 text-text-secondary">
+                        {roleLabel}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
           {settings.role === "owner" ? (
             <View className="mt-8 gap-5 rounded-xl border border-border bg-surface p-5">
               <View className="gap-2">
@@ -363,11 +448,65 @@ export default function HouseholdSettingsScreen() {
               ) : null}
             </View>
           ) : (
-            <View className="mt-8 rounded-xl border border-border bg-surface p-5">
-              <Text className="text-base leading-6 text-text-secondary">
-                Household invitations are managed by the Owner.
-              </Text>
-            </View>
+            <>
+              <View className="mt-8 rounded-xl border border-border bg-surface p-5">
+                <Text className="text-base leading-6 text-text-secondary">
+                  Household invitations are managed by the Owner.
+                </Text>
+              </View>
+
+              <View className="mt-8 gap-4 rounded-xl border border-error bg-surface p-5">
+                <View className="gap-2">
+                  <Text
+                    accessibilityRole="header"
+                    className="text-xl font-bold leading-7 text-text-primary"
+                  >
+                    Leave household
+                  </Text>
+                  <Text className="text-base leading-6 text-text-secondary">
+                    You’ll lose access to shared household recipes. Recipes you
+                    shared will be removed from this household.
+                  </Text>
+                </View>
+
+                <Pressable
+                  accessibilityHint="Opens a confirmation before leaving this household."
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    busy: leaveMutation.isPending,
+                    disabled: leaveMutation.isPending,
+                  }}
+                  className="min-h-[52px] items-center justify-center rounded-xl border-2 border-error bg-surface px-5 py-3 focus:border-text-primary active:bg-surface-subtle disabled:opacity-50"
+                  disabled={leaveMutation.isPending}
+                  onPress={confirmLeave}
+                >
+                  <View className="flex-row items-center justify-center gap-2.5">
+                    {leaveMutation.isPending ? (
+                      <ActivityIndicator
+                        accessible={false}
+                        color={colorTokens.error}
+                        size="small"
+                      />
+                    ) : null}
+                    <Text className="text-[17px] font-bold leading-6 text-error">
+                      {leaveMutation.isPending
+                        ? "Leaving household…"
+                        : "Leave household"}
+                    </Text>
+                  </View>
+                </Pressable>
+
+                {actionError ? (
+                  <Text
+                    accessibilityLiveRegion="assertive"
+                    accessibilityRole="alert"
+                    className="text-sm font-medium leading-5 text-error"
+                  >
+                    {actionError}
+                  </Text>
+                ) : null}
+              </View>
+            </>
           )}
         </View>
       </ScrollView>

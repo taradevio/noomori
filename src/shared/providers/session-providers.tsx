@@ -1,6 +1,7 @@
 // providers/session-provider.tsx
 
 import { supabase } from "@/lib/supabase";
+import { retryJwtIssuedInFutureOnce } from "@/shared/providers/session-profile-retry";
 import type { Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useState } from "react";
 
@@ -39,11 +40,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const userId = resolvedSession.user.id;
 
-    const { data: profile, error } = await supabase
-      .from("profiles")
-      .select("onboarding_completed_at")
-      .eq("id", userId)
-      .maybeSingle();
+    const readProfile = () =>
+      supabase
+        .from("profiles")
+        .select("onboarding_completed_at")
+        .eq("id", userId)
+        .maybeSingle();
+    const { data: profile, error } =
+      await retryJwtIssuedInFutureOnce(readProfile);
 
     if (error) {
       console.error(error);

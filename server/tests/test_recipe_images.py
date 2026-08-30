@@ -211,10 +211,11 @@ class RecipeUpdateTest(unittest.TestCase):
 
 
 class FakeDeleteTable:
-    def __init__(self, recipe, events, fail_delete=False):
+    def __init__(self, recipe, events, fail_delete=False, block_delete=False):
         self.recipe = recipe
         self.events = events
         self.fail_delete = fail_delete
+        self.block_delete = block_delete
         self.filters = {}
         self.operation = ""
 
@@ -247,6 +248,8 @@ class FakeDeleteTable:
         self.events.append("delete")
         if self.fail_delete:
             raise RuntimeError("database unavailable")
+        if self.block_delete:
+            return SimpleNamespace(data=[])
         matches = self.recipe and all(
             str(self.recipe.get(column)) == str(value)
             for column, value in self.filters.items()
@@ -268,12 +271,22 @@ class FakeDeleteBucket:
             raise RuntimeError("storage unavailable")
 
 
-def delete_auth(user_id, recipe, events, *, fail_delete=False, fail_remove=False, role=None):
-    table = FakeDeleteTable(recipe, events, fail_delete)
+def delete_auth(
+    user_id,
+    recipe,
+    events,
+    *,
+    fail_delete=False,
+    fail_remove=False,
+    block_delete=False,
+    role=None,
+):
+    table = FakeDeleteTable(recipe, events, fail_delete, block_delete)
     bucket = FakeDeleteBucket(events, fail_remove)
     supabase = SimpleNamespace(
         table=lambda _name: table,
         storage=FakeStorage(bucket),
+        recipe_table=table,
     )
     user = SimpleNamespace(id=user_id, household_role=role)
     return SimpleNamespace(user=user, supabase=supabase)
@@ -314,6 +327,27 @@ class RecipeDeleteTest(unittest.TestCase):
                     delete_recipe(self.recipe_id, auth)
                 self.assertEqual(404, raised.exception.status_code)
                 self.assertEqual(["read"], events)
+
+    def test_shared_recipe_must_be_unshared_before_delete(self):
+        events = []
+        recipe = {
+            **self.recipe(),
+            "household_recipe_shares": [{"recipe_id": str(self.recipe_id)}],
+        }
+        auth = delete_auth(
+            self.owner_id,
+            recipe,
+            events,
+            block_delete=True,
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            delete_recipe(self.recipe_id, auth)
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual("Unshare recipe before deleting", raised.exception.detail)
+        self.assertEqual(recipe, auth.supabase.recipe_table.recipe)
+        self.assertEqual(["read", "delete"], events)
 
     def test_database_failure_returns_500(self):
         events = []

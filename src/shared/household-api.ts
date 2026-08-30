@@ -2,11 +2,18 @@ import { apiConfig } from "@/config/api";
 
 export type HouseholdRole = "member" | "owner";
 
+export type HouseholdMember = {
+  display_name: string;
+  role: HouseholdRole;
+  user_id: string;
+};
+
 export type HouseholdSettings = {
   active_code_expires_at: string | null;
   household_id: string;
   household_name: string;
   member_count: number;
+  members: HouseholdMember[];
   role: HouseholdRole;
 };
 
@@ -30,6 +37,27 @@ export type HouseholdJoinResult = {
   };
   status: "ALREADY_MEMBER" | "JOINED";
 };
+
+export type HouseholdActivityAction = "added" | "edited" | "unshared";
+
+export type HouseholdActivity = {
+  id: number;
+  actor_user_id: string | null;
+  actor_display_name: string;
+  action: HouseholdActivityAction;
+  recipe_id: string | null;
+  recipe_title: string;
+  created_at: string;
+};
+
+export type HouseholdActivityResponse = {
+  member_count: number;
+  unread_count: number;
+  latest_activity_id: number | null;
+  activities: HouseholdActivity[];
+};
+
+export const householdActivityKey = ["household", "activity"] as const;
 
 export class HouseholdApiError extends Error {
   constructor(
@@ -70,10 +98,41 @@ async function householdRequest<T>(
   return response.status === 204 ? (undefined as T) : response.json();
 }
 
-export function getHouseholdSettings(accessToken: string) {
-  return householdRequest<HouseholdSettings>(
+export async function getHouseholdSettings(accessToken: string) {
+  const settings = await householdRequest<HouseholdSettings>(
     accessToken,
     apiConfig.endpoints.households,
+  );
+  return { ...settings, members: settings.members ?? [] };
+}
+
+export async function getHouseholdActivity(accessToken: string) {
+  const activity = await householdRequest<HouseholdActivityResponse>(
+    accessToken,
+    apiConfig.endpoints.householdActivity,
+  );
+  return { ...activity, activities: activity.activities ?? [] };
+}
+
+export function markHouseholdActivityRead(
+  accessToken: string,
+  throughActivityId: number,
+) {
+  return householdRequest<void>(
+    accessToken,
+    apiConfig.endpoints.householdActivityRead,
+    {
+      method: "PUT",
+      body: JSON.stringify({ through_activity_id: throughActivityId }),
+    },
+  );
+}
+
+export function leaveHousehold(accessToken: string) {
+  return householdRequest<void>(
+    accessToken,
+    apiConfig.endpoints.households,
+    { method: "DELETE" },
   );
 }
 

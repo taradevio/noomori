@@ -6,6 +6,7 @@ import { AccessibilityInfo, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getHouseholdSettings } from "@/shared/household-api";
+import { cookbookKeys } from "@/shared/cookbook-query";
 import { RecipeDetailView } from "@/shared/components/recipe/recipe-detail-view";
 import {
   cacheDeletedRecipe,
@@ -151,6 +152,7 @@ export default function RecipeDetailRoute() {
         }),
       ]);
       cacheDeletedRecipe(queryClient, normalizedRecipeId);
+      await queryClient.invalidateQueries({ queryKey: cookbookKeys.all });
       if (__DEV__) {
         console.debug("[recipe-delete] cache_updated_and_navigating", {
           recipeId: normalizedRecipeId,

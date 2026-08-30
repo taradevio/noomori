@@ -16,6 +16,13 @@ export type CookbookCardModel = {
   coverImageUrls?: readonly string[];
 };
 
+export type CookbookDetailModel = {
+  id: string;
+  title: string;
+  recipeCount: number;
+  recipes: readonly RecipeCardModel[];
+};
+
 export type LibraryResource<T> =
   | { status: "loading" }
   | { status: "error"; message?: string }
@@ -29,6 +36,7 @@ export type RecipesLibraryViewProps = {
   cookbooks: LibraryResource<CookbookCardModel>;
   householdName?: string;
   mode?: LibraryMode;
+  onActivityPress?: () => void;
   onAddRecipe?: () => void;
   onCookbookPress?: (cookbookId: string) => void;
   onCreateCookbook?: () => void;
@@ -40,6 +48,8 @@ export type RecipesLibraryViewProps = {
   onSearchQueryChange?: (section: LibrarySection, query: string) => void;
   onShareRecipe?: () => void;
   section?: LibrarySection;
+  showActivity?: boolean;
+  unreadActivityCount?: number;
 };
 
 export type RecipeFormMode = "create" | "edit";
