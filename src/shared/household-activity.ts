@@ -12,15 +12,18 @@ export function formatHouseholdActivityTime(
   if (Number.isNaN(created.getTime())) return "";
   if (elapsedSeconds < 60) return "Just now";
 
-  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  // NOTE: Hermes does not support Intl.RelativeTimeFormat, so keep relative labels dependency-free.
   if (elapsedSeconds < 3_600) {
-    return relative.format(-Math.floor(elapsedSeconds / 60), "minute");
+    const minutes = Math.floor(elapsedSeconds / 60);
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
   }
   if (elapsedSeconds < 86_400) {
-    return relative.format(-Math.floor(elapsedSeconds / 3_600), "hour");
+    const hours = Math.floor(elapsedSeconds / 3_600);
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   }
   if (elapsedSeconds < 604_800) {
-    return relative.format(-Math.floor(elapsedSeconds / 86_400), "day");
+    const days = Math.floor(elapsedSeconds / 86_400);
+    return days === 1 ? "yesterday" : `${days} days ago`;
   }
 
   return new Intl.DateTimeFormat(locale, {

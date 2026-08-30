@@ -71,18 +71,15 @@ values (
   now() - interval '1 day'
 );
 
+-- NOTE: Discover public tables from the catalog so a newly added table fails
+-- this suite until RLS is explicitly enabled; views are intentionally excluded.
 select is(
   (
     select count(*)
     from pg_class tables
     join pg_namespace schemas on schemas.oid = tables.relnamespace
     where schemas.nspname = 'public'
-      and tables.relname = any(array[
-        'profiles', 'households', 'household_members', 'recipes',
-        'household_recipe_shares', 'household_join_codes',
-        'household_join_rate_limits', 'cookbooks', 'cookbook_recipes',
-        'household_recipe_activities'
-      ])
+      and tables.relkind in ('r', 'p')
       and not tables.relrowsecurity
   ),
   0::bigint,
@@ -105,25 +102,45 @@ select ok(not has_table_privilege('authenticated', 'public.household_join_codes'
 select ok(not has_table_privilege('authenticated', 'public.household_join_rate_limits', 'SELECT'), 'authenticated users cannot read rate limits');
 select ok(not has_table_privilege('authenticated', 'public.household_recipe_activities', 'SELECT'), 'authenticated users cannot read activity rows directly');
 select ok(not has_schema_privilege('authenticated', 'private', 'USAGE'), 'authenticated users cannot use the private schema');
-select is(
-  (
-    select count(*)
-    from information_schema.role_table_grants
+-- NOTE: Compare privilege tuples, not totals. Removing an intended grant and
+-- adding an unintended grant must fail even when the cardinality is unchanged.
+select results_eq(
+  $$
+    select
+      grantee::text collate "C",
+      table_name::text collate "C",
+      privilege_type::text collate "C"
+    from information_schema.table_privileges
     where table_schema = 'public'
-      and grantee = 'anon'
-  ),
-  0::bigint,
-  'anonymous users have no direct application-table grants'
-);
-select is(
-  (
-    select count(*)
-    from information_schema.role_table_grants
-    where table_schema = 'public'
-      and grantee = 'authenticated'
-  ),
-  16::bigint,
-  'authenticated table grants are limited to the operations used by the API'
+      and grantee in ('PUBLIC', 'anon', 'authenticated')
+    order by 1, 2, 3
+  $$,
+  $$
+    select
+      grantee collate "C",
+      table_name collate "C",
+      privilege_type collate "C"
+    from (values
+      ('authenticated', 'cookbook_recipes', 'SELECT'),
+      ('authenticated', 'cookbooks', 'DELETE'),
+      ('authenticated', 'cookbooks', 'INSERT'),
+      ('authenticated', 'cookbooks', 'SELECT'),
+      ('authenticated', 'cookbooks', 'UPDATE'),
+      ('authenticated', 'household_members', 'INSERT'),
+      ('authenticated', 'household_members', 'SELECT'),
+      ('authenticated', 'household_recipe_shares', 'SELECT'),
+      ('authenticated', 'households', 'INSERT'),
+      ('authenticated', 'households', 'SELECT'),
+      ('authenticated', 'profiles', 'SELECT'),
+      ('authenticated', 'profiles', 'UPDATE'),
+      ('authenticated', 'recipes', 'DELETE'),
+      ('authenticated', 'recipes', 'INSERT'),
+      ('authenticated', 'recipes', 'SELECT'),
+      ('authenticated', 'recipes', 'UPDATE')
+    ) expected(grantee, table_name, privilege_type)
+    order by 1, 2, 3
+  $$,
+  'API roles have exactly the intended table privileges'
 );
 select ok(
   not has_sequence_privilege('anon', 'public.household_recipe_activities_id_seq', 'USAGE')
@@ -196,8 +213,6 @@ select ok(
   $sql$),
   'owners cannot create recipes for another user'
 );
-update public.recipes set title = 'Blocked update' where id = '55555555-5555-4555-8555-555555555555';
-select is((select title from public.recipes where id = '55555555-5555-4555-8555-555555555555'), null::text, 'foreign recipe updates affect no visible row');
 select is(
   public.create_personal_cookbook('Invalid', array['55555555-5555-4555-8555-555555555555']::uuid[]) ->> 'status',
   'INVALID_RECIPE',
@@ -244,8 +259,20 @@ values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '44444444-4444-4444-8444-4444444
 select set_config('request.jwt.claims', '{"sub":"22222222-2222-4222-8222-222222222222","role":"authenticated"}', true);
 set local role authenticated;
 select is((select count(*) from public.recipes where id = '44444444-4444-4444-8444-444444444444'), 1::bigint, 'members read shared household recipes');
-update public.recipes set title = 'Member edit' where id = '44444444-4444-4444-8444-444444444444';
-select is((select title from public.recipes where id = '44444444-4444-4444-8444-444444444444'), 'Owner recipe', 'members cannot edit shared recipes');
+-- NOTE: The member can already SELECT this shared row, so a zero-row update
+-- specifically exercises UPDATE authorization instead of passing by invisibility.
+with changed as (
+  update public.recipes
+  set title = 'Member edit'
+  where id = '44444444-4444-4444-8444-444444444444'
+  returning id
+)
+select is(
+  (select count(*) from changed),
+  0::bigint,
+  'member updates affect no shared recipe rows'
+);
+select is((select title from public.recipes where id = '44444444-4444-4444-8444-444444444444'), 'Owner recipe', 'member updates leave the shared recipe unchanged');
 delete from public.recipes where id = '44444444-4444-4444-8444-444444444444';
 select is((select count(*) from public.recipes where id = '44444444-4444-4444-8444-444444444444'), 1::bigint, 'members cannot delete shared recipes');
 select is(
