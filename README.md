@@ -34,6 +34,21 @@ Noomori contains an Expo app and a separately deployable FastAPI modular
 monolith. Read [ARCHITECTURE.md](./ARCHITECTURE.md) before adding a new feature
 or dependency.
 
+## Authorization tests
+
+The fast backend suite uses mocked Supabase clients. Run the real PostgreSQL
+RLS, RPC, Storage, and bearer-token checks against the local Supabase stack:
+
+```bash
+bunx supabase start -x studio,imgproxy,realtime,mailpit,edge-runtime,logflare,vector,supavisor,postgres-meta
+bunx supabase db reset
+bun run test:auth
+```
+
+Policy, grant, RPC, and authorization bug changes start with a failing allow or
+deny assertion. The SQL suite rolls back its fixtures; the API suite deletes
+its local Auth users and household.
+
 ## Get a fresh project
 
 When you're ready, run:

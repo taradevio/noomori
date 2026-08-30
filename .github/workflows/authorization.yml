@@ -1,0 +1,45 @@
+name: Authorization
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  authorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.1"
+
+      - run: bun install --frozen-lockfile
+      - run: uv sync --project server --frozen
+
+      - name: Start local Supabase
+        run: bunx supabase start -x studio,imgproxy,realtime,mailpit,edge-runtime,logflare,vector,supavisor,postgres-meta
+
+      - name: Rebuild schema from migrations
+        run: bunx supabase db reset
+
+      - name: Test authorization
+        run: bun run test:auth
+
+      - name: Stop local Supabase
+        if: always()
+        run: bunx supabase stop --no-backup

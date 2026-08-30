@@ -61,7 +61,10 @@
     "test:functional:fe": "jest --config tests/frontend/jest.config.js --runInBand",
     "test:functional:be": "cd server && .venv/bin/python -m unittest discover -s tests -p 'test_functional_*.py' -v",
     "test:functional": "bun run test:functional:fe && bun run test:functional:be",
-    "test:be": "cd server && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v"
+    "test:be": "cd server && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v",
+    "test:auth:db": "bunx supabase test db",
+    "test:auth:api": "cd server && .venv/bin/python -m unittest tests.authorization_live -v",
+    "test:auth": "bun run test:auth:db && bun run test:auth:api"
   },
   "private": true
 }
