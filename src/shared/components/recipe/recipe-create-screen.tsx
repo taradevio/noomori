@@ -1,6 +1,7 @@
 import { apiConfig } from "@/config/api";
 import { useSession } from "@/shared/providers/session-providers";
 import { useNavigation, useRouter } from "expo-router";
+import * as Crypto from "expo-crypto";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Modal, Pressable, Text, View } from "react-native";
 
@@ -44,6 +45,7 @@ export function RecipeCreateScreen({
   const [formDirty, setFormDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [isHandlingPhotoFailure, setIsHandlingPhotoFailure] = useState(false);
+  const [recipeCreationId] = useState(Crypto.randomUUID);
   const pendingAction = useRef<
     Parameters<typeof navigation.dispatch>[0] | null
   >(null);
@@ -105,6 +107,7 @@ export function RecipeCreateScreen({
             // database policies can resolve auth.uid() for the current user.
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
+            "Recipe-Creation-Id": recipeCreationId,
           },
           body: JSON.stringify(payload),
         },

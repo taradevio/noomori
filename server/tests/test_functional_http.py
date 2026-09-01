@@ -20,7 +20,9 @@ from server.main import (  # noqa: E402
 
 USER_ID = "11111111-1111-4111-8111-111111111111"
 RECIPE_ID = "22222222-2222-4222-8222-222222222222"
+SECOND_RECIPE_ID = "22222222-2222-4222-8222-333333333333"
 COOKBOOK_ID = "33333333-3333-4333-8333-333333333333"
+RECIPE_CREATION_HEADERS = {"Recipe-Creation-Id": RECIPE_ID}
 
 
 def recipe(**changes):
@@ -140,6 +142,11 @@ class FakeQuery:
         self.values = values
         return self
 
+    def upsert(self, values, on_conflict=""):
+        self.operation = "upsert"
+        self.values = values
+        return self
+
     def update(self, values):
         self.operation = "update"
         self.values = values
@@ -154,6 +161,14 @@ class FakeQuery:
         configured = self.database.responses.get((self.table, self.operation))
         if configured is not None:
             return SimpleNamespace(data=configured)
+        if self.table == "recipes" and self.operation == "upsert":
+            recipe_id = self.values["id"]
+            stored = recipe(**{
+                **self.database.recipe_rows.get(recipe_id, {}),
+                **self.values,
+            })
+            self.database.recipe_rows[recipe_id] = stored
+            return SimpleNamespace(data=[stored])
         if self.table == "recipes" and self.operation in {"insert", "update"}:
             return SimpleNamespace(data=[recipe(**(self.values or {}))])
         if self.operation == "delete":
@@ -178,6 +193,7 @@ class FakeDatabase:
         self.responses = {}
         self.rpc_calls = []
         self.rpc_results = {}
+        self.recipe_rows = {}
         self.storage = FakeStorage()
 
     def table(self, name):
@@ -300,7 +316,11 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
             stack.enter_context(patch("server.main.get_readable_recipe", return_value=recipe()))
             stack.enter_context(patch("server.main.recipe_with_signed_image", side_effect=lambda _a, row: row))
             detail = await self.client.get(f"/recipes/{RECIPE_ID}")
-            created = await self.client.post("/recipes", json=recipe_payload())
+            created = await self.client.post(
+                "/recipes",
+                headers=RECIPE_CREATION_HEADERS,
+                json=recipe_payload(),
+            )
             updated = await self.client.put(
                 f"/recipes/{RECIPE_ID}",
                 json=recipe_payload(title="Updated soup"),
@@ -309,6 +329,37 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("Soup", detail.json()["title"])
         self.assertEqual(200, created.status_code)
         self.assertEqual("Updated soup", updated.json()["title"])
+
+    async def test_recipe_creation_is_idempotent_and_last_write_wins(self):
+        first = await self.client.post(
+            "/recipes",
+            headers=RECIPE_CREATION_HEADERS,
+            json=recipe_payload(title="First draft"),
+        )
+        image_path = f"recipes/{USER_ID}/{RECIPE_ID}/cover.webp"
+        self.database.recipe_rows[RECIPE_ID]["image_path"] = image_path
+        second = await self.client.post(
+            "/add-recipes",
+            headers=RECIPE_CREATION_HEADERS,
+            json=recipe_payload(title="Latest draft"),
+        )
+
+        self.assertEqual(200, first.status_code)
+        self.assertEqual(200, second.status_code)
+        self.assertEqual(RECIPE_ID, first.json()["id"])
+        self.assertEqual(RECIPE_ID, second.json()["id"])
+        self.assertEqual("Latest draft", second.json()["title"])
+        self.assertEqual(image_path, second.json()["image_path"])
+        self.assertEqual(1, len(self.database.recipe_rows))
+
+        separate = await self.client.post(
+            "/recipes",
+            headers={"Recipe-Creation-Id": SECOND_RECIPE_ID},
+            json=recipe_payload(title="Latest draft"),
+        )
+        self.assertEqual(200, separate.status_code)
+        self.assertEqual(SECOND_RECIPE_ID, separate.json()["id"])
+        self.assertEqual(2, len(self.database.recipe_rows))
 
     async def test_recipe_share_delete_and_image_routes_cover_mutation_contracts(self):
         shared = recipe(is_shared=True)
@@ -343,10 +394,22 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
     async def test_recipe_validation_rejects_invalid_uuid_and_source_rules(self):
         invalid_uuid = await self.client.get("/recipes/not-a-uuid")
         self.assertEqual(422, invalid_uuid.status_code)
+        missing_creation_id = await self.client.post(
+            "/recipes",
+            json=recipe_payload(),
+        )
+        malformed_creation_id = await self.client.post(
+            "/recipes",
+            headers={"Recipe-Creation-Id": "not-a-uuid"},
+            json=recipe_payload(),
+        )
         invalid_source = await self.client.post(
             "/recipes",
+            headers=RECIPE_CREATION_HEADERS,
             json=recipe_payload(source_type="website", source_url=None),
         )
+        self.assertEqual(422, missing_creation_id.status_code)
+        self.assertEqual(422, malformed_creation_id.status_code)
         self.assertEqual(422, invalid_source.status_code)
 
     async def test_cookbook_routes_cover_list_create_detail_update_membership_and_delete(self):

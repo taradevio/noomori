@@ -8,6 +8,7 @@ FastAPI, PostgREST, and PostgreSQL RLS boundaries. The filename intentionally
 does not start with ``test_`` to keep it out of the fast mocked backend suite.
 """
 
+import asyncio
 import logging
 import os
 import unittest
@@ -132,6 +133,12 @@ class LiveAuthorizationTest(unittest.IsolatedAsyncioTestCase):
     def user_headers(self, name: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.tokens[name]}"}
 
+    def recipe_headers(self, name: str, creation_id: str) -> dict[str, str]:
+        return {
+            **self.user_headers(name),
+            "Recipe-Creation-Id": creation_id,
+        }
+
     async def create_user(self, email: str, display_name: str) -> str:
         response = await self.supabase.post(
             "/auth/v1/admin/users",
@@ -189,7 +196,7 @@ class LiveAuthorizationTest(unittest.IsolatedAsyncioTestCase):
 
         created = await self.api.post(
             "/recipes",
-            headers=self.user_headers("owner"),
+            headers=self.recipe_headers("owner", str(uuid4())),
             json=RECIPE_PAYLOAD,
         )
         self.assertEqual(200, created.status_code, created.text)
@@ -251,6 +258,87 @@ class LiveAuthorizationTest(unittest.IsolatedAsyncioTestCase):
             headers=self.user_headers("member"),
         )
         self.assertEqual(404, member_after_unshare.status_code)
+
+    async def test_recipe_creation_is_concurrent_and_owner_scoped(self):
+        creation_id = str(uuid4())
+        owner_headers = self.recipe_headers("owner", creation_id)
+        first, second = await asyncio.gather(
+            self.api.post(
+                "/recipes",
+                headers=owner_headers,
+                json={**RECIPE_PAYLOAD, "title": "Concurrent first"},
+            ),
+            self.api.post(
+                "/recipes",
+                headers=owner_headers,
+                json={**RECIPE_PAYLOAD, "title": "Concurrent second"},
+            ),
+        )
+
+        self.assertEqual(200, first.status_code, first.text)
+        self.assertEqual(200, second.status_code, second.text)
+        self.assertEqual({creation_id}, {first.json()["id"], second.json()["id"]})
+
+        rows = await self.admin_rest(
+            "GET",
+            f"/rest/v1/recipes?id=eq.{creation_id}&select=id,title,owner_user_id,image_path",
+        )
+        self.assertEqual(1, len(rows))
+        self.assertIn(rows[0]["title"], {"Concurrent first", "Concurrent second"})
+
+        latest = await self.api.post(
+            "/recipes",
+            headers=owner_headers,
+            json={**RECIPE_PAYLOAD, "title": "Latest draft"},
+        )
+        self.assertEqual(200, latest.status_code, latest.text)
+        self.assertEqual(creation_id, latest.json()["id"])
+        self.assertEqual("Latest draft", latest.json()["title"])
+
+        image_path = (
+            f"recipes/{self.user_ids[0]}/{creation_id}/{uuid4()}.webp"
+        )
+        await self.admin_rest(
+            "PATCH",
+            f"/rest/v1/recipes?id=eq.{creation_id}",
+            json={"image_path": image_path},
+        )
+        api_logger = logging.getLogger("server.main")
+        api_logger.disabled = True
+        try:
+            replay_with_image = await self.api.post(
+                "/recipes",
+                headers=owner_headers,
+                json={**RECIPE_PAYLOAD, "title": "Latest draft with image"},
+            )
+        finally:
+            api_logger.disabled = False
+        self.assertEqual(200, replay_with_image.status_code, replay_with_image.text)
+        self.assertEqual(image_path, replay_with_image.json()["image_path"])
+
+        api_logger.disabled = True
+        try:
+            replay = await self.api.post(
+                "/recipes",
+                headers=self.recipe_headers("member", creation_id),
+                json={**RECIPE_PAYLOAD, "title": "Unauthorized overwrite"},
+            )
+        finally:
+            api_logger.disabled = False
+        self.assertEqual(500, replay.status_code)
+
+        member_read = await self.api.get(
+            f"/recipes/{creation_id}",
+            headers=self.user_headers("member"),
+        )
+        self.assertEqual(404, member_read.status_code)
+        unchanged = await self.admin_rest(
+            "GET",
+            f"/rest/v1/recipes?id=eq.{creation_id}&select=id,title,owner_user_id,image_path",
+        )
+        self.assertEqual("Latest draft with image", unchanged[0]["title"])
+        self.assertEqual(self.user_ids[0], unchanged[0]["owner_user_id"])
+        self.assertEqual(image_path, unchanged[0]["image_path"])
 
 
 if __name__ == "__main__":

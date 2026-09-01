@@ -6,7 +6,7 @@ import re
 import secrets
 import unicodedata
 
-from fastapi import FastAPI, HTTPException, Depends, Response
+from fastapi import FastAPI, HTTPException, Depends, Header, Response
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
@@ -1456,25 +1456,30 @@ def get_recipe(
 @app.post("/add-recipes")
 def create_recipe(
     payload: CreateRecipe,
+    recipe_creation_id: UUID = Header(alias="Recipe-Creation-Id"),
     auth: AuthContext = Depends(get_current_user),
 ):
     # PERFORMANCE: Track database plus response-signing time for save diagnostics.
     started_at = perf_counter()
     values = payload.model_dump(mode="json")
+    values["id"] = str(recipe_creation_id)
     values["owner_user_id"] = auth.user.id
-    values["image_path"] = None
-    logger.info("Creating recipe user_id=%s", auth.user.id)
+    logger.info(
+        "Saving recipe recipe_id=%s user_id=%s",
+        recipe_creation_id,
+        auth.user.id,
+    )
     try:
         response = (
             auth.supabase
             .table("recipes")
-            .insert(values)
+            .upsert(values, on_conflict="id")
             .select(RECIPE_SELECT)
             .execute()
         )
         recipe = response.data[0]
         logger.info(
-            "Recipe created recipe_id=%s user_id=%s duration_ms=%.1f",
+            "Recipe saved recipe_id=%s user_id=%s duration_ms=%.1f",
             recipe["id"],
             auth.user.id,
             (perf_counter() - started_at) * 1000,
@@ -1482,7 +1487,7 @@ def create_recipe(
         return recipe_with_signed_image(auth, recipe)
     except Exception as exc:
         logger.exception(
-            "Failed to create recipe user_id=%s duration_ms=%.1f",
+            "Failed to save recipe user_id=%s duration_ms=%.1f",
             auth.user.id,
             (perf_counter() - started_at) * 1000,
         )
