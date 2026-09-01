@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 RECIPE_IMAGE_BUCKET = "noomori-recipe-images"
 RECIPE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 RECIPE_TEXT_MAX_CHARS = 20_000
+# Website import fetches use this explicit limit. Saved CreateRecipe.source_url
+# values use Pydantic HttpUrl's separate 2,083-character limit.
 RECIPE_URL_MAX_CHARS = 2_048
 RECIPE_SELECT = "*,household_recipe_shares(recipe_id)"
 HOUSEHOLD_RECIPE_SELECT = "*,household_recipe_shares!inner(recipe_id)"
@@ -167,6 +169,8 @@ class CreateRecipe(BaseModel):
     nutrition_per_serving: RecipeNutrition | None = None
     source_type: Literal["my_recipe", "family", "website"]
     source_person_name: str | None = Field(default=None, max_length=200)
+    # HttpUrl enforces its own 2,083-character maximum, distinct from the
+    # 2,048-character website-import request limit above.
     source_url: HttpUrl | None = None
 
     @model_validator(mode="after")

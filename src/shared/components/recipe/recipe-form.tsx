@@ -903,6 +903,13 @@ export function RecipeForm({
                         <View className="gap-2 border-b border-border pb-3">
                           <FormInput
                             accessibilityLabel="Ingredient section name"
+                            error={
+                              submitAttempted
+                                ? validationErrors.ingredientGroupTitles[
+                                    group.id
+                                  ]
+                                : null
+                            }
                             onChangeText={(title) =>
                               setDraft((current) => ({
                                 ...current,
@@ -987,7 +994,7 @@ export function RecipeForm({
                               <Pressable
                                 accessibilityLabel={`Ingredient ${index + 1} unit`}
                                 accessibilityRole="button"
-                                className="min-h-[52px] flex-row items-center justify-between rounded-xl border-2 border-border bg-surface px-3 py-3 focus:border-primary-strong active:bg-surface-subtle"
+                                className={`min-h-[52px] flex-row items-center justify-between rounded-xl border-2 bg-surface px-3 py-3 focus:border-primary-strong active:bg-surface-subtle ${submitAttempted && validationErrors.ingredientUnits[ingredient.id] ? "border-error" : "border-border"}`}
                                 onPress={() =>
                                   setUnitIngredientId(ingredient.id)
                                 }
@@ -1006,13 +1013,36 @@ export function RecipeForm({
                                   tintColor={colorTokens.textSecondary}
                                 />
                               </Pressable>
+                              {submitAttempted &&
+                              validationErrors.ingredientUnits[
+                                ingredient.id
+                              ] ? (
+                                <Text
+                                  accessibilityLiveRegion="polite"
+                                  accessibilityRole="alert"
+                                  className="mt-2 text-sm font-medium leading-5 text-error"
+                                >
+                                  {
+                                    validationErrors.ingredientUnits[
+                                      ingredient.id
+                                    ]
+                                  }
+                                </Text>
+                              ) : null}
                             </View>
                           </View>
                           <View>
-                            <FieldLabel label="Ingredient name" />
+                            <FieldLabel label="Ingredient name" required />
                             <FormInput
                               accessibilityLabel={`Ingredient ${index + 1} name`}
                               compactMultiline
+                              error={
+                                submitAttempted
+                                  ? validationErrors.ingredientNames[
+                                      ingredient.id
+                                    ]
+                                  : null
+                              }
                               onChangeText={(name) =>
                                 updateIngredient(group.id, ingredient.id, {
                                   name,
@@ -1026,6 +1056,13 @@ export function RecipeForm({
                             <FieldLabel label="Note" />
                             <FormInput
                               accessibilityLabel={`Ingredient ${index + 1} note`}
+                              error={
+                                submitAttempted
+                                  ? validationErrors.ingredientNotes[
+                                      ingredient.id
+                                    ]
+                                  : null
+                              }
                               onChangeText={(note) =>
                                 updateIngredient(group.id, ingredient.id, {
                                   note,
@@ -1081,6 +1118,13 @@ export function RecipeForm({
                         <View className="gap-2 border-b border-border pb-3">
                           <FormInput
                             accessibilityLabel="Instruction section name"
+                            error={
+                              submitAttempted
+                                ? validationErrors.instructionGroupTitles[
+                                    group.id
+                                  ]
+                                : null
+                            }
                             onChangeText={(title) =>
                               setDraft((current) => ({
                                 ...current,
@@ -1143,6 +1187,11 @@ export function RecipeForm({
                             <View className="flex-1">
                               <FormInput
                                 accessibilityLabel={`Instruction step ${index + 1}`}
+                                error={
+                                  submitAttempted
+                                    ? validationErrors.instructionSteps[step.id]
+                                    : null
+                                }
                                 multiline
                                 onChangeText={(text) =>
                                   setDraft((current) => ({

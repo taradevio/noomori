@@ -10,6 +10,10 @@ import { Alert } from "react-native";
 
 import { RecipeCreateScreen } from "@/shared/components/recipe/recipe-create-screen";
 import type { ApiRecipe } from "@/shared/components/recipe/recipe-response";
+import {
+  toImportedRecipeDraft,
+  type ImportedRecipeTextDraft,
+} from "@/shared/components/recipe/recipe-text-import";
 import type { RecipeDraft } from "@/shared/types";
 
 jest.mock("expo-crypto", () => ({
@@ -99,13 +103,13 @@ function response(recipe: ApiRecipe) {
   } as unknown as Response;
 }
 
-function renderScreen() {
+function renderScreen(initialDraft = draft) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RecipeCreateScreen initialDraft={draft} />
+      <RecipeCreateScreen initialDraft={initialDraft} />
     </QueryClientProvider>,
   );
 }
@@ -168,5 +172,55 @@ describe("recipe creation identity", () => {
     await act(async () => {
       completeRequest(response(apiRecipe("Original soup")));
     });
+  });
+
+  it("blocks an over-limit imported initial draft until it is corrected", async () => {
+    const imported: ImportedRecipeTextDraft = {
+      title: "Imported soup",
+      description: null,
+      ingredients: [
+        {
+          title: null,
+          items: [
+            {
+              name: "x".repeat(301),
+              quantity: 1,
+              unit: "cup",
+              note: null,
+            },
+          ],
+        },
+      ],
+      instructions: [],
+      servings: 2,
+      prep_time_minutes: null,
+      cook_time_minutes: null,
+      nutrition_per_serving: null,
+      image_url: null,
+    };
+    const importedDraft: RecipeDraft = {
+      ...toImportedRecipeDraft(imported),
+      source: { type: "my-recipe", name: "", url: "" },
+    };
+    renderScreen(importedDraft);
+
+    const ingredientName = screen.getByRole("textbox", {
+      name: "Ingredient 1 name",
+    });
+    expect(ingredientName).toHaveProp("value", "x".repeat(301));
+
+    await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText("Use 300 characters or fewer.")).toHaveProp(
+      "accessibilityRole",
+      "alert",
+    );
+
+    fetchMock.mockResolvedValueOnce(response(apiRecipe("Imported soup")));
+    await fireEvent.changeText(ingredientName, "stock");
+    await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   });
 });

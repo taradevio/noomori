@@ -41,13 +41,28 @@ export type RecipeCreatePayload = {
   source_url: string | null;
 };
 
+const RECIPE_TITLE_MAX_CHARS = 200;
+const RECIPE_SECTION_TITLE_MAX_CHARS = 200;
+const RECIPE_INGREDIENT_NAME_MAX_CHARS = 300;
+const RECIPE_INGREDIENT_UNIT_MAX_CHARS = 100;
+const RECIPE_INGREDIENT_NOTE_MAX_CHARS = 500;
+const RECIPE_INSTRUCTION_TEXT_MAX_CHARS = 2_000;
+const RECIPE_SOURCE_NAME_MAX_CHARS = 200;
+// CreateRecipe.source_url mirrors Pydantic HttpUrl's 2,083-character limit.
+// The website-import request has a separate 2,048-character fetch limit.
+const RECIPE_SOURCE_URL_MAX_CHARS = 2_083;
+
+function normalizedText(value: string) {
+  return value.trim();
+}
+
 function nullableText(value: string) {
-  return value.trim() || null;
+  return normalizedText(value) || null;
 }
 
 export function isValidRecipeWebsiteUrl(value: string) {
   try {
-    const parsed = new URL(value.trim());
+    const parsed = new URL(normalizedText(value));
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;
@@ -101,40 +116,105 @@ export type RecipeDraftErrors = {
   source?: string;
   sourceName?: string;
   sourceUrl?: string;
+  ingredientGroupTitles: Record<string, string>;
   ingredientAmounts: Record<string, string>;
+  ingredientNames: Record<string, string>;
+  ingredientUnits: Record<string, string>;
+  ingredientNotes: Record<string, string>;
+  instructionGroupTitles: Record<string, string>;
+  instructionSteps: Record<string, string>;
   nutrition: Partial<Record<keyof RecipeNutrition, string>>;
 };
 
 export function validateRecipeDraft(draft: RecipeDraft): RecipeDraftErrors {
   const errors: RecipeDraftErrors = {
+    ingredientGroupTitles: {},
     ingredientAmounts: {},
+    ingredientNames: {},
+    ingredientUnits: {},
+    ingredientNotes: {},
+    instructionGroupTitles: {},
+    instructionSteps: {},
     nutrition: {},
   };
 
-  if (!draft.title.trim()) errors.title = "Enter a recipe name.";
+  const title = normalizedText(draft.title);
+  if (!title) {
+    errors.title = "Enter a recipe name.";
+  } else if (title.length > RECIPE_TITLE_MAX_CHARS) {
+    errors.title = "Use 200 characters or fewer.";
+  }
 
   if (!draft.source.type) {
     errors.source = "Choose where this recipe came from.";
-  } else if (
-    draft.source.type === "family-friend" &&
-    !draft.source.name.trim()
-  ) {
-    errors.sourceName = "Add who this recipe came from.";
-  } else if (
-    draft.source.type === "website" &&
-    !isValidRecipeWebsiteUrl(draft.source.url)
-  ) {
-    errors.sourceUrl = "Enter a valid website URL.";
+  } else if (draft.source.type === "family-friend") {
+    const sourceName = normalizedText(draft.source.name);
+    if (!sourceName) {
+      errors.sourceName = "Add who this recipe came from.";
+    } else if (sourceName.length > RECIPE_SOURCE_NAME_MAX_CHARS) {
+      errors.sourceName = "Use 200 characters or fewer.";
+    }
+  } else if (draft.source.type === "website") {
+    const sourceUrl = normalizedText(draft.source.url);
+    if (!sourceUrl || !isValidRecipeWebsiteUrl(sourceUrl)) {
+      errors.sourceUrl = "Enter a valid website URL.";
+    } else if (sourceUrl.length > RECIPE_SOURCE_URL_MAX_CHARS) {
+      errors.sourceUrl = "Use 2,083 characters or fewer.";
+    }
   }
 
   for (const group of draft.ingredientGroups) {
+    if (
+      group.title !== null &&
+      normalizedText(group.title).length > RECIPE_SECTION_TITLE_MAX_CHARS
+    ) {
+      errors.ingredientGroupTitles[group.id] = "Use 200 characters or fewer.";
+    }
+
     for (const ingredient of group.ingredients) {
+      const ingredientName = normalizedText(ingredient.name);
+      if (!ingredientName) {
+        errors.ingredientNames[ingredient.id] = "Enter an ingredient name.";
+      } else if (ingredientName.length > RECIPE_INGREDIENT_NAME_MAX_CHARS) {
+        errors.ingredientNames[ingredient.id] = "Use 300 characters or fewer.";
+      }
+
       if (
-        ingredient.amount.trim() &&
+        normalizedText(ingredient.amount) &&
         parseRecipeAmount(ingredient.amount) === null
       ) {
         errors.ingredientAmounts[ingredient.id] =
           "Use a number, decimal, or fraction.";
+      }
+
+      if (
+        normalizedText(ingredient.unit).length >
+        RECIPE_INGREDIENT_UNIT_MAX_CHARS
+      ) {
+        errors.ingredientUnits[ingredient.id] = "Use 100 characters or fewer.";
+      }
+      if (
+        normalizedText(ingredient.note).length >
+        RECIPE_INGREDIENT_NOTE_MAX_CHARS
+      ) {
+        errors.ingredientNotes[ingredient.id] = "Use 500 characters or fewer.";
+      }
+    }
+  }
+
+  for (const group of draft.instructionGroups) {
+    if (
+      group.title !== null &&
+      normalizedText(group.title).length > RECIPE_SECTION_TITLE_MAX_CHARS
+    ) {
+      errors.instructionGroupTitles[group.id] = "Use 200 characters or fewer.";
+    }
+
+    for (const step of group.steps) {
+      if (
+        normalizedText(step.text).length > RECIPE_INSTRUCTION_TEXT_MAX_CHARS
+      ) {
+        errors.instructionSteps[step.id] = "Use 2,000 characters or fewer.";
       }
     }
   }
@@ -156,7 +236,13 @@ export function hasRecipeDraftErrors(errors: RecipeDraftErrors) {
     errors.source ||
     errors.sourceName ||
     errors.sourceUrl ||
+    Object.keys(errors.ingredientGroupTitles).length ||
     Object.keys(errors.ingredientAmounts).length ||
+    Object.keys(errors.ingredientNames).length ||
+    Object.keys(errors.ingredientUnits).length ||
+    Object.keys(errors.ingredientNotes).length ||
+    Object.keys(errors.instructionGroupTitles).length ||
+    Object.keys(errors.instructionSteps).length ||
     Object.keys(errors.nutrition).length,
   );
 }
@@ -207,12 +293,12 @@ export function toRecipeCreatePayload(draft: RecipeDraft): RecipeCreatePayload {
   };
 
   return {
-    title: draft.title.trim(),
+    title: normalizedText(draft.title),
     description: nullableText(draft.notes),
     ingredients: draft.ingredientGroups.map((group) => ({
       title: group.title === null ? null : nullableText(group.title),
       items: group.ingredients.map((ingredient) => ({
-        name: ingredient.name.trim(),
+        name: normalizedText(ingredient.name),
         quantity: quantityFromDraft(ingredient.amount),
         unit: nullableText(ingredient.unit),
         note: nullableText(ingredient.note),
@@ -220,7 +306,7 @@ export function toRecipeCreatePayload(draft: RecipeDraft): RecipeCreatePayload {
     })),
     instructions: draft.instructionGroups.map((group) => ({
       title: group.title === null ? null : nullableText(group.title),
-      steps: group.steps.map((step) => ({ text: step.text.trim() })),
+      steps: group.steps.map((step) => ({ text: normalizedText(step.text) })),
     })),
     servings: draft.servings,
     prep_time_minutes: draft.prepMinutes,
