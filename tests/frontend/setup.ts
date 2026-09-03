@@ -5,6 +5,24 @@ jest.mock("expo-symbols", () => {
 
 jest.mock("expo-status-bar", () => ({ StatusBar: () => null }));
 
+jest.mock("react-native-keyboard-controller", () => {
+  const React = jest.requireActual("react");
+  const { View } = jest.requireActual("react-native");
+  const keyboardControllerMock = jest.requireActual(
+    "react-native-keyboard-controller/jest",
+  );
+
+  return {
+    ...keyboardControllerMock,
+    KeyboardProvider: ({ children, ...props }: React.PropsWithChildren) =>
+      React.createElement(
+        View,
+        { ...props, testID: "keyboard-provider" },
+        children,
+      ),
+  };
+});
+
 jest.mock("expo-image", () => {
   const { Image } = jest.requireActual("react-native");
   return { Image };

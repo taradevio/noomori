@@ -3,17 +3,15 @@ import * as ImagePicker from "expo-image-picker";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  KeyboardAvoidingView,
   KeyboardTypeOptions,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { KeyboardAwareScrollView } from "@/shared/components/keyboard-layout";
 import { colorTokens } from "@/shared/design-system";
 import type {
   RecipeDraft,
@@ -290,7 +288,6 @@ export function RecipeForm({
     if (!nutritionTouched[key] && !submitAttempted) return null;
     return validationErrors.nutrition[key] ?? null;
   };
-
   const submit = async () => {
     if (submitLock.current || isSubmitting) return;
     setSubmitAttempted(true);
@@ -679,10 +676,7 @@ export function RecipeForm({
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      className="flex-1 bg-background"
-    >
+    <View className="flex-1 bg-background">
       <View style={{ paddingTop: insets.top }} className="flex-1">
         <View className="min-h-16 flex-row items-center gap-3 border-b border-border bg-surface px-4 py-2">
           <Pressable
@@ -706,13 +700,15 @@ export function RecipeForm({
           </Text>
         </View>
 
-        <ScrollView
-          automaticallyAdjustKeyboardInsets
+        <KeyboardAwareScrollView
+          bottomOffset={24}
           contentContainerStyle={{
             paddingBottom: Math.max(insets.bottom + 32, 48),
           }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
+          mode="insets"
+          testID="recipe-form-scroll"
         >
           <View className="w-full max-w-[720px] self-center gap-8 px-5 pt-6">
             {/* NOTE: Import warnings are inline and non-blocking so users can
@@ -1411,7 +1407,7 @@ export function RecipeForm({
               </Text>
             </Pressable>
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </View>
 
       <RecipeDurationPicker
@@ -1442,6 +1438,6 @@ export function RecipeForm({
         }}
         value={selectedUnitIngredient?.unit ?? ""}
       />
-    </KeyboardAvoidingView>
+    </View>
   );
 }

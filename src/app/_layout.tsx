@@ -1,5 +1,6 @@
 import "@/global.css";
 
+import { KeyboardProvider } from "@/shared/components/keyboard-layout";
 import { noomoriNavigationTheme } from "@/shared/design-system";
 import {
   SessionProvider,
@@ -65,13 +66,19 @@ export default function RootLayout() {
   const [queryClient] = useState(() => new QueryClient());
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={noomoriNavigationTheme}>
-        <SessionProvider>
-          <SplashScreenController />
-          <RootNavigator />
-        </SessionProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <KeyboardProvider
+      navigationBarTranslucent
+      preserveEdgeToEdge
+      statusBarTranslucent
+    >
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider value={noomoriNavigationTheme}>
+          <SessionProvider>
+            <SplashScreenController />
+            <RootNavigator />
+          </SessionProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </KeyboardProvider>
   );
 }

@@ -27,6 +27,32 @@ export function getRecipeImageResize(width: number, height: number) {
     : { width: null, height: RECIPE_IMAGE_MAX_EDGE };
 }
 
+export function toRecipeImageError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+  if (
+    error instanceof Error &&
+    error.message ===
+      "This photo is too large after processing. Choose another photo."
+  ) {
+    return error;
+  }
+  if (
+    error instanceof TypeError ||
+    message.includes("network request failed") ||
+    message.includes("network error") ||
+    message.includes("failed to fetch") ||
+    message.includes("offline")
+  ) {
+    return new Error(
+      "You’re offline. Connect to the internet and try adding the photo again.",
+    );
+  }
+  return new Error("This photo couldn’t be used. Choose another photo.");
+}
+
 export async function prepareRecipeImage(
   photo: RecipePhotoDraft,
 ): Promise<PreparedRecipePhoto> {
@@ -75,13 +101,6 @@ export async function prepareRecipeImage(
       durationMs: Date.now() - startedAt,
       message: error instanceof Error ? error.message : "Unknown error",
     });
-    if (
-      error instanceof Error &&
-      error.message ===
-        "This photo is too large after processing. Choose another photo."
-    ) {
-      throw error;
-    }
-    throw new Error("This photo couldn’t be used. Choose another photo.");
+    throw toRecipeImageError(error);
   }
 }

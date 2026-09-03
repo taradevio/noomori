@@ -110,6 +110,7 @@ export function RecipeCreateScreen({
             "Recipe-Creation-Id": recipeCreationId,
           },
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(apiConfig.timeout),
         },
       );
 
@@ -170,7 +171,10 @@ export function RecipeCreateScreen({
   const { mutateAsync, isPending, isError, reset } = useMutation({
     mutationFn: saveNewRecipe,
     onError: () => {
-      Alert.alert("Recipe not saved", "Check your connection and try again.");
+      Alert.alert(
+        "Save interrupted",
+        "Your changes are still here. Check your connection and try again.",
+      );
     },
     onSuccess: async ({ recipe, photo, photoFailed }) => {
       const retryPhoto = async () => {

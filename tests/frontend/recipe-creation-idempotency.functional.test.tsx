@@ -6,9 +6,12 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react-native";
-import { Alert } from "react-native";
+import { Alert, Keyboard } from "react-native";
 
+import { apiConfig } from "@/config/api";
 import { RecipeCreateScreen } from "@/shared/components/recipe/recipe-create-screen";
+import type { PreparedRecipePhoto } from "@/shared/components/recipe/recipe-image";
+import { attachRecipeImage } from "@/shared/components/recipe/recipe-image-storage";
 import type { ApiRecipe } from "@/shared/components/recipe/recipe-response";
 import {
   toImportedRecipeDraft,
@@ -25,6 +28,7 @@ jest.mock("expo-image-picker", () => ({
 }));
 
 jest.mock("expo-router", () => ({
+  DefaultTheme: { colors: {} },
   useNavigation: () => ({
     addListener: jest.fn(() => jest.fn()),
     dispatch: jest.fn(),
@@ -103,13 +107,19 @@ function response(recipe: ApiRecipe) {
   } as unknown as Response;
 }
 
-function renderScreen(initialDraft = draft) {
+function renderScreen(
+  initialDraft = draft,
+  initialPreparedPhoto: PreparedRecipePhoto | null = null,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RecipeCreateScreen initialDraft={initialDraft} />
+      <RecipeCreateScreen
+        initialDraft={initialDraft}
+        initialPreparedPhoto={initialPreparedPhoto}
+      />
     </QueryClientProvider>,
   );
 }
@@ -125,20 +135,71 @@ beforeEach(() => {
 });
 
 describe("recipe creation identity", () => {
+  it("uses the configured timeout signal for the create request", async () => {
+    const timeoutSignal = new AbortController().signal;
+    const timeout = jest.fn(() => timeoutSignal);
+    const originalTimeout = AbortSignal.timeout;
+    Object.defineProperty(AbortSignal, "timeout", {
+      configurable: true,
+      value: timeout,
+    });
+    try {
+      fetchMock.mockResolvedValueOnce(response(apiRecipe("Original soup")));
+      await renderScreen();
+
+      await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+      expect(timeout).toHaveBeenCalledWith(apiConfig.timeout);
+      expect(fetchMock.mock.calls[0][1]).toMatchObject({
+        signal: timeoutSignal,
+      });
+    } finally {
+      Object.defineProperty(AbortSignal, "timeout", {
+        configurable: true,
+        value: originalTimeout,
+      });
+    }
+  });
+
   it("reuses one creation ID when an edited draft is retried", async () => {
+    const photo = {
+      uri: "file:///original.webp",
+      width: 800,
+      height: 600,
+      fileName: "original.webp",
+      mimeType: "image/webp",
+    };
+    const preparedPhoto: PreparedRecipePhoto = {
+      uri: photo.uri,
+      width: photo.width,
+      height: photo.height,
+      bytes: new ArrayBuffer(1),
+    };
     fetchMock
       .mockRejectedValueOnce(new TypeError("Network request failed"))
       .mockResolvedValueOnce(response(apiRecipe("Edited soup")));
-    renderScreen();
+    await renderScreen({ ...draft, photo }, preparedPhoto);
 
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(screen.getByTestId("save-recipe-placeholder")).toBeEnabled(),
     );
+    expect(Alert.alert).toHaveBeenCalledWith(
+      "Save interrupted",
+      "Your changes are still here. Check your connection and try again.",
+    );
+    expect(screen.getByLabelText("Recipe title")).toHaveProp(
+      "value",
+      "Original soup",
+    );
+    expect(screen.getByText("Remove photo")).toBeTruthy();
+    expect(attachRecipeImage).not.toHaveBeenCalled();
 
+    await fireEvent.press(screen.getByText("Remove photo"));
     await fireEvent.changeText(
-      screen.getByRole("textbox", { name: "Recipe title" }),
+      screen.getByLabelText("Recipe title"),
       "Edited soup",
     );
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
@@ -163,15 +224,18 @@ describe("recipe creation identity", () => {
         completeRequest = resolve;
       }),
     );
-    renderScreen();
+    await renderScreen();
 
-    fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
-    fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
+    const save = screen.getByTestId("save-recipe-placeholder");
+    const firstPress = fireEvent.press(save);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await fireEvent.press(save);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       completeRequest(response(apiRecipe("Original soup")));
     });
+    await firstPress;
   });
 
   it("blocks an over-limit imported initial draft until it is corrected", async () => {
@@ -202,11 +266,9 @@ describe("recipe creation identity", () => {
       ...toImportedRecipeDraft(imported),
       source: { type: "my-recipe", name: "", url: "" },
     };
-    renderScreen(importedDraft);
+    await renderScreen(importedDraft);
 
-    const ingredientName = screen.getByRole("textbox", {
-      name: "Ingredient 1 name",
-    });
+    const ingredientName = screen.getByDisplayValue("x".repeat(301));
     expect(ingredientName).toHaveProp("value", "x".repeat(301));
 
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
@@ -222,5 +284,30 @@ describe("recipe creation identity", () => {
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("delegates recipe input visibility to keyboard-aware scrolling", async () => {
+    const addKeyboardListener = jest.spyOn(Keyboard, "addListener");
+    await renderScreen();
+
+    expect(screen.getByTestId("recipe-form-scroll")).toHaveProp(
+      "bottomOffset",
+      24,
+    );
+    expect(screen.getByTestId("recipe-form-scroll")).toHaveProp(
+      "mode",
+      "insets",
+    );
+    expect(screen.getByTestId("recipe-form-scroll")).toHaveProp(
+      "keyboardDismissMode",
+      "interactive",
+    );
+    expect(screen.getByTestId("recipe-form-scroll")).toHaveProp(
+      "keyboardShouldPersistTaps",
+      "handled",
+    );
+
+    await fireEvent(screen.getByLabelText("Recipe notes"), "focus");
+    expect(addKeyboardListener).not.toHaveBeenCalled();
   });
 });
