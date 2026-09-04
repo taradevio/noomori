@@ -31,6 +31,19 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: uv sync --project server --frozen
 
+      # NOTE: This offline suite includes Website Import coverage and must pass
+      # before CI spends time starting the local Supabase stack.
+      - name: Test backend (includes website imports)
+        id: backend_tests
+        env:
+          # NOTE: Non-secret placeholders satisfy application settings; these
+          # tests must not connect to Supabase.
+          APP_ENV: test
+          SUPABASE_URL: http://127.0.0.1:54321
+          SUPABASE_KEY: ci-backend-test-key
+          HOUSEHOLD_JOIN_CODE_HMAC_KEY: 0123456789abcdef0123456789abcdef
+        run: bun run test:be
+
       - name: Start local Supabase
         run: bunx supabase start -x studio,imgproxy,realtime,mailpit,edge-runtime,logflare,vector,supavisor,postgres-meta
 
@@ -40,6 +53,8 @@ jobs:
       - name: Test authorization
         run: bun run test:auth
 
+      # NOTE: A successful backend step means Supabase startup may have been
+      # attempted, so cleanup must still run after later failures.
       - name: Stop local Supabase
-        if: always()
+        if: ${{ always() && steps.backend_tests.outcome == 'success' }}
         run: bunx supabase stop --no-backup
