@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <!-- NOTE: Minimal synthetic WPRM structure modeled on Budget Bytes. -->
+  <head>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        "name": "Macaroni Salad",
+        "description": "A simple pasta salad with a creamy dressing.",
+        "prepTime": "PT15M",
+        "cookTime": "PT10M",
+        "recipeYield": "8 servings",
+        "recipeIngredient": [
+          "8 ounces macaroni",
+          "2 hard-boiled eggs",
+          "1 cup mayonnaise",
+          "1 tablespoon Dijon mustard"
+        ],
+        "recipeInstructions": [
+          {
+            "@type": "HowToStep",
+            "text": "Cook the macaroni, then drain and cool it."
+          },
+          {
+            "@type": "HowToStep",
+            "text": "Mix the dressing and fold it into the macaroni."
+          }
+        ],
+        "nutrition": {
+          "@type": "NutritionInformation",
+          "calories": "332 kcal",
+          "proteinContent": "6 g"
+        },
+        "image": "https://images.example.com/macaroni-salad.jpg"
+      }
+    </script>
+  </head>
+  <body>
+    <article class="wprm-recipe-container">
+      <h1>Macaroni Salad</h1>
+      <button type="button">Print Recipe</button>
+      <label><input type="checkbox" /> Cook Mode</label>
+      <div class="wprm-recipe-meta-container">
+        <span class="wprm-recipe-servings">8 servings</span>
+        <span class="wprm-recipe-prep-time">15 minutes</span>
+        <span class="wprm-recipe-cook-time">10 minutes</span>
+      </div>
+
+      <div class="wprm-recipe-ingredients-container">
+        <div class="wprm-recipe-ingredient-group">
+          <ul class="wprm-recipe-ingredients">
+            <li class="wprm-recipe-ingredient">8 ounces macaroni</li>
+            <li class="wprm-recipe-ingredient">2 hard-boiled eggs</li>
+          </ul>
+        </div>
+        <div class="wprm-recipe-ingredient-group">
+          <h4 class="wprm-recipe-group-name">Dressing</h4>
+          <ul class="wprm-recipe-ingredients">
+            <li class="wprm-recipe-ingredient">1 cup mayonnaise</li>
+            <li class="wprm-recipe-ingredient">1 tablespoon Dijon mustard</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="wprm-recipe-instructions-container">
+        <ol class="wprm-recipe-instructions">
+          <li class="wprm-recipe-instruction">
+            Cook the macaroni, then drain and cool it.
+          </li>
+          <li class="wprm-recipe-instruction">
+            Mix the dressing and fold it into the macaroni.
+          </li>
+        </ol>
+      </div>
+    </article>
+  </body>
+</html>

@@ -958,6 +958,69 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                 )
                 fallback.assert_called_once_with("html", max_chars=20_000)
 
+    def test_fallback_preserves_primary_metadata_and_owns_core_fields(self):
+        page = FetchedRecipePage(
+            html="html",
+            url="https://example.com/recipe",
+            hostname="example.com",
+            response_size=4,
+        )
+        primary = extracted_recipe(
+            title="Primary Soup",
+            description="Primary description",
+            ingredient_groups=[
+                ExtractedIngredientGroup(None, ["1 cup primary stock"]),
+            ],
+            instructions=[],
+            prep_time_minutes=10,
+            cook_time_minutes=30,
+            yield_text="4 servings",
+            nutrients={"calories": "120 kcal", "proteinContent": "7 g"},
+            image_url="https://example.com/soup.webp",
+        )
+        fallback_text = """Fallback Soup
+Servings: 2
+Prep time: 5 minutes
+Cook time: 15 minutes
+Ingredients
+- 2 cups water
+Instructions
+1. Boil the water.
+"""
+
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.main.extract_recipe", return_value=primary),
+            patch(
+                "server.main.extract_recipe_container_text",
+                return_value=fallback_text,
+            ),
+            patch("server.main._enrich_dom_nutrition") as dom_nutrition,
+            patch("server.main.logger.log"),
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual("Fallback Soup", response.title)
+        self.assertEqual("water", response.ingredients[0].items[0].name)
+        self.assertEqual(
+            "Boil the water.",
+            response.instructions[0].steps[0].text,
+        )
+        self.assertEqual("Primary description", response.description)
+        self.assertEqual(4, response.servings)
+        self.assertEqual(10, response.prep_time_minutes)
+        self.assertEqual(30, response.cook_time_minutes)
+        self.assertEqual(120, response.nutrition_per_serving.calories_kcal)
+        self.assertEqual(7, response.nutrition_per_serving.protein_g)
+        self.assertEqual(
+            "https://example.com/soup.webp",
+            str(response.image_url),
+        )
+        dom_nutrition.assert_not_called()
+
     def test_realistic_unlisted_page_uses_dom_fallback_end_to_end(self):
         page = FetchedRecipePage(
             html=DOM_FIXTURE_PATH.read_text(),

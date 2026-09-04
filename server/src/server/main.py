@@ -1490,21 +1490,45 @@ def import_recipe_url(
         # NOTE: Text imports allow generic nutrition headings, but website DOM
         # nutrition must pass the stricter per-serving confidence gate above.
         draft = draft.model_copy(update={"nutrition_per_serving": None})
-        try:
-            enriched_draft, enriched_field_count = _enrich_dom_nutrition(
-                draft,
-                fallback_text,
-            )
-        except ValueError:
-            pass
-        else:
-            draft = enriched_draft
-            nutrition_field_count = enriched_field_count
-            if nutrition_field_count:
-                nutrition_enrichment = "dom"
+        # NOTE: Do not compute fallback nutrition when the normalized primary
+        # draft already has a trusted value that will be preserved below.
+        if (
+            primary_draft is None
+            or primary_draft.nutrition_per_serving is None
+        ):
+            try:
+                enriched_draft, enriched_field_count = _enrich_dom_nutrition(
+                    draft,
+                    fallback_text,
+                )
+            except ValueError:
+                pass
+            else:
+                draft = enriched_draft
+                nutrition_field_count = enriched_field_count
+                if nutrition_field_count:
+                    nutrition_enrichment = "dom"
         ingredient_count, instruction_count = _draft_core_counts(draft)
         if not ingredient_count or not instruction_count:
             raise WebsiteImportError("recipe_not_found")
+
+        if primary_draft is not None:
+            # NOTE: Fallback owns title and core arrays. Restore only this
+            # explicit set of non-null, high-confidence primary metadata.
+            draft = draft.model_copy(
+                update={
+                    field: value
+                    for field in (
+                        "description",
+                        "servings",
+                        "prep_time_minutes",
+                        "cook_time_minutes",
+                        "nutrition_per_serving",
+                        "image_url",
+                    )
+                    if (value := getattr(primary_draft, field)) is not None
+                }
+            )
 
         extraction_strategy = "dom_fallback"
         result = "success"
