@@ -13,6 +13,7 @@ os.environ.setdefault(
 import httpx  # noqa: E402
 
 from server.main import (  # noqa: E402
+    ImportedRecipeTextDraft,
     app,
     get_current_user,
 )
@@ -257,17 +258,11 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(422, invalid.status_code)
 
     async def test_recipe_url_and_image_import_map_success_at_the_route_boundary(self):
-        draft = {
-            "title": "Imported soup",
-            "description": None,
-            "ingredients": [],
-            "instructions": [],
-            "servings": None,
-            "prep_time_minutes": None,
-            "cook_time_minutes": None,
-            "nutrition_per_serving": None,
-            "image_url": None,
-        }
+        draft = ImportedRecipeTextDraft(
+            title="Imported soup",
+            ingredients=[{"title": None, "items": [{"name": "stock"}]}],
+            instructions=[{"title": None, "steps": [{"text": "Simmer."}]}],
+        )
         fetched_page = SimpleNamespace(
             hostname="example.com",
             response_size=100,

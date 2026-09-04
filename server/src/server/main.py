@@ -19,8 +19,10 @@ from server.recipe_url_import import (
     ExtractedRecipe,
     WebsiteImportError,
     extract_recipe,
+    extract_recipe_container_text,
     fetch_public_html,
     fetch_public_image,
+    recipe_section_name,
 )
 from dotenv import load_dotenv
 from supabase import create_client, Client, ClientOptions
@@ -221,13 +223,6 @@ class ImportedRecipeTextDraft(BaseModel):
 
 
 _SECTION_NAMES = {
-    "ingredient": "ingredients",
-    "ingredients": "ingredients",
-    "direction": "instructions",
-    "directions": "instructions",
-    "instruction": "instructions",
-    "instructions": "instructions",
-    "method": "instructions",
     "note": "notes",
     "notes": "notes",
     "key notes": "notes",
@@ -600,7 +595,11 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
             pending_nutrition = None
             continue
 
-        section_name = _SECTION_NAMES.get(normalized_heading.lower())
+        # NOTE: Website fallback and pasted text share the same exact recipe
+        # section aliases; notes remain parser-only headings.
+        section_name = recipe_section_name(line) or _SECTION_NAMES.get(
+            normalized_heading.lower()
+        )
         if section_name:
             section = section_name
             current_group = None
@@ -1204,6 +1203,21 @@ _WEBSITE_IMPORT_STATUS_CODES = {
 }
 
 
+def _draft_core_counts(draft: ImportedRecipeTextDraft) -> tuple[int, int]:
+    return (
+        sum(len(group.items) for group in draft.ingredients),
+        sum(len(group.steps) for group in draft.instructions),
+    )
+
+
+def _missing_primary_reason(ingredient_count: int, instruction_count: int) -> str:
+    if not ingredient_count and not instruction_count:
+        return "primary_missing_both"
+    if not ingredient_count:
+        return "primary_missing_ingredients"
+    return "primary_missing_instructions"
+
+
 @app.post("/recipes/import/url", response_model=ImportedRecipeTextDraft)
 def import_recipe_url(
     payload: ImportRecipeUrlRequest,
@@ -1215,17 +1229,53 @@ def import_recipe_url(
     response_size = 0
     ingredient_count = 0
     instruction_count = 0
+    extraction_strategy = "none"
+    fallback_reason = "none"
 
     try:
         page = fetch_public_html(str(payload.url))
         hostname = page.hostname
         response_size = page.response_size
-        extracted = extract_recipe(page.html, page.url)
-        ingredient_count = sum(
-            len(group.ingredients) for group in extracted.ingredient_groups
+
+        primary_draft = None
+        try:
+            extracted = extract_recipe(page.html, page.url)
+            try:
+                primary_draft = normalize_imported_website_recipe(extracted)
+            except ValueError:
+                fallback_reason = _missing_primary_reason(
+                    sum(
+                        len(group.ingredients)
+                        for group in extracted.ingredient_groups
+                    ),
+                    len(extracted.instructions),
+                )
+        except WebsiteImportError as exc:
+            if exc.detail != "recipe_not_found":
+                raise
+            fallback_reason = "primary_exception"
+
+        if primary_draft is not None:
+            ingredient_count, instruction_count = _draft_core_counts(primary_draft)
+            if ingredient_count and instruction_count:
+                extraction_strategy = "recipe_scrapers"
+                result = "success"
+                return primary_draft
+            fallback_reason = _missing_primary_reason(
+                ingredient_count,
+                instruction_count,
+            )
+
+        fallback_text = extract_recipe_container_text(
+            page.html,
+            max_chars=RECIPE_TEXT_MAX_CHARS,
         )
-        instruction_count = len(extracted.instructions)
-        draft = normalize_imported_website_recipe(extracted)
+        draft = parse_recipe_text(fallback_text)
+        ingredient_count, instruction_count = _draft_core_counts(draft)
+        if not ingredient_count or not instruction_count:
+            raise WebsiteImportError("recipe_not_found")
+
+        extraction_strategy = "dom_fallback"
         result = "success"
         return draft
     except WebsiteImportError as exc:
@@ -1244,7 +1294,8 @@ def import_recipe_url(
         logger.log(
             logging.INFO if result == "success" else logging.WARNING,
             "Website recipe import url=%s hostname=%s result=%s duration_ms=%.1f "
-            "response_size=%s ingredient_count=%s instruction_count=%s",
+            "response_size=%s ingredient_count=%s instruction_count=%s "
+            "extraction_strategy=%s fallback_reason=%s",
             payload.url,
             hostname,
             result,
@@ -1252,6 +1303,8 @@ def import_recipe_url(
             response_size,
             ingredient_count,
             instruction_count,
+            extraction_strategy,
+            fallback_reason,
             exc_info=result != "success",
         )
 

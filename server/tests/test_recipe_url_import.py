@@ -16,6 +16,7 @@ from server.main import (
     import_recipe_image,
     import_recipe_url,
     normalize_imported_website_recipe,
+    parse_recipe_text,
 )
 from server.recipe_url_import import (
     MAX_HTML_BYTES,
@@ -27,12 +28,19 @@ from server.recipe_url_import import (
     WebsiteImportError,
     _validated_target,
     extract_recipe,
+    extract_recipe_container_text,
     fetch_public_html,
     fetch_public_image,
 )
 
 
 FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "recipe_url_import.html"
+DOM_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "recipe_url_import_dom.html"
+)
+SASA_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "recipe_url_import_sasa.html"
+)
 PUBLIC_ANSWER = [
     (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
 ]
@@ -237,6 +245,204 @@ class RecipeExtractionTest(unittest.TestCase):
             "https://cdn.example.com/cookies.webp",
             extracted.image_url,
         )
+
+
+class RecipeDomFallbackTest(unittest.TestCase):
+    def test_extracts_realistic_sibling_section_recipe_without_later_page_noise(self):
+        text = extract_recipe_container_text(
+            DOM_FIXTURE_PATH.read_text(),
+            max_chars=20_000,
+        )
+        draft = parse_recipe_text(text)
+
+        self.assertEqual("Mild Indian Goat Curry", draft.title)
+        self.assertEqual(4, len(draft.ingredients[0].items))
+        self.assertEqual((500, "g"), (
+            draft.ingredients[0].items[0].quantity,
+            draft.ingredients[0].items[0].unit,
+        ))
+        self.assertEqual((150, "ml"), (
+            draft.ingredients[0].items[-1].quantity,
+            draft.ingredients[0].items[-1].unit,
+        ))
+        self.assertEqual(4, len(draft.instructions[0].steps))
+        self.assertNotIn("Download Recipe", text)
+        self.assertNotIn("Buy Diced Goat Meat", text)
+        self.assertNotIn("Basket", text)
+
+    def test_extracts_sasa_groups_without_controls_comments_or_later_content(self):
+        text = extract_recipe_container_text(
+            SASA_FIXTURE_PATH.read_text(),
+            max_chars=20_000,
+        )
+        draft = parse_recipe_text(text)
+
+        self.assertEqual("Tahu Bayam Cah Jamur", draft.title)
+        self.assertEqual(
+            [None, "Bahan-Bahan Cah Jamur", "Garnish"],
+            [group.title for group in draft.ingredients],
+        )
+        self.assertEqual(
+            [7, 12, 1],
+            [len(group.items) for group in draft.ingredients],
+        )
+        self.assertEqual(
+            ["Tahu Bayam", "Cah Jamur"],
+            [group.title for group in draft.instructions],
+        )
+        self.assertEqual(
+            [5, 7],
+            [len(group.steps) for group in draft.instructions],
+        )
+        for noise in (
+            "[if BLOCK]",
+            "[if ENDBLOCK]",
+            "Print Resep",
+            "Produk Terkait",
+            "Sasa Tepung Bumbu",
+            "Resep Lainnya",
+            "Nasi Goreng Spesial",
+            "Artikel Terkait",
+            "Tips memasak untuk keluarga.",
+        ):
+            with self.subTest(noise=noise):
+                self.assertNotIn(noise, text)
+
+    def test_matches_only_exact_normalized_indonesian_dom_headings(self):
+        template = """
+        <article>
+          <h1>Sup</h1>
+          <h2>{ingredients}</h2><ul><li>1 cup water</li></ul>
+          <h2>{instructions}</h2><ol><li>Aduk rata.</li></ol>
+        </article>
+        """
+        ingredient_headings = ("Bahan", "Bahan-Bahan")
+        instruction_headings = (
+            "Cara Membuat",
+            "Cara Memasak",
+            "Langkah",
+            "Langkah-Langkah",
+        )
+
+        for heading in ingredient_headings:
+            with self.subTest(ingredient_heading=heading):
+                text = extract_recipe_container_text(
+                    template.format(
+                        ingredients=heading,
+                        instructions="Cara Membuat",
+                    ),
+                    max_chars=20_000,
+                )
+                self.assertIn(heading, text)
+
+        for heading in instruction_headings:
+            with self.subTest(instruction_heading=heading):
+                text = extract_recipe_container_text(
+                    template.format(ingredients="Bahan", instructions=heading),
+                    max_chars=20_000,
+                )
+                self.assertIn(heading, text)
+
+        normalized = extract_recipe_container_text(
+            template.format(
+                ingredients="  BAHAN -   BAHAN : ",
+                instructions=" CARA   MEMBUAT : ",
+            ),
+            max_chars=20_000,
+        )
+        self.assertEqual("Sup", parse_recipe_text(normalized).title)
+
+        for ingredients, instructions in (
+            ("Bahan Tambahan", "Cara Membuat"),
+            ("Bahan", "Cara Membuat Saus"),
+        ):
+            with self.subTest(
+                ingredients=ingredients,
+                instructions=instructions,
+            ):
+                with self.assertRaises(WebsiteImportError) as caught:
+                    extract_recipe_container_text(
+                        template.format(
+                            ingredients=ingredients,
+                            instructions=instructions,
+                        ),
+                        max_chars=20_000,
+                    )
+                self.assertEqual("recipe_not_found", caught.exception.detail)
+
+    def test_supports_semantic_headings_groups_metadata_and_nested_roots(self):
+        html = """
+        <main>
+          <article id="recipe-card">
+            <div class="sidebar">
+              <h2>Ingredients</h2><p>Advertisement</p>
+              <h2>Method</h2><p>Buy something.</p>
+            </div>
+            <div role="navigation">Previous recipe | Next recipe</div>
+            <h1>Weeknight Soup</h1>
+            <p>Prep time: 5 mins</p>
+            <h2>Ingredients</h2>
+            <h3>Broth</h3>
+            <ul><li>1 cup water</li><li>1 pinch salt</li></ul>
+            <h2>Directions</h2>
+            <ol><li>Stir well.</li><li>Serve warm.</li></ol>
+            <p>Keep covered.<br>Refrigerate leftovers.</p>
+          </article>
+        </main>
+        """
+        draft = parse_recipe_text(
+            extract_recipe_container_text(html, max_chars=20_000)
+        )
+
+        self.assertEqual("Weeknight Soup", draft.title)
+        self.assertEqual(5, draft.prep_time_minutes)
+        self.assertEqual("Broth", draft.ingredients[0].title)
+        self.assertEqual(4, len(draft.instructions[0].steps))
+
+    def test_rejects_ambiguous_incomplete_hidden_and_untitled_candidates(self):
+        complete = """
+          <article>
+            <h1>{title}</h1>
+            <h2>Ingredients</h2><ul><li>1 cup water</li></ul>
+            <h2>Method</h2><ol><li>Stir.</li></ol>
+          </article>
+        """
+        cases = {
+            "ambiguous": f"<main>{complete.format(title='One')}{complete.format(title='Two')}</main>",
+            "ingredients only": "<article><h1>Soup</h1><h2>Ingredients</h2><ul><li>water</li></ul></article>",
+            "instructions only": "<article><h1>Soup</h1><h2>Method</h2><p>Stir.</p></article>",
+            "hidden method": "<article><h1>Soup</h1><h2>Ingredients</h2><ul><li>water</li></ul><div hidden><h2>Method</h2><p>Stir.</p></div></article>",
+            "untitled": "<article><h2>Ingredients</h2><ul><li>water</li></ul><h2>Method</h2><p>Stir.</p></article>",
+        }
+        for name, html in cases.items():
+            with self.subTest(name=name):
+                with self.assertRaises(WebsiteImportError) as caught:
+                    extract_recipe_container_text(html, max_chars=20_000)
+                self.assertEqual("recipe_not_found", caught.exception.detail)
+
+    def test_enforces_length_without_truncating(self):
+        template = """
+        <article>
+          <h1>Soup</h1>
+          <p>{filler}</p>
+          <h2>Ingredients</h2><ul><li>1 cup water</li></ul>
+          <h2>Method</h2><ol><li>Stir well.</li></ol>
+        </article>
+        """
+        one_character = extract_recipe_container_text(
+            template.format(filler="x"),
+            max_chars=20_000,
+        )
+        fixed_length = len(one_character) - 1
+        at_limit_html = template.format(filler="x" * (20_000 - fixed_length))
+        over_limit_html = template.format(filler="x" * (20_001 - fixed_length))
+
+        self.assertEqual(
+            20_000,
+            len(extract_recipe_container_text(at_limit_html, max_chars=20_000)),
+        )
+        with self.assertRaises(WebsiteImportError):
+            extract_recipe_container_text(over_limit_html, max_chars=20_000)
 
 
 class UrlSafetyTest(unittest.TestCase):
@@ -444,6 +650,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
         with (
             patch("server.main.fetch_public_html", return_value=page),
             patch("server.main.extract_recipe", return_value=extracted_recipe()),
+            patch("server.main.extract_recipe_container_text") as fallback,
             patch("server.main.logger.log") as log,
         ):
             response = import_recipe_url(
@@ -455,7 +662,117 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
         self.assertIn("ingredients", response.model_dump())
         self.assertEqual([], auth.supabase.mock_calls)
         self.assertEqual(logging.INFO, log.call_args.args[0])
+        self.assertEqual(("recipe_scrapers", "none"), log.call_args.args[-2:])
         self.assertFalse(log.call_args.kwargs["exc_info"])
+        fallback.assert_not_called()
+
+    def test_falls_back_for_primary_exception_and_each_missing_core_field(self):
+        auth = AuthContext(user=Mock(), supabase=Mock())
+        page = FetchedRecipePage(
+            html="html",
+            url="https://example.com/recipe",
+            hostname="example.com",
+            response_size=4,
+        )
+        fallback_text = "Soup\nIngredients\n- 1 cup water\nMethod\n1. Stir well."
+        cases = (
+            (
+                WebsiteImportError("recipe_not_found"),
+                "primary_exception",
+            ),
+            (extracted_recipe(instructions=[]), "primary_missing_instructions"),
+            (
+                extracted_recipe(ingredient_groups=[]),
+                "primary_missing_ingredients",
+            ),
+            (
+                extracted_recipe(ingredient_groups=[], instructions=[]),
+                "primary_missing_both",
+            ),
+        )
+
+        for primary_result, reason in cases:
+            with self.subTest(reason=reason):
+                extract_effect = (
+                    {"side_effect": primary_result}
+                    if isinstance(primary_result, Exception)
+                    else {"return_value": primary_result}
+                )
+                with (
+                    patch("server.main.fetch_public_html", return_value=page),
+                    patch("server.main.extract_recipe", **extract_effect),
+                    patch(
+                        "server.main.extract_recipe_container_text",
+                        return_value=fallback_text,
+                    ) as fallback,
+                    patch("server.main.logger.log") as log,
+                ):
+                    response = import_recipe_url(
+                        ImportRecipeUrlRequest(url="https://example.com/recipe"),
+                        _auth=auth,
+                    )
+
+                self.assertEqual("Soup", response.title)
+                self.assertEqual(1, len(response.ingredients[0].items))
+                self.assertEqual("water", response.ingredients[0].items[0].name)
+                self.assertEqual(1, len(response.instructions[0].steps))
+                self.assertEqual(("dom_fallback", reason), log.call_args.args[-2:])
+                fallback.assert_called_once_with("html", max_chars=20_000)
+
+    def test_realistic_unlisted_page_uses_dom_fallback_end_to_end(self):
+        page = FetchedRecipePage(
+            html=DOM_FIXTURE_PATH.read_text(),
+            url="https://www.scottishgoatmeat.co.uk/mild-indian-goat-curry.html",
+            hostname="www.scottishgoatmeat.co.uk",
+            response_size=DOM_FIXTURE_PATH.stat().st_size,
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.main.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual("Mild Indian Goat Curry", response.title)
+        self.assertEqual(4, len(response.ingredients[0].items))
+        self.assertEqual(4, len(response.instructions[0].steps))
+        self.assertIsNone(response.image_url)
+        self.assertEqual(
+            ("dom_fallback", "primary_exception"),
+            log.call_args.args[-2:],
+        )
+
+    def test_rejects_fallback_without_both_core_fields(self):
+        page = FetchedRecipePage(
+            html="html",
+            url="https://example.com/recipe",
+            hostname="example.com",
+            response_size=4,
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch(
+                "server.main.extract_recipe",
+                side_effect=WebsiteImportError("recipe_not_found"),
+            ),
+            patch(
+                "server.main.extract_recipe_container_text",
+                return_value="Soup\nIngredients\n- 1 cup water",
+            ),
+            patch("server.main.logger.log") as log,
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                import_recipe_url(
+                    ImportRecipeUrlRequest(url="https://example.com/recipe"),
+                    _auth=Mock(),
+                )
+
+        self.assertEqual(422, caught.exception.status_code)
+        self.assertEqual("recipe_not_found", caught.exception.detail)
+        self.assertEqual(("none", "primary_exception"), log.call_args.args[-2:])
+        self.assertNotIn("1 cup water", log.call_args.args[1])
 
     def test_maps_stable_error_details(self):
         expected = {
@@ -473,6 +790,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                         "server.main.fetch_public_html",
                         side_effect=WebsiteImportError(detail),
                     ),
+                    patch("server.main.extract_recipe_container_text") as fallback,
                     patch("server.main.logger.log") as log,
                 ):
                     with self.assertRaises(HTTPException) as caught:
@@ -484,6 +802,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                 self.assertEqual(detail, caught.exception.detail)
                 self.assertEqual(logging.WARNING, log.call_args.args[0])
                 self.assertTrue(log.call_args.kwargs["exc_info"])
+                fallback.assert_not_called()
 
 
 class ImportRecipeImageEndpointTest(unittest.TestCase):

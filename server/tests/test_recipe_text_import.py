@@ -139,6 +139,63 @@ Keep the skillet off the heat.
                         draft.description,
                     )
 
+    def test_recognizes_exact_english_and_indonesian_section_aliases(self):
+        ingredient_headings = (
+            "Ingredient",
+            "Ingredients",
+            "Bahan",
+            "Bahan-Bahan",
+        )
+        instruction_headings = (
+            "Direction",
+            "Directions",
+            "Instruction",
+            "Instructions",
+            "Method",
+            "Baking Instructions",
+            "Cara Membuat",
+            "Cara Memasak",
+            "Langkah",
+            "Langkah-Langkah",
+        )
+
+        for heading in ingredient_headings:
+            for rendered in (heading, heading.upper(), f"{heading}:"):
+                with self.subTest(ingredient_heading=rendered):
+                    draft = parse_recipe_text(
+                        f"Pie\n{rendered}\n1 cup flour\nInstructions\nMix well."
+                    )
+                    self.assertEqual(1, len(draft.ingredients[0].items))
+                    self.assertEqual(1, len(draft.instructions[0].steps))
+
+        for heading in instruction_headings:
+            for rendered in (heading, heading.upper(), f"{heading}:"):
+                with self.subTest(instruction_heading=rendered):
+                    draft = parse_recipe_text(
+                        f"Pie\nIngredients\n1 cup flour\n{rendered}\nMix well."
+                    )
+                    self.assertEqual(1, len(draft.ingredients[0].items))
+                    self.assertEqual(1, len(draft.instructions[0].steps))
+
+    def test_normalizes_section_spacing_without_fuzzy_matching(self):
+        draft = parse_recipe_text(
+            "Pie\n  BAHAN -   BAHAN :\n1 cup flour\n"
+            "CARA   MEMBUAT :\nMix well."
+        )
+        self.assertEqual(1, len(draft.ingredients[0].items))
+        self.assertEqual(1, len(draft.instructions[0].steps))
+
+        ingredient_substring = parse_recipe_text(
+            "Pie\nBahan Tambahan\n1 cup flour\nInstructions\nMix well."
+        )
+        self.assertEqual([], ingredient_substring.ingredients)
+        self.assertEqual(1, len(ingredient_substring.instructions[0].steps))
+
+        instruction_substring = parse_recipe_text(
+            "Pie\nIngredients\n1 cup flour\nCara Membuat Saus\nMix well."
+        )
+        self.assertEqual([], instruction_substring.instructions)
+
     def test_extracts_salmon_nutrition_table(self):
         draft = parse_recipe_text(
             """Pan-Seared Salmon with Lemon Dill Cream Sauce

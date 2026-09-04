@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 import socket
 from dataclasses import dataclass
 from email.message import Message
@@ -8,6 +9,7 @@ from time import monotonic
 from urllib.parse import SplitResult, urljoin, urlsplit
 
 import urllib3
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from recipe_scrapers import scrape_html
 
 
@@ -19,6 +21,47 @@ USER_AGENT = "NoomoriRecipeImport/1.0"
 _HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
 _IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+# NOTE: Keep these aliases exact and intentionally small. Indonesian labels cover
+# the Sasa fallback case without turning section detection into fuzzy matching.
+_RECIPE_SECTION_NAMES = {
+    "ingredient": "ingredients",
+    "ingredients": "ingredients",
+    "bahan": "ingredients",
+    "bahan-bahan": "ingredients",
+    "direction": "instructions",
+    "directions": "instructions",
+    "instruction": "instructions",
+    "instructions": "instructions",
+    "method": "instructions",
+    "baking instructions": "instructions",
+    "cara membuat": "instructions",
+    "cara memasak": "instructions",
+    "langkah": "instructions",
+    "langkah-langkah": "instructions",
+}
+_RECIPE_IDENTIFIER = re.compile(r"(?:^|[-_])recipe(?:$|[-_])", re.IGNORECASE)
+_NOISE_IDENTIFIER = re.compile(
+    r"(?:^|[-_])(?:ad|ads|advert|advertisement|hidden|nav|navigation|newsletter|"
+    r"related|recommend(?:ation|ations|ed)?|share|sharing|sidebar|social|"
+    r"sr-only|visually-hidden)(?:$|[-_])",
+    re.IGNORECASE,
+)
+_HIDDEN_STYLE = re.compile(r"(?:display\s*:\s*none|visibility\s*:\s*hidden)", re.I)
+_HEADING_TAGS = {"h1", "h2", "h3", "h4"}
+_REMOVED_TAGS = {
+    "script",
+    "style",
+    "template",
+    "noscript",
+    "nav",
+    "footer",
+    "aside",
+    "form",
+    "input",
+    "select",
+    "textarea",
+    "svg",
+}
 
 
 class WebsiteImportError(Exception):
@@ -322,6 +365,232 @@ def fetch_public_image(url: str) -> FetchedRecipeImage:
         response_size=resource.response_size,
         content_type=resource.content_type,
     )
+
+
+def _dom_text_with_breaks(tag: Tag) -> str:
+    parts: list[str] = []
+    for descendant in tag.descendants:
+        if isinstance(descendant, Comment):
+            continue
+        if isinstance(descendant, NavigableString):
+            parts.append(str(descendant))
+        elif isinstance(descendant, Tag) and descendant.name == "br":
+            parts.append("\n")
+    return "".join(parts).replace("\xa0", " ")
+
+
+def _normalized_dom_text(tag: Tag) -> str:
+    return " ".join(_dom_text_with_breaks(tag).split())
+
+
+def _identifier_matches(tag: Tag, pattern: re.Pattern[str]) -> bool:
+    identifier = tag.get("id")
+    classes = tag.get("class", [])
+    values = ([identifier] if isinstance(identifier, str) else []) + (
+        classes if isinstance(classes, list) else [classes]
+    )
+    return any(isinstance(value, str) and pattern.search(value) for value in values)
+
+
+def _is_recipe_root(tag: Tag) -> bool:
+    return tag.name in {"article", "main"} or _identifier_matches(
+        tag,
+        _RECIPE_IDENTIFIER,
+    )
+
+
+def recipe_section_name(value: str) -> str | None:
+    # NOTE: Sasa renders "Bahan- Bahan"; normalizing whitespace around hyphens
+    # handles that markup variation while the final alias lookup remains exact.
+    normalized = value.strip().removesuffix(":").strip().casefold()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = re.sub(r"\s*-\s*", "-", normalized)
+    return _RECIPE_SECTION_NAMES.get(normalized)
+
+
+def _section_kind(tag: Tag) -> str | None:
+    if tag.name not in _HEADING_TAGS | {"p", "div"}:
+        return None
+
+    text = _normalized_dom_text(tag)
+    if tag.name in {"p", "div"}:
+        emphasis = tag.find(["strong", "b"])
+        emphasized_text = (
+            _normalized_dom_text(emphasis)
+            if emphasis is not None
+            else None
+        )
+        if recipe_section_name(text) != recipe_section_name(emphasized_text or ""):
+            return None
+
+    return recipe_section_name(text)
+
+
+def _is_descendant(tag: Tag, ancestor: Tag) -> bool:
+    return tag is ancestor or any(parent is ancestor for parent in tag.parents)
+
+
+def _lowest_common_ancestor(first: Tag, second: Tag) -> Tag:
+    first_ancestors = {id(first), *(id(parent) for parent in first.parents)}
+    current: Tag | None = second
+    while current is not None:
+        if id(current) in first_ancestors:
+            return current
+        parent = current.parent
+        current = parent if isinstance(parent, Tag) else None
+    raise WebsiteImportError("recipe_not_found")
+
+
+def _clean_dom(soup: BeautifulSoup) -> None:
+    for tag in list(soup.find_all(True)):
+        if tag.parent is None:
+            continue
+        style = tag.get("style")
+        if (
+            tag.name in _REMOVED_TAGS
+            or str(tag.get("role", "")).casefold() == "navigation"
+            or tag.has_attr("hidden")
+            or str(tag.get("aria-hidden", "")).casefold() == "true"
+            or (isinstance(style, str) and _HIDDEN_STYLE.search(style))
+            or _identifier_matches(tag, _NOISE_IDENTIFIER)
+        ):
+            tag.decompose()
+
+    # Site chrome is noise, but an article-local header may contain the recipe title.
+    for header in list(soup.find_all("header")):
+        if header.find_parent(["article", "main"]) is None and not any(
+            _is_recipe_root(parent)
+            for parent in header.parents
+            if isinstance(parent, Tag)
+        ):
+            header.decompose()
+
+
+def _append_dom_line(lines: list[str], value: str, *, subgroup: bool = False) -> None:
+    for raw_line in value.replace("\xa0", " ").splitlines():
+        line = " ".join(raw_line.split())
+        if line:
+            if subgroup and not line.endswith(":"):
+                line += ":"
+            lines.append(line)
+
+
+def _serialize_recipe_scope(scope: Tag, *, title: Tag) -> list[str]:
+    lines: list[str] = []
+
+    def visit(tag: Tag) -> None:
+        if tag is title:
+            return
+        section_kind = _section_kind(tag)
+        if section_kind is not None:
+            _append_dom_line(lines, _normalized_dom_text(tag))
+            return
+
+        if tag.name in _HEADING_TAGS:
+            _append_dom_line(lines, _normalized_dom_text(tag), subgroup=True)
+            return
+
+        if tag.name in {"ul", "ol"}:
+            for index, item in enumerate(tag.find_all("li", recursive=False), start=1):
+                prefix = "-" if tag.name == "ul" else f"{index}."
+                _append_dom_line(lines, f"{prefix} {_dom_text_with_breaks(item)}")
+            return
+
+        if tag.name == "p":
+            _append_dom_line(lines, _dom_text_with_breaks(tag))
+            return
+
+        if tag.name == "br":
+            return
+
+        if tag.name == "button":
+            # NOTE: Recipe accordions may place their h2 label inside a button.
+            # Preserve that heading, but exclude controls such as "Print Resep".
+            for heading in tag.find_all(_HEADING_TAGS):
+                visit(heading)
+            return
+
+        for child in tag.children:
+            if isinstance(child, Tag):
+                visit(child)
+            elif isinstance(child, Comment):
+                continue
+            elif isinstance(child, NavigableString):
+                _append_dom_line(lines, str(child))
+
+    visit(scope)
+    return lines
+
+
+def extract_recipe_container_text(
+    html: str,
+    *,
+    max_chars: int,
+) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    _clean_dom(soup)
+    dom_order = {id(tag): index for index, tag in enumerate(soup.find_all(True))}
+    ingredients = [
+        tag
+        for tag in soup.find_all(True)
+        if isinstance(tag, Tag) and _section_kind(tag) == "ingredients"
+    ]
+    instructions = [
+        tag
+        for tag in soup.find_all(True)
+        if isinstance(tag, Tag) and _section_kind(tag) == "instructions"
+    ]
+
+    candidates: list[tuple[Tag, Tag, Tag, Tag]] = []
+    seen_roots: set[int] = set()
+    for root in soup.find_all(_is_recipe_root):
+        if id(root) in seen_roots:
+            continue
+        seen_roots.add(id(root))
+        root_ingredients = [tag for tag in ingredients if _is_descendant(tag, root)]
+        root_instructions = [tag for tag in instructions if _is_descendant(tag, root)]
+        if len(root_ingredients) != 1 or len(root_instructions) != 1:
+            continue
+
+        ingredient_heading = root_ingredients[0]
+        instruction_heading = root_instructions[0]
+        if dom_order[id(instruction_heading)] <= dom_order[id(ingredient_heading)]:
+            continue
+
+        preceding_titles = [
+            tag
+            for tag in root.find_all(_HEADING_TAGS)
+            if _section_kind(tag) is None
+            and _normalized_dom_text(tag)
+            and dom_order[id(tag)] < dom_order[id(ingredient_heading)]
+        ]
+        if not preceding_titles:
+            continue
+        h1_titles = [tag for tag in preceding_titles if tag.name == "h1"]
+        title = max(h1_titles or preceding_titles, key=lambda tag: dom_order[id(tag)])
+        candidates.append((root, title, ingredient_heading, instruction_heading))
+
+    minimal_candidates = [
+        candidate
+        for candidate in candidates
+        if not any(
+            other[0] is not candidate[0] and _is_descendant(other[0], candidate[0])
+            for other in candidates
+        )
+    ]
+    if len(minimal_candidates) != 1:
+        raise WebsiteImportError("recipe_not_found")
+
+    _root, title, ingredient_heading, instruction_heading = minimal_candidates[0]
+    scope = _lowest_common_ancestor(ingredient_heading, instruction_heading)
+    lines = [
+        _normalized_dom_text(title),
+        *_serialize_recipe_scope(scope, title=title),
+    ]
+    serialized = "\n".join(line for line in lines if line).strip()
+    if not serialized or len(serialized) > max_chars:
+        raise WebsiteImportError("recipe_not_found")
+    return serialized
 
 
 def _optional_value(scraper, method_name: str):
