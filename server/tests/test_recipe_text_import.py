@@ -11,8 +11,9 @@ from server.main import (
     parse_recipe_text,
 )
 
-CASE_PATH = Path(__file__).resolve().parents[2] / "case.txt"
-CASE2_PATH = Path(__file__).resolve().parents[2] / "case2.txt"
+SPECS_PATH = Path(__file__).resolve().parents[2] / "specs"
+CASE_PATH = SPECS_PATH / "case.txt"
+CASE2_PATH = SPECS_PATH / "case2.txt"
 
 
 class RecipeTextRequestTest(unittest.TestCase):
@@ -195,6 +196,85 @@ Keep the skillet off the heat.
             "Pie\nIngredients\n1 cup flour\nCara Membuat Saus\nMix well."
         )
         self.assertEqual([], instruction_substring.instructions)
+
+    def test_removes_only_standalone_instruction_markers(self):
+        markers = (
+            "1",
+            "2.",
+            "3)",
+            "Langkah 1",
+            "langkah 2",
+            "LANGKAH 3",
+            "Langkah 1/5",
+            "Langkah 1 dari 5",
+            "Step 1",
+            "Step 2/5",
+        )
+        kept = (
+            "Masak selama 1 jam.",
+            "Tambahkan 2 sdm minyak.",
+            "Bagi menjadi 3 bagian.",
+            "Ulangi langkah 2 bila perlu.",
+        )
+        draft = parse_recipe_text(
+            "Pie\nIngredients\n1 cup flour\nInstructions\n"
+            + "\n".join((*markers, *kept))
+        )
+
+        self.assertEqual(
+            list(kept),
+            [step.text for step in draft.instructions[0].steps],
+        )
+
+    def test_parses_indonesian_nutrition_aliases_and_units(self):
+        draft = parse_recipe_text(
+            """Pie
+Nutrition
+Kalori:
+181 Kkal
+Protein 3 gram
+Karbo 25.8 gr
+Lemak 7.5 gram
+Lemak Jenuh 2 gram
+Serat 2 gram
+Gula 1 gram
+Natrium 420 mg
+Kolesterol 12 mg
+Ingredients
+1 cup flour
+"""
+        )
+
+        self.assertEqual(
+            {
+                "calories_kcal": 181,
+                "protein_g": 3,
+                "carbs_g": 25.8,
+                "fat_g": 7.5,
+                "saturated_fat_g": 2,
+                "cholesterol_mg": 12,
+                "fiber_g": 2,
+                "sugar_g": 1,
+                "sodium_mg": 420,
+            },
+            draft.nutrition_per_serving.model_dump(),
+        )
+
+        energy = parse_recipe_text(
+            "Pie\nNutrition\nEnergi: 90 kkal\nIngredients\n1 cup flour"
+        )
+        self.assertEqual(90, energy.nutrition_per_serving.calories_kcal)
+
+    def test_pending_nutrition_does_not_cross_structural_sections(self):
+        cases = (
+            "Pie\nNutrition\nCalories\nIngredients\n181 kcal\nInstructions\nMix.",
+            "Pie\nNutrition\nCalories\nInstructions\n181 kcal\nIngredients\nflour",
+            "Pie\nNutrition\nCalories\nNotes\n181 kcal\nIngredients\nflour",
+        )
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertIsNone(parse_recipe_text(text).nutrition_per_serving)
 
     def test_extracts_salmon_nutrition_table(self):
         draft = parse_recipe_text(

@@ -104,6 +104,19 @@ class ExtractedIngredientGroup:
 
 
 @dataclass(frozen=True)
+class ExtractedInstructionGroup:
+    title: str | None
+    label_prefix: str | None
+    instructions: list[str]
+
+
+@dataclass(frozen=True)
+class ExtractedRecipeGroupStructure:
+    ingredient_groups: list[ExtractedIngredientGroup]
+    instruction_groups: list[ExtractedInstructionGroup]
+
+
+@dataclass(frozen=True)
 class ExtractedRecipe:
     title: str | None
     description: str | None
@@ -408,18 +421,23 @@ def recipe_section_name(value: str) -> str | None:
     return _RECIPE_SECTION_NAMES.get(normalized)
 
 
+def _standalone_emphasis_text(tag: Tag) -> str | None:
+    if tag.name not in {"p", "div"}:
+        return None
+    emphasis = tag.find(["strong", "b"])
+    if emphasis is None:
+        return None
+    text = _normalized_dom_text(tag)
+    return text if text and text == _normalized_dom_text(emphasis) else None
+
+
 def _section_kind(tag: Tag) -> str | None:
     if tag.name not in _HEADING_TAGS | {"p", "div"}:
         return None
 
     text = _normalized_dom_text(tag)
     if tag.name in {"p", "div"}:
-        emphasis = tag.find(["strong", "b"])
-        emphasized_text = (
-            _normalized_dom_text(emphasis)
-            if emphasis is not None
-            else None
-        )
+        emphasized_text = _standalone_emphasis_text(tag)
         if recipe_section_name(text) != recipe_section_name(emphasized_text or ""):
             return None
 
@@ -446,13 +464,17 @@ def _clean_dom(soup: BeautifulSoup) -> None:
         if tag.parent is None:
             continue
         style = tag.get("style")
+        noise_identifier = _identifier_matches(tag, _NOISE_IDENTIFIER)
         if (
             tag.name in _REMOVED_TAGS
             or str(tag.get("role", "")).casefold() == "navigation"
             or tag.has_attr("hidden")
             or str(tag.get("aria-hidden", "")).casefold() == "true"
             or (isinstance(style, str) and _HIDDEN_STYLE.search(style))
-            or _identifier_matches(tag, _NOISE_IDENTIFIER)
+            # Content sites sometimes mark the whole recipe article as an ad
+            # container. Preserve structural roots; nested ad blocks are still
+            # removed and roots without recipe sections cannot become candidates.
+            or (noise_identifier and tag.name not in {"article", "main"})
         ):
             tag.decompose()
 
@@ -475,60 +497,162 @@ def _append_dom_line(lines: list[str], value: str, *, subgroup: bool = False) ->
             lines.append(line)
 
 
-def _serialize_recipe_scope(scope: Tag, *, title: Tag) -> list[str]:
-    lines: list[str] = []
+def _leading_instruction_label(tag: Tag) -> str | None:
+    # NOTE: Some recipe cards place a short action heading inside each <li>
+    # (for example, "Preheat oven"), while others use a leading bold label.
+    # Semantic h3/h4 headings are sufficient structure on their own; bold text
+    # still needs a trailing colon so ordinary emphasized prose is not promoted.
+    for descendant in tag.descendants:
+        if isinstance(descendant, Comment):
+            continue
+        if isinstance(descendant, NavigableString):
+            if str(descendant).strip():
+                return None
+            continue
+        if isinstance(descendant, Tag):
+            if descendant.name not in {"strong", "b", "h3", "h4"}:
+                continue
+            text = _normalized_dom_text(descendant)
+            if (
+                text
+                and recipe_section_name(text) is None
+                and (
+                    descendant.name in {"h3", "h4"}
+                    or text.endswith(":")
+                )
+                and _normalized_dom_text(tag).casefold().startswith(text.casefold())
+            ):
+                return text
+            return None
+    return None
 
-    def visit(tag: Tag) -> None:
+
+def _instruction_item_parts(item: Tag) -> tuple[str | None, str, str]:
+    label = _leading_instruction_label(item)
+    # NOTE: One ordered-list item remains one editable instruction even when its
+    # body has several paragraphs. Figure captions are presentation metadata and
+    # must not become cooking text or break exact primary/DOM verification.
+    paragraphs = [
+        _normalized_dom_text(paragraph)
+        for paragraph in item.find_all("p")
+        if not paragraph.find_parent(["figure", "figcaption"])
+        and _normalized_dom_text(paragraph)
+    ]
+    content = " ".join(paragraphs) or _normalized_dom_text(item)
+    body = content
+    if label and content.casefold().startswith(label.casefold()):
+        body = content[len(label):].strip()
+
+    # A heading alone cannot form a canonical group because every group needs a
+    # real instruction body. Reject it rather than duplicating the label as text.
+    if label and body:
+        return label, body, f"{label} {body}".strip()
+    if label:
+        return None, "", ""
+    return None, content, content
+
+
+def _serialize_recipe_scope(
+    scope: Tag,
+    *,
+    title: Tag,
+    stop_after: Tag | None,
+    instruction_heading: Tag,
+) -> list[str]:
+    lines: list[str] = []
+    instruction_heading_level = (
+        int(instruction_heading.name[1])
+        if instruction_heading.name in _HEADING_TAGS
+        else None
+    )
+    inside_instructions = False
+
+    def visit(tag: Tag) -> bool:
+        nonlocal inside_instructions
         if tag is title:
-            return
+            return False
         section_kind = _section_kind(tag)
         if section_kind is not None:
             _append_dom_line(lines, _normalized_dom_text(tag))
-            return
+            if tag is instruction_heading:
+                inside_instructions = True
+            return False
+
+        if (
+            inside_instructions
+            and instruction_heading_level is not None
+            and tag.name in _HEADING_TAGS
+            and int(tag.name[1]) <= instruction_heading_level
+            and not _normalized_dom_text(tag).endswith(":")
+        ):
+            return True
+
+        emphasized_text = _standalone_emphasis_text(tag)
+        if emphasized_text is not None:
+            _append_dom_line(lines, emphasized_text, subgroup=True)
+            return False
 
         if tag.name in _HEADING_TAGS:
             _append_dom_line(lines, _normalized_dom_text(tag), subgroup=True)
-            return
+            return False
 
         if tag.name in {"ul", "ol"}:
             for index, item in enumerate(tag.find_all("li", recursive=False), start=1):
+                if tag.name == "ol" and inside_instructions:
+                    label, item_text, _comparison_text = _instruction_item_parts(
+                        item
+                    )
+                else:
+                    label = None
+                    item_text = _normalized_dom_text(item)
+                if label is not None:
+                    _append_dom_line(lines, label, subgroup=True)
                 prefix = "-" if tag.name == "ul" else f"{index}."
-                _append_dom_line(lines, f"{prefix} {_dom_text_with_breaks(item)}")
-            return
+                _append_dom_line(lines, f"{prefix} {item_text}")
+            return False
 
         if tag.name == "p":
             _append_dom_line(lines, _dom_text_with_breaks(tag))
-            return
+            return False
 
         if tag.name == "br":
-            return
+            return False
 
         if tag.name == "button":
             # NOTE: Recipe accordions may place their h2 label inside a button.
             # Preserve that heading, but exclude controls such as "Print Resep".
             for heading in tag.find_all(_HEADING_TAGS):
-                visit(heading)
-            return
+                if visit(heading):
+                    return True
+            return False
 
         for child in tag.children:
             if isinstance(child, Tag):
-                visit(child)
+                if visit(child):
+                    return True
+                if tag is scope and child is stop_after:
+                    break
             elif isinstance(child, Comment):
                 continue
             elif isinstance(child, NavigableString):
                 _append_dom_line(lines, str(child))
+        return False
 
     visit(scope)
     return lines
 
 
-def extract_recipe_container_text(
-    html: str,
-    *,
-    max_chars: int,
-) -> str:
-    soup = BeautifulSoup(html, "html.parser")
-    _clean_dom(soup)
+def _direct_branch(scope: Tag, descendant: Tag) -> Tag:
+    branch = descendant
+    while branch.parent is not scope:
+        parent = branch.parent
+        if not isinstance(parent, Tag):
+            raise WebsiteImportError("recipe_not_found")
+        branch = parent
+    return branch
+
+
+def _recipe_dom_candidate(soup: BeautifulSoup) -> tuple[Tag, Tag, Tag, Tag]:
     dom_order = {id(tag): index for index, tag in enumerate(soup.find_all(True))}
     ingredients = [
         tag
@@ -580,17 +704,151 @@ def extract_recipe_container_text(
     ]
     if len(minimal_candidates) != 1:
         raise WebsiteImportError("recipe_not_found")
+    return minimal_candidates[0]
 
-    _root, title, ingredient_heading, instruction_heading = minimal_candidates[0]
+
+def extract_recipe_container_text(
+    html: str,
+    *,
+    max_chars: int,
+) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    _clean_dom(soup)
+    _root, title, ingredient_heading, instruction_heading = _recipe_dom_candidate(soup)
     scope = _lowest_common_ancestor(ingredient_heading, instruction_heading)
+    ingredient_branch = _direct_branch(scope, ingredient_heading)
+    instruction_branch = _direct_branch(scope, instruction_heading)
+    # NOTE: A wrapped instruction section gives us a safe structural end point;
+    # flat heading/list markup has no such boundary and keeps existing behavior.
+    stop_after = (
+        instruction_branch
+        if ingredient_branch is not instruction_branch
+        and instruction_branch is not instruction_heading
+        else None
+    )
     lines = [
         _normalized_dom_text(title),
-        *_serialize_recipe_scope(scope, title=title),
+        *_serialize_recipe_scope(
+            scope,
+            title=title,
+            stop_after=stop_after,
+            instruction_heading=instruction_heading,
+        ),
     ]
     serialized = "\n".join(line for line in lines if line).strip()
     if not serialized or len(serialized) > max_chars:
         raise WebsiteImportError("recipe_not_found")
     return serialized
+
+
+def _section_tags(
+    scope: Tag,
+    start: Tag,
+    end: Tag | None,
+) -> list[Tag]:
+    tags = [tag for tag in scope.find_all(True) if isinstance(tag, Tag)]
+    positions = {id(tag): index for index, tag in enumerate(tags)}
+    start_index = positions.get(id(start))
+    if start_index is None:
+        return []
+    end_index = positions.get(id(end)) if end is not None else None
+    return tags[start_index + 1:end_index]
+
+
+def _plain_list_label(tag: Tag) -> str | None:
+    if tag.name not in {"p", "div"}:
+        return None
+    text = _normalized_dom_text(tag)
+    if not text.endswith(":") or recipe_section_name(text) is not None:
+        return None
+    sibling = tag.find_next_sibling()
+    return text if sibling is not None and sibling.name in {"ul", "ol"} else None
+
+
+def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
+    soup = BeautifulSoup(html, "html.parser")
+    _clean_dom(soup)
+    _root, _title, ingredient_heading, instruction_heading = (
+        _recipe_dom_candidate(soup)
+    )
+    scope = _lowest_common_ancestor(ingredient_heading, instruction_heading)
+
+    ingredient_groups: list[ExtractedIngredientGroup] = []
+    pending_title: str | None = None
+    for tag in _section_tags(scope, ingredient_heading, instruction_heading):
+        label = (
+            _standalone_emphasis_text(tag)
+            or (_normalized_dom_text(tag) if tag.name in _HEADING_TAGS else None)
+            or _plain_list_label(tag)
+        )
+        if label and recipe_section_name(label) is None:
+            pending_title = label.removesuffix(":").strip()
+            continue
+        if tag.name not in {"ul", "ol"} or tag.find_parent(["ul", "ol"]):
+            continue
+        items = [
+            _normalized_dom_text(item)
+            for item in tag.find_all("li", recursive=False)
+            if _normalized_dom_text(item)
+        ]
+        if pending_title and items:
+            ingredient_groups.append(
+                ExtractedIngredientGroup(pending_title, items)
+            )
+        pending_title = None
+
+    instruction_groups: list[ExtractedInstructionGroup] = []
+    # NOTE: A plain item after a labeled item stays in the current group. This
+    # preserves trailing directions such as "Enjoy!" without inventing a label.
+    current_title: str | None = None
+    current_label_prefix: str | None = None
+    current_steps: list[str] = []
+    instruction_level = (
+        int(instruction_heading.name[1])
+        if instruction_heading.name in _HEADING_TAGS
+        else None
+    )
+    instruction_tags = _section_tags(scope, instruction_heading, None)
+    for tag in instruction_tags:
+        if (
+            instruction_level is not None
+            and tag.name in _HEADING_TAGS
+            and int(tag.name[1]) <= instruction_level
+            and not _normalized_dom_text(tag).endswith(":")
+        ):
+            break
+        if tag.name != "ol" or tag.find_parent(["ul", "ol"]):
+            continue
+        for item in tag.find_all("li", recursive=False):
+            label, _body, step = _instruction_item_parts(item)
+            if not step:
+                continue
+            if label is not None:
+                if current_title and current_steps:
+                    instruction_groups.append(
+                        ExtractedInstructionGroup(
+                            current_title,
+                            current_label_prefix,
+                            current_steps,
+                        )
+                    )
+                current_title = label.removesuffix(":").strip()
+                current_label_prefix = label
+                current_steps = []
+            if current_title is not None:
+                current_steps.append(step)
+    if current_title and current_steps:
+        instruction_groups.append(
+            ExtractedInstructionGroup(
+                current_title,
+                current_label_prefix,
+                current_steps,
+            )
+        )
+
+    if len(ingredient_groups) < 2 or len(instruction_groups) < 2:
+        raise WebsiteImportError("recipe_not_found")
+    return ExtractedRecipeGroupStructure(ingredient_groups, instruction_groups)
 
 
 def _optional_value(scraper, method_name: str):

@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from server.main import (
     AuthContext,
     ImportRecipeUrlRequest,
+    _dom_nutrition,
+    _enrich_primary_groups,
     app,
     get_current_user,
     import_recipe_image,
@@ -40,6 +42,21 @@ DOM_FIXTURE_PATH = (
 )
 SASA_FIXTURE_PATH = (
     Path(__file__).resolve().parents[1] / "fixtures" / "recipe_url_import_sasa.html"
+)
+DAPUR_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "recipe_url_import_dapur_umami.html"
+)
+SERIOUS_EATS_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "recipe_url_import_serious_eats.html"
+)
+SIMPLY_RECIPES_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "recipe_url_import_simply_recipes.html"
 )
 PUBLIC_ANSWER = [
     (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
@@ -151,6 +168,29 @@ class RecipeExtractionTest(unittest.TestCase):
         ))
         self.assertIsNone(draft.instructions[0].title)
 
+    def test_removes_only_presentation_markers_from_primary_instructions(self):
+        draft = normalize_imported_website_recipe(
+            extracted_recipe(
+                instructions=[
+                    "Langkah 1",
+                    "Stir for 1 minute.",
+                    "Step 2/3",
+                    "Repeat step 2 if needed.",
+                    "3)",
+                    "Divide into 3 parts.",
+                ]
+            )
+        )
+
+        self.assertEqual(
+            [
+                "Stir for 1 minute.",
+                "Repeat step 2 if needed.",
+                "Divide into 3 parts.",
+            ],
+            [step.text for step in draft.instructions[0].steps],
+        )
+
     def test_accepts_partial_recipe_with_two_useful_signals(self):
         draft = normalize_imported_website_recipe(
             extracted_recipe(description=None, instructions=[]),
@@ -248,6 +288,116 @@ class RecipeExtractionTest(unittest.TestCase):
 
 
 class RecipeDomFallbackTest(unittest.TestCase):
+    def test_extracts_simply_recipes_nested_instruction_labels_and_paragraphs(self):
+        text = extract_recipe_container_text(
+            SIMPLY_RECIPES_FIXTURE_PATH.read_text(),
+            max_chars=20_000,
+        )
+        draft = parse_recipe_text(text)
+
+        self.assertEqual(
+            [
+                "Make the homemade pumpkin purée (optional)",
+                "Preheat oven to 350°F (180°C)",
+                "Whisk the dry ingredients",
+                "Combine the wet ingredients",
+                "Make the batter",
+                "Bake",
+                "Remove from pan and cool completely",
+                "Glaze",
+            ],
+            [group.title for group in draft.instructions],
+        )
+        self.assertEqual(
+            [1, 1, 1, 1, 1, 1, 1, 2],
+            [len(group.steps) for group in draft.instructions],
+        )
+        self.assertEqual(
+            "Cut and roast the pumpkin. Cool it, then scoop out the flesh.",
+            draft.instructions[0].steps[0].text,
+        )
+        self.assertEqual(
+            "Add the dry ingredients to the wet ingredients. Do not overmix.",
+            draft.instructions[4].steps[0].text,
+        )
+        self.assertEqual("Enjoy!", draft.instructions[-1].steps[-1].text)
+        for noise in (
+            "Whisking the dry ingredients",
+            "Recipe author",
+            "Nutrition Facts",
+            "Unrelated pumpkin recipes",
+        ):
+            with self.subTest(noise=noise):
+                self.assertNotIn(noise, text)
+
+    def test_nested_instruction_heading_must_be_leading_and_have_a_body(self):
+        html = """
+        <article class="recipe">
+          <h1>Soup</h1>
+          <h2>Ingredients</h2>
+          <p>Soup:</p><ul><li>1 cup water</li></ul>
+          <p>Garnish:</p><ul><li>1 leaf parsley</li></ul>
+          <h2>Directions</h2>
+          <ol>
+            <li><h3>Prepare:</h3><p>Heat the water.</p></li>
+            <li><p>Stir.</p><h3>Later heading:</h3><p>Keep stirring.</p></li>
+            <li><h3>Heading only:</h3></li>
+            <li><h4>Serve</h4><p>Top with parsley.</p></li>
+          </ol>
+        </article>
+        """
+
+        draft = parse_recipe_text(
+            extract_recipe_container_text(html, max_chars=20_000)
+        )
+
+        self.assertEqual(
+            ["Prepare", "Serve"],
+            [group.title for group in draft.instructions],
+        )
+        self.assertEqual(
+            [
+                "Heat the water.",
+                "Stir. Keep stirring.",
+            ],
+            [step.text for step in draft.instructions[0].steps],
+        )
+        self.assertEqual("Top with parsley.", draft.instructions[1].steps[0].text)
+
+    def test_extracts_serious_eats_groups_without_later_sections(self):
+        text = extract_recipe_container_text(
+            SERIOUS_EATS_FIXTURE_PATH.read_text(),
+            max_chars=20_000,
+        )
+        draft = parse_recipe_text(text)
+
+        self.assertEqual(
+            ["For the Chicken", "For the Filling", "For the Biscuit Topping"],
+            [group.title for group in draft.ingredients],
+        )
+        self.assertEqual(
+            [10, 16, 6],
+            [len(group.items) for group in draft.ingredients],
+        )
+        self.assertEqual(
+            ["For the Chicken", "For the Filling", "For Biscuit Topping"],
+            [group.title for group in draft.instructions],
+        )
+        self.assertEqual(
+            [2, 3, 2],
+            [len(group.steps) for group in draft.instructions],
+        )
+        self.assertNotIn("\n-\n", text)
+        for noise in (
+            "Advertisement inside ingredients",
+            "Special Equipment",
+            "Unrelated storage note",
+            "Related chicken recipe",
+            "Unrelated recipes",
+        ):
+            with self.subTest(noise=noise):
+                self.assertNotIn(noise, text)
+
     def test_extracts_realistic_sibling_section_recipe_without_later_page_noise(self):
         text = extract_recipe_container_text(
             DOM_FIXTURE_PATH.read_text(),
@@ -307,6 +457,79 @@ class RecipeDomFallbackTest(unittest.TestCase):
         ):
             with self.subTest(noise=noise):
                 self.assertNotIn(noise, text)
+
+    def test_extracts_dapur_groups_steps_and_stops_before_trailing_content(self):
+        text = extract_recipe_container_text(
+            DAPUR_FIXTURE_PATH.read_text(),
+            max_chars=20_000,
+        )
+        draft = parse_recipe_text(text)
+
+        self.assertEqual("Spring Roll Sayur ala SAORI", draft.title)
+        self.assertEqual(
+            ["Bahan Utama", "Bahan Isi"],
+            [group.title for group in draft.ingredients],
+        )
+        self.assertEqual([2, 2], [len(group.items) for group in draft.ingredients])
+        self.assertEqual(
+            [
+                "Rendam soun dalam air panas.",
+                "Panaskan minyak.",
+                "Ambil selembar rice paper.",
+                "Isi dan gulung.",
+                "Goreng hingga matang.",
+            ],
+            [step.text for step in draft.instructions[0].steps],
+        )
+        for noise in (
+            "#SpringRoll",
+            "Beli SAORI sekarang.",
+            "Official Umami",
+            "5 bintang",
+            "Resepnya enak.",
+        ):
+            with self.subTest(noise=noise):
+                self.assertNotIn(noise, text)
+
+    def test_dom_nutrition_requires_one_confident_per_serving_block(self):
+        fixture = DAPUR_FIXTURE_PATH.read_text()
+        without_semantics = extract_recipe_container_text(
+            fixture,
+            max_chars=20_000,
+        )
+        with_semantics = extract_recipe_container_text(
+            fixture.replace(
+                "<!-- nutrition-marker -->",
+                "<h2>Informasi Nilai Gizi per Porsi</h2>",
+            ),
+            max_chars=20_000,
+        )
+
+        self.assertIsNone(_dom_nutrition(without_semantics))
+        self.assertEqual(
+            {
+                "calories_kcal": 181,
+                "protein_g": 3,
+                "carbs_g": 25.8,
+                "fat_g": 7.5,
+                "saturated_fat_g": None,
+                "cholesterol_mg": None,
+                "fiber_g": 2,
+                "sugar_g": None,
+                "sodium_mg": None,
+            },
+            _dom_nutrition(with_semantics).model_dump(),
+        )
+
+        rejected = (
+            "Per porsi\nProtein\n3 gram",
+            "Per porsi\nKalori\nsekitar 200 Kkal\nProtein\ntinggi",
+            "Per porsi\nKalori\n181 Kkal\nIngredients\nProtein\n3 gram",
+            "Per porsi\nKalori\n181 Kkal\nProtein\n3 gram\nPer serving",
+        )
+        for text in rejected:
+            with self.subTest(text=text):
+                self.assertIsNone(_dom_nutrition(text))
 
     def test_matches_only_exact_normalized_indonesian_dom_headings(self):
         template = """
@@ -649,7 +872,15 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
         )
         with (
             patch("server.main.fetch_public_html", return_value=page),
-            patch("server.main.extract_recipe", return_value=extracted_recipe()),
+            patch(
+                "server.main.extract_recipe",
+                return_value=extracted_recipe(
+                    nutrients={
+                        "calories": "120 kcal",
+                        "proteinContent": "7 g",
+                    }
+                ),
+            ),
             patch("server.main.extract_recipe_container_text") as fallback,
             patch("server.main.logger.log") as log,
         ):
@@ -660,9 +891,14 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
 
         self.assertEqual("Soup", response.title)
         self.assertIn("ingredients", response.model_dump())
+        self.assertEqual(120, response.nutrition_per_serving.calories_kcal)
+        self.assertEqual(7, response.nutrition_per_serving.protein_g)
         self.assertEqual([], auth.supabase.mock_calls)
         self.assertEqual(logging.INFO, log.call_args.args[0])
-        self.assertEqual(("recipe_scrapers", "none"), log.call_args.args[-2:])
+        self.assertEqual(
+            ("recipe_scrapers", "none", "none", 0),
+            log.call_args.args[-4:],
+        )
         self.assertFalse(log.call_args.kwargs["exc_info"])
         fallback.assert_not_called()
 
@@ -716,7 +952,10 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                 self.assertEqual(1, len(response.ingredients[0].items))
                 self.assertEqual("water", response.ingredients[0].items[0].name)
                 self.assertEqual(1, len(response.instructions[0].steps))
-                self.assertEqual(("dom_fallback", reason), log.call_args.args[-2:])
+                self.assertEqual(
+                    ("dom_fallback", reason, "none", 0),
+                    log.call_args.args[-4:],
+                )
                 fallback.assert_called_once_with("html", max_chars=20_000)
 
     def test_realistic_unlisted_page_uses_dom_fallback_end_to_end(self):
@@ -740,8 +979,379 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
         self.assertEqual(4, len(response.instructions[0].steps))
         self.assertIsNone(response.image_url)
         self.assertEqual(
-            ("dom_fallback", "primary_exception"),
-            log.call_args.args[-2:],
+            ("dom_fallback", "primary_exception", "none", 0),
+            log.call_args.args[-4:],
+        )
+
+    def test_dapur_primary_removes_markers_without_merging_dom_groups(self):
+        page = FetchedRecipePage(
+            html=DAPUR_FIXTURE_PATH.read_text(),
+            url="https://www.dapurumami.com/resep/spring-roll-sayur-ala-saori",
+            hostname="www.dapurumami.com",
+            response_size=DAPUR_FIXTURE_PATH.stat().st_size,
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.main.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual("Spring Roll Sayur ala SAORI", response.title)
+        self.assertEqual(6, response.servings)
+        self.assertEqual(40, response.cook_time_minutes)
+        self.assertEqual(1, len(response.ingredients))
+        self.assertIsNone(response.ingredients[0].title)
+        self.assertEqual(5, len(response.instructions[0].steps))
+        self.assertIsNone(response.nutrition_per_serving)
+        self.assertEqual(
+            ("recipe_scrapers", "none", "none", 0),
+            log.call_args.args[-4:],
+        )
+
+    def test_enriches_flat_primary_with_verified_serious_eats_groups(self):
+        html = SERIOUS_EATS_FIXTURE_PATH.read_text()
+        url = "https://www.seriouseats.com/chicken-pot-pie-biscuit-topping-recipe"
+        page = FetchedRecipePage(
+            html=html,
+            url=url,
+            hostname="www.seriouseats.com",
+            response_size=len(html.encode()),
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page) as fetch,
+            patch("server.main.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual(20, response.prep_time_minutes)
+        self.assertEqual(140, response.cook_time_minutes)
+        self.assertEqual(6, response.servings)
+        self.assertEqual(1014, response.nutrition_per_serving.calories_kcal)
+        self.assertEqual(
+            "https://images.example.com/chicken-pot-pie.jpg",
+            str(response.image_url),
+        )
+        self.assertEqual(
+            ["For the Chicken", "For the Filling", "For the Biscuit Topping"],
+            [group.title for group in response.ingredients],
+        )
+        self.assertEqual(
+            [10, 16, 6],
+            [len(group.items) for group in response.ingredients],
+        )
+        self.assertEqual(
+            ["For the Chicken", "For the Filling", "For Biscuit Topping"],
+            [group.title for group in response.instructions],
+        )
+        self.assertEqual(
+            [2, 3, 2],
+            [len(group.steps) for group in response.instructions],
+        )
+        self.assertEqual(
+            "Combine the chicken, stock, vegetables, and herbs.",
+            response.instructions[0].steps[0].text,
+        )
+        self.assertEqual("dom", log.call_args.args[-5])
+        self.assertEqual(
+            ("recipe_scrapers", "none", "none", 0),
+            log.call_args.args[-4:],
+        )
+        fetch.assert_called_once_with(url)
+
+    def test_enriches_simply_recipes_primary_with_nested_instruction_labels(self):
+        html = SIMPLY_RECIPES_FIXTURE_PATH.read_text()
+        url = "https://www.simplyrecipes.com/recipes/pumpkin_bread/"
+        page = FetchedRecipePage(
+            html=html,
+            url=url,
+            hostname="www.simplyrecipes.com",
+            response_size=len(html.encode()),
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.main.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual(8, response.servings)
+        self.assertEqual(15, response.prep_time_minutes)
+        self.assertEqual(45, response.cook_time_minutes)
+        self.assertEqual(259, response.nutrition_per_serving.calories_kcal)
+        self.assertEqual(
+            ["For the pumpkin bread", "For the orange glaze (optional)"],
+            [group.title for group in response.ingredients],
+        )
+        self.assertEqual(
+            [
+                "Make the homemade pumpkin purée (optional)",
+                "Preheat oven to 350°F (180°C)",
+                "Whisk the dry ingredients",
+                "Combine the wet ingredients",
+                "Make the batter",
+                "Bake",
+                "Remove from pan and cool completely",
+                "Glaze",
+            ],
+            [group.title for group in response.instructions],
+        )
+        self.assertEqual(
+            [1, 1, 1, 1, 1, 1, 1, 2],
+            [len(group.steps) for group in response.instructions],
+        )
+        self.assertEqual(
+            "Cut and roast the pumpkin. Cool it, then scoop out the flesh.",
+            response.instructions[0].steps[0].text,
+        )
+        self.assertEqual(
+            "Cool briefly in the pan. Transfer the loaf to a rack.",
+            response.instructions[6].steps[0].text,
+        )
+        self.assertEqual("Enjoy!", response.instructions[-1].steps[-1].text)
+        self.assertEqual("dom", log.call_args.args[-5])
+        self.assertEqual(
+            ("recipe_scrapers", "none", "none", 0),
+            log.call_args.args[-4:],
+        )
+
+    def test_simply_recipes_dom_fallback_preserves_nested_instruction_labels(self):
+        html = SIMPLY_RECIPES_FIXTURE_PATH.read_text()
+        page = FetchedRecipePage(
+            html=html,
+            url="https://www.simplyrecipes.com/recipes/pumpkin_bread/",
+            hostname="www.simplyrecipes.com",
+            response_size=len(html.encode()),
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch(
+                "server.main.extract_recipe",
+                side_effect=WebsiteImportError("recipe_not_found"),
+            ),
+            patch("server.main.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual(8, len(response.instructions))
+        self.assertEqual(9, sum(len(group.steps) for group in response.instructions))
+        self.assertEqual(
+            "Make the homemade pumpkin purée (optional)",
+            response.instructions[0].title,
+        )
+        self.assertEqual("Enjoy!", response.instructions[-1].steps[-1].text)
+        self.assertEqual(
+            ("dom_fallback", "primary_exception", "none", 0),
+            log.call_args.args[-4:],
+        )
+
+    def test_group_enrichment_is_atomic_and_exact(self):
+        html = SERIOUS_EATS_FIXTURE_PATH.read_text()
+        url = "https://www.seriouseats.com/chicken-pot-pie-biscuit-topping-recipe"
+        extracted = extract_recipe(html, url)
+        draft = normalize_imported_website_recipe(extracted)
+        mismatches = (
+            html.replace(
+                "<li>1 bay leaf</li>",
+                "",
+                1,
+            ),
+            html.replace(
+                "<li>1 sprig parsley</li>\n              <li>1 sprig rosemary</li>",
+                "<li>1 sprig rosemary</li>\n              <li>1 sprig parsley</li>",
+                1,
+            ),
+            html.replace(
+                "<li>1 bay leaf</li>",
+                "<li>1 bay leaf.</li>",
+                1,
+            ),
+            html.replace(
+                "<strong>For the Filling:</strong>",
+                "<strong>Filling:</strong>",
+                1,
+            ),
+        )
+
+        for candidate in mismatches:
+            with self.subTest():
+                result, enriched = _enrich_primary_groups(
+                    draft,
+                    extracted,
+                    candidate,
+                )
+                self.assertFalse(enriched)
+                self.assertIs(result, draft)
+                self.assertEqual([None], [group.title for group in result.ingredients])
+                self.assertEqual([None], [group.title for group in result.instructions])
+
+    def test_group_enrichment_never_overwrites_native_groups(self):
+        html = SERIOUS_EATS_FIXTURE_PATH.read_text()
+        url = "https://www.seriouseats.com/chicken-pot-pie-biscuit-topping-recipe"
+        extracted = extract_recipe(html, url)
+        native = ExtractedRecipe(
+            title=extracted.title,
+            description=extracted.description,
+            ingredient_groups=[
+                ExtractedIngredientGroup(
+                    "Native Group",
+                    extracted.ingredient_groups[0].ingredients,
+                )
+            ],
+            instructions=extracted.instructions,
+            prep_time_minutes=extracted.prep_time_minutes,
+            cook_time_minutes=extracted.cook_time_minutes,
+            yield_text=extracted.yield_text,
+            nutrients=extracted.nutrients,
+            image_url=extracted.image_url,
+        )
+        draft = normalize_imported_website_recipe(native)
+
+        result, enriched = _enrich_primary_groups(draft, native, html)
+
+        self.assertFalse(enriched)
+        self.assertIs(result, draft)
+        self.assertEqual("Native Group", result.ingredients[0].title)
+
+    def test_group_enrichment_failure_keeps_complete_primary_import(self):
+        page = FetchedRecipePage(
+            html="html",
+            url="https://example.com/recipe",
+            hostname="example.com",
+            response_size=4,
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.main.extract_recipe", return_value=extracted_recipe()),
+            patch(
+                "server.main._enrich_primary_groups",
+                side_effect=RuntimeError("bad optional DOM structure"),
+            ),
+            patch("server.main.extract_recipe_container_text") as nutrition_dom,
+            patch("server.main.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual("Soup", response.title)
+        self.assertEqual("Soup", response.ingredients[0].title)
+        self.assertEqual("none", log.call_args.args[-5])
+        nutrition_dom.assert_called_once_with("html", max_chars=20_000)
+
+    def test_enriches_missing_primary_nutrition_with_explicit_dom_semantics(self):
+        html = DAPUR_FIXTURE_PATH.read_text().replace(
+            "<!-- nutrition-marker -->",
+            "<h2>Informasi Nilai Gizi per Porsi</h2>",
+        )
+        page = FetchedRecipePage(
+            html=html,
+            url="https://www.dapurumami.com/resep/spring-roll-sayur-ala-saori",
+            hostname="www.dapurumami.com",
+            response_size=len(html.encode()),
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.main.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual(181, response.nutrition_per_serving.calories_kcal)
+        self.assertEqual(3, response.nutrition_per_serving.protein_g)
+        self.assertEqual(25.8, response.nutrition_per_serving.carbs_g)
+        self.assertEqual(7.5, response.nutrition_per_serving.fat_g)
+        self.assertEqual(2, response.nutrition_per_serving.fiber_g)
+        self.assertEqual(
+            ("recipe_scrapers", "none", "dom", 5),
+            log.call_args.args[-4:],
+        )
+
+    def test_fallback_uses_strict_dom_nutrition_semantics(self):
+        fixture = DAPUR_FIXTURE_PATH.read_text()
+        cases = (
+            (fixture, None, "none", 0),
+            (
+                fixture.replace(
+                    "<!-- nutrition-marker -->",
+                    "<h2>Informasi Nilai Gizi per Porsi</h2>",
+                ),
+                181,
+                "dom",
+                5,
+            ),
+        )
+
+        for html, calories, enrichment, field_count in cases:
+            with self.subTest(enrichment=enrichment):
+                page = FetchedRecipePage(
+                    html=html,
+                    url="https://example.com/dapur-recipe",
+                    hostname="example.com",
+                    response_size=len(html.encode()),
+                )
+                with (
+                    patch("server.main.fetch_public_html", return_value=page),
+                    patch(
+                        "server.main.extract_recipe",
+                        side_effect=WebsiteImportError("recipe_not_found"),
+                    ),
+                    patch("server.main.logger.log") as log,
+                ):
+                    response = import_recipe_url(
+                        ImportRecipeUrlRequest(url=page.url),
+                        _auth=Mock(),
+                    )
+
+                nutrition = response.nutrition_per_serving
+                self.assertEqual(
+                    calories,
+                    nutrition.calories_kcal if nutrition is not None else None,
+                )
+                self.assertEqual(
+                    ("dom_fallback", "primary_exception", enrichment, field_count),
+                    log.call_args.args[-4:],
+                )
+
+    def test_dom_enrichment_failure_does_not_fail_complete_primary_recipe(self):
+        page = FetchedRecipePage(
+            html="html",
+            url="https://example.com/recipe",
+            hostname="example.com",
+            response_size=4,
+        )
+        with (
+            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.main.extract_recipe", return_value=extracted_recipe()),
+            patch(
+                "server.main.extract_recipe_container_text",
+                side_effect=WebsiteImportError("recipe_not_found"),
+            ),
+            patch("server.main.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual("Soup", response.title)
+        self.assertIsNone(response.nutrition_per_serving)
+        self.assertEqual(
+            ("recipe_scrapers", "none", "none", 0),
+            log.call_args.args[-4:],
         )
 
     def test_rejects_fallback_without_both_core_fields(self):
@@ -771,7 +1381,10 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
 
         self.assertEqual(422, caught.exception.status_code)
         self.assertEqual("recipe_not_found", caught.exception.detail)
-        self.assertEqual(("none", "primary_exception"), log.call_args.args[-2:])
+        self.assertEqual(
+            ("none", "primary_exception", "none", 0),
+            log.call_args.args[-4:],
+        )
         self.assertNotIn("1 cup water", log.call_args.args[1])
 
     def test_maps_stable_error_details(self):

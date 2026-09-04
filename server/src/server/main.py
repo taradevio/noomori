@@ -20,6 +20,7 @@ from server.recipe_url_import import (
     WebsiteImportError,
     extract_recipe,
     extract_recipe_container_text,
+    extract_recipe_group_structure,
     fetch_public_html,
     fetch_public_image,
     recipe_section_name,
@@ -267,6 +268,17 @@ _NUTRITION_HEADING = re.compile(
 _NUTRITION_VALUE = re.compile(
     r"^(?P<value>(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))\s*(?P<unit>[A-Za-z]+)\.?$"
 )
+_INSTRUCTION_MARKER = re.compile(
+    r"^(?:\d+[.)]?|(?:langkah|step)\s+\d+"
+    r"(?:\s*(?:/|dari)\s*\d+)?[.)]?)$",
+    re.IGNORECASE,
+)
+_DOM_NUTRITION_PER_SERVING = re.compile(
+    r"(?:(?:nutrition(?:al)?(?: facts| information)?|"
+    r"informasi(?: nilai)? gizi)\s*)?"
+    r"(?:\(\s*)?per\s+(?:serving|portion|porsi)(?:\s*\))?",
+    re.IGNORECASE,
+)
 # NOTE: Text import fills only the nutrition fields already supported by the
 # recipe model; trans fat, percentages, and unknown nutrients are ignored.
 _NUTRITION_LABELS = (
@@ -275,24 +287,34 @@ _NUTRITION_LABELS = (
     ("dietary fiber", "fiber_g", "g"),
     ("dietary fibre", "fiber_g", "g"),
     ("saturated fat", "saturated_fat_g", "g"),
+    ("lemak jenuh", "saturated_fat_g", "g"),
     ("total sugars", "sugar_g", "g"),
     ("total fat", "fat_g", "g"),
     ("carbohydrates", "carbs_g", "g"),
     ("carbohydrate", "carbs_g", "g"),
     ("cholesterol", "cholesterol_mg", "mg"),
+    ("kolesterol", "cholesterol_mg", "mg"),
     ("calories", "calories_kcal", "cal"),
+    ("kalori", "calories_kcal", "cal"),
+    ("energi", "calories_kcal", "cal"),
     ("protein", "protein_g", "g"),
     ("sodium", "sodium_mg", "mg"),
+    ("natrium", "sodium_mg", "mg"),
     ("fiber", "fiber_g", "g"),
     ("fibre", "fiber_g", "g"),
+    ("serat", "fiber_g", "g"),
     ("sugars", "sugar_g", "g"),
     ("sugar", "sugar_g", "g"),
+    ("gula", "sugar_g", "g"),
     ("carbs", "carbs_g", "g"),
+    ("karbohidrat", "carbs_g", "g"),
+    ("karbo", "carbs_g", "g"),
     ("fat", "fat_g", "g"),
+    ("lemak", "fat_g", "g"),
 )
 _NUTRITION_UNITS = {
-    "cal": {"cal", "kcal", "calorie", "calories"},
-    "g": {"g", "gram", "grams"},
+    "cal": {"cal", "kcal", "kkal", "calorie", "calories"},
+    "g": {"g", "gr", "gram", "grams"},
     "mg": {"mg", "milligram", "milligrams"},
 }
 _UNIT_ALIASES = {
@@ -364,6 +386,10 @@ def _is_markdown_rule(line: str) -> bool:
 
 def _without_list_prefix(line: str) -> str:
     return _LIST_PREFIX.sub("", line.strip()).strip()
+
+
+def _is_instruction_marker(value: str) -> bool:
+    return bool(_INSTRUCTION_MARKER.fullmatch(" ".join(value.split())))
 
 
 def _duration_minutes(value: str) -> int | None:
@@ -516,7 +542,7 @@ def _nutrition_line(
         matched_label = False
 
         for label, key, unit_kind in _NUTRITION_LABELS:
-            if normalized == label:
+            if normalized in {label, f"{label}:"}:
                 pending = (key, unit_kind)
                 matched_label = True
                 break
@@ -541,6 +567,33 @@ def _nutrition_line(
                 found.setdefault(key, value)
 
     return pending, found
+
+
+def _dom_nutrition(text: str) -> RecipeNutrition | None:
+    # NOTE: Website values only map to nutrition_per_serving when the candidate
+    # says so explicitly; recipe yield such as "6 Porsi" is not sufficient.
+    lines = [_plain_line(line) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    markers = [
+        index
+        for index, line in enumerate(lines)
+        if _DOM_NUTRITION_PER_SERVING.fullmatch(
+            " ".join(line.rstrip(":").split())
+        )
+    ]
+    if len(markers) != 1:
+        return None
+
+    values: dict[str, float] = {}
+    pending: tuple[str, str] | None = None
+    for line in lines[markers[0] + 1:]:
+        if recipe_section_name(line) in {"ingredients", "instructions"}:
+            break
+        pending, found = _nutrition_line(line, pending)
+        for key, value in found.items():
+            values.setdefault(key, value)
+
+    return RecipeNutrition(**values) if len(values) >= 2 else None
 
 
 def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
@@ -657,7 +710,7 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
                 current_group = {"title": None, "steps": []}
                 instructions.append(current_group)
             instruction = _without_list_prefix(line)
-            if instruction:
+            if instruction and not _is_instruction_marker(instruction):
                 current_group["steps"].append({"text": instruction})
             continue
 
@@ -735,7 +788,7 @@ def normalize_imported_website_recipe(
     instruction_steps = [
         RecipeInstruction(text=instruction[:2000])
         for instruction in extracted.instructions
-        if instruction
+        if instruction and not _is_instruction_marker(instruction)
     ]
     instructions = (
         [RecipeInstructionGroup(title=None, steps=instruction_steps)]
@@ -1218,6 +1271,140 @@ def _missing_primary_reason(ingredient_count: int, instruction_count: int) -> st
     return "primary_missing_instructions"
 
 
+def _enrich_dom_nutrition(
+    draft: ImportedRecipeTextDraft,
+    candidate_text: str,
+) -> tuple[ImportedRecipeTextDraft, int]:
+    if draft.nutrition_per_serving is not None:
+        return draft, 0
+    nutrition = _dom_nutrition(candidate_text)
+    if nutrition is None:
+        return draft, 0
+    field_count = sum(
+        value is not None for value in nutrition.model_dump().values()
+    )
+    return draft.model_copy(update={"nutrition_per_serving": nutrition}), field_count
+
+
+def _dom_structure_match(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return re.sub(r"\s+", "", normalized)
+
+
+def _strip_verified_group_label(value: str, label_prefix: str) -> str | None:
+    # NOTE: Keep the DOM's exact rendered prefix (including optional colon) and
+    # tolerate whitespace only. This lets semantic headings without colons pass
+    # verification without weakening the content comparison.
+    chunks = re.findall(r"\S+", label_prefix)
+    if not chunks:
+        return None
+    label = re.compile(
+        r"^\s*" + r"\s*".join(re.escape(chunk) for chunk in chunks) + r"\s*",
+        re.IGNORECASE,
+    )
+    matched = label.match(value)
+    stripped = value[matched.end():].strip() if matched else ""
+    return stripped or None
+
+
+def _enrich_primary_groups(
+    draft: ImportedRecipeTextDraft,
+    extracted: ExtractedRecipe,
+    html: str,
+) -> tuple[ImportedRecipeTextDraft, bool]:
+    if (
+        len(draft.ingredients) != 1
+        or draft.ingredients[0].title is not None
+        or len(draft.instructions) != 1
+        or draft.instructions[0].title is not None
+        or len(extracted.ingredient_groups) != 1
+        or extracted.ingredient_groups[0].title is not None
+    ):
+        return draft, False
+
+    try:
+        structure = extract_recipe_group_structure(html)
+    except WebsiteImportError:
+        return draft, False
+
+    ingredient_lines = extracted.ingredient_groups[0].ingredients
+    dom_ingredient_lines = [
+        item
+        for group in structure.ingredient_groups
+        for item in group.ingredients
+    ]
+    dom_instruction_lines = [
+        step
+        for group in structure.instruction_groups
+        for step in group.instructions
+    ]
+    if (
+        len(ingredient_lines) != len(draft.ingredients[0].items)
+        or len(extracted.instructions) != len(draft.instructions[0].steps)
+        or [_dom_structure_match(line) for line in ingredient_lines]
+        != [_dom_structure_match(line) for line in dom_ingredient_lines]
+        or [_dom_structure_match(line) for line in extracted.instructions]
+        != [_dom_structure_match(line) for line in dom_instruction_lines]
+        or any(
+            not group.title or len(group.title) > 200
+            for group in (
+                *structure.ingredient_groups,
+                *structure.instruction_groups,
+            )
+        )
+        or any(
+            not group.label_prefix
+            for group in structure.instruction_groups
+        )
+    ):
+        return draft, False
+
+    ingredient_groups = []
+    offset = 0
+    for group in structure.ingredient_groups:
+        next_offset = offset + len(group.ingredients)
+        ingredient_groups.append(
+            RecipeIngredientGroup(
+                title=group.title,
+                items=draft.ingredients[0].items[offset:next_offset],
+            )
+        )
+        offset = next_offset
+
+    instruction_groups = []
+    offset = 0
+    for group in structure.instruction_groups:
+        next_offset = offset + len(group.instructions)
+        steps = list(draft.instructions[0].steps[offset:next_offset])
+        first_step = _strip_verified_group_label(
+            steps[0].text,
+            group.label_prefix or "",
+        )
+        if first_step is None:
+            return draft, False
+        steps[0] = RecipeInstruction(text=first_step[:2000])
+        instruction_groups.append(
+            RecipeInstructionGroup(title=group.title, steps=steps)
+        )
+        offset = next_offset
+
+    if (
+        offset != len(draft.instructions[0].steps)
+        or sum(len(group.items) for group in ingredient_groups)
+        != len(draft.ingredients[0].items)
+    ):
+        return draft, False
+
+    # NOTE: DOM contributes only verified presentation boundaries and labels;
+    # primary parsed values remain authoritative, so core fields are not blended.
+    return draft.model_copy(
+        update={
+            "ingredients": ingredient_groups,
+            "instructions": instruction_groups,
+        }
+    ), True
+
+
 @app.post("/recipes/import/url", response_model=ImportedRecipeTextDraft)
 def import_recipe_url(
     payload: ImportRecipeUrlRequest,
@@ -1231,6 +1418,9 @@ def import_recipe_url(
     instruction_count = 0
     extraction_strategy = "none"
     fallback_reason = "none"
+    group_enrichment = "none"
+    nutrition_enrichment = "none"
+    nutrition_field_count = 0
 
     try:
         page = fetch_public_html(str(payload.url))
@@ -1258,6 +1448,32 @@ def import_recipe_url(
         if primary_draft is not None:
             ingredient_count, instruction_count = _draft_core_counts(primary_draft)
             if ingredient_count and instruction_count:
+                try:
+                    enriched_draft, groups_enriched = _enrich_primary_groups(
+                        primary_draft,
+                        extracted,
+                        page.html,
+                    )
+                except Exception:
+                    pass
+                else:
+                    primary_draft = enriched_draft
+                    if groups_enriched:
+                        group_enrichment = "dom"
+                if primary_draft.nutrition_per_serving is None:
+                    try:
+                        candidate_text = extract_recipe_container_text(
+                            page.html,
+                            max_chars=RECIPE_TEXT_MAX_CHARS,
+                        )
+                        primary_draft, nutrition_field_count = (
+                            _enrich_dom_nutrition(primary_draft, candidate_text)
+                        )
+                    except (WebsiteImportError, ValueError):
+                        pass
+                    else:
+                        if nutrition_field_count:
+                            nutrition_enrichment = "dom"
                 extraction_strategy = "recipe_scrapers"
                 result = "success"
                 return primary_draft
@@ -1271,6 +1487,21 @@ def import_recipe_url(
             max_chars=RECIPE_TEXT_MAX_CHARS,
         )
         draft = parse_recipe_text(fallback_text)
+        # NOTE: Text imports allow generic nutrition headings, but website DOM
+        # nutrition must pass the stricter per-serving confidence gate above.
+        draft = draft.model_copy(update={"nutrition_per_serving": None})
+        try:
+            enriched_draft, enriched_field_count = _enrich_dom_nutrition(
+                draft,
+                fallback_text,
+            )
+        except ValueError:
+            pass
+        else:
+            draft = enriched_draft
+            nutrition_field_count = enriched_field_count
+            if nutrition_field_count:
+                nutrition_enrichment = "dom"
         ingredient_count, instruction_count = _draft_core_counts(draft)
         if not ingredient_count or not instruction_count:
             raise WebsiteImportError("recipe_not_found")
@@ -1295,7 +1526,9 @@ def import_recipe_url(
             logging.INFO if result == "success" else logging.WARNING,
             "Website recipe import url=%s hostname=%s result=%s duration_ms=%.1f "
             "response_size=%s ingredient_count=%s instruction_count=%s "
-            "extraction_strategy=%s fallback_reason=%s",
+            "group_enrichment=%s "
+            "extraction_strategy=%s fallback_reason=%s "
+            "nutrition_enrichment=%s nutrition_field_count=%s",
             payload.url,
             hostname,
             result,
@@ -1303,8 +1536,11 @@ def import_recipe_url(
             response_size,
             ingredient_count,
             instruction_count,
+            group_enrichment,
             extraction_strategy,
             fallback_reason,
+            nutrition_enrichment,
+            nutrition_field_count,
             exc_info=result != "success",
         )
 
