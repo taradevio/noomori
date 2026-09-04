@@ -1030,47 +1030,69 @@ S10 Join Household.
 
 ## Input
 
-- join code.
+- six-digit numeric join code.
 
 Recommended behavior:
 
-- trim whitespace;
-- case handling must match backend code format;
-- optional paste action.
+- allow typing and paste;
+- accept spaces and hyphens, then normalize to exactly six digits;
+- preserve leading zeroes;
+- show a numeric keyboard;
+- do not auto-submit after the sixth digit.
 
 ## Primary path
 
 1. Enter code.
-2. Tap Join.
-3. Server validates code.
-4. User becomes Member.
-5. Navigate to household shared recipes.
+2. Tap `Continue`.
+3. Server validates the invite without consuming it or creating membership.
+4. Show a safe preview containing household name, owner display name, and member count.
+5. User verifies the household and taps `Join household`.
+6. Server locks the caller profile and checks existing membership before looking up the submitted code.
+7. If membership already exists, return the canonical membership so a retry after a lost success response can recover without requiring the deleted code.
+8. Otherwise, the server checks the shared concurrency-safe attempt limiter, revalidates the invite, atomically creates Member membership, updates existing profile/onboarding state, and deletes the consumed code row.
+9. Expected invalid/expired and rate-limited results commit their limiter updates; they are returned as statuses rather than database exceptions.
+10. Refresh household/profile state and navigate to household shared recipes.
+
+Leaving the preview or choosing `Use a different code` must not consume the invite or change membership.
 
 ## Error states
 
-### Invalid code
+### Invalid, expired, revoked, or consumed code
 
-`That join code isn't valid.`
+`This invite code is invalid or has expired.`
 
-### Revoked / expired
-
-`That join code is no longer active.`
+`Ask the household owner for a new code.`
 
 ### Already member
 
-`You're already in this household.`
+`You're already part of a household.`
+
+The client refreshes canonical household/profile state. It must not claim that the submitted code matched a previously consumed code because MVP stores no redemption history.
+
+## Security and recovery invariants
+
+- Preview and Join share one database-backed limiter row per authenticated user.
+- Limiter rows are created with conflict-safe insert behavior and locked for update before checking or incrementing attempts.
+- Ten failed lookups within 10 minutes lock further lookups for 10 minutes.
+- Join locks the caller profile before its membership-first recovery check.
+- The unique constraint/index on `household_members(user_id)` remains the final one-household race backstop.
+- Unknown, expired, revoked/deleted, and consumed/deleted codes use the same invalid-or-expired response.
 
 ### Generic failure
 
 `Couldn't join the household. Try again.`
 
-Do not collapse all errors into `Something went wrong` if server provides a safe specific reason.
+Credential failures use the same external copy so the UI does not reveal invite lifecycle details. Eligibility and recoverable service failures may remain specific.
 
 ## Acceptance criteria
 
 - [ ] User can paste/type code.
-- [ ] Join action validates through backend.
-- [ ] Invalid/revoked states are distinguishable when backend supports them.
+- [ ] Code entry never creates membership or consumes the invite.
+- [ ] Continue returns a read-only household preview.
+- [ ] Preview exposes only household name, owner display name, and member count.
+- [ ] Final Join requires a second explicit action and revalidates through the backend.
+- [ ] Back / Use a different code preserves an active invite and does not mutate membership.
+- [ ] Credential failures share generic invalid-or-expired copy.
 - [ ] Success immediately loads active household.
 - [ ] Member does not see owner-only admin controls.
 
@@ -1286,7 +1308,7 @@ Show:
 
 Helper:
 
-`Anyone with this active code can request/join according to the server's join rules.`
+`Valid for 10 minutes. This code can be used once.`
 
 Do not make security claims stronger than backend behavior.
 
@@ -1330,6 +1352,10 @@ Body:
 - [ ] Revoke requires confirmation.
 - [ ] Copy provides immediate feedback.
 - [ ] Member API calls are rejected even if endpoint is invoked manually.
+- [ ] Backend expiry is exactly 10 minutes from database generation time.
+- [ ] Generating again replaces the previous code immediately.
+- [ ] Revoking or successfully consuming a code deletes its row.
+- [ ] HMAC key rotation invalidates all outstanding codes; old-key and new-key API instances are never active together.
 
 ---
 
@@ -1920,13 +1946,16 @@ Not represented in the role matrix.
 
 ## Q7 — Join code lifecycle
 
-Define:
+Resolved for MVP:
 
-- format;
-- expiration;
-- one-time vs reusable;
-- maximum attempts/rate limiting;
-- regeneration behavior.
+- six numeric digits, with spaces/hyphens accepted only as input formatting;
+- 10-minute expiry controlled by database time;
+- one-time use, consumed by deleting the code row in the successful Join transaction;
+- one active code row per household;
+- generating replaces the previous row and revoking deletes it;
+- Preview and Join share a concurrency-safe limit of 10 failed lookups per authenticated user per 10 minutes, followed by a 10-minute lock;
+- membership is checked before code lookup for lost-response recovery;
+- HMAC-key rotation deliberately deletes/invalidates every outstanding code, with no mixed-key rollout or grace period.
 
 ## Q8 — Unit preference persistence
 
