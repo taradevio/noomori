@@ -8,6 +8,7 @@ import {
 } from "@/shared/components/onboarding/onboarding-screen";
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
+import { toast } from "@/shared/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { AccessibilityInfo, Text, TextInput, View } from "react-native";
@@ -52,6 +53,7 @@ export default function CreateHousehold() {
     mutationFn: createHouseholdName,
     onSuccess: async (data) => {
       console.log(`Household is set ${data}`);
+      toast.success("Household created");
       // Clear user-scoped cached data before re-resolving the navigation state
       // that depends on the newly completed profile.
       await Promise.all([
@@ -105,7 +107,7 @@ export default function CreateHousehold() {
             Create your household
           </Text>
           <Text className="max-w-[440px] text-base font-normal leading-6 text-text-secondary">
-            You'll be the owner. You can invite people whenever you're ready.
+            You’ll be the owner. You can invite people whenever you’re ready.
           </Text>
         </View>
 

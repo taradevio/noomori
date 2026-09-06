@@ -39,6 +39,7 @@ import { seedRecipeDetail } from "@/shared/components/recipe/recipe-query";
 import { toRecipeCard } from "@/shared/components/recipe/recipe-response";
 import { colorTokens, MaxContentWidth } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
+import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 const GRID_GAP = 12;
@@ -81,7 +82,7 @@ export default function CookbookDetailRoute() {
       cacheUpdatedCookbook(queryClient, cookbook);
       setRenameOpen(false);
       setRenameError(null);
-      AccessibilityInfo.announceForAccessibility("Cookbook renamed");
+      toast.success("Cookbook renamed");
     },
     onError: (error) => {
       const message =
@@ -96,6 +97,7 @@ export default function CookbookDetailRoute() {
     mutationFn: () => deleteCookbook(accessToken, normalizedCookbookId),
     onSuccess: () => {
       cacheDeletedCookbook(queryClient, normalizedCookbookId);
+      toast.success("Cookbook deleted");
       router.replace({ pathname: "/", params: { section: "cookbooks" } });
     },
   });

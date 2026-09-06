@@ -27,20 +27,16 @@ function CoverFallback({ compact = false }: { compact?: boolean }) {
       importantForAccessibility="no-hide-descendants"
       className="h-full w-full items-center justify-center bg-surface-subtle"
     >
-      <View className="absolute -right-5 -top-7 h-24 w-24 rounded-full bg-secondary opacity-10" />
-      <View className="absolute -bottom-8 -left-4 h-24 w-24 rounded-full bg-primary opacity-10" />
       {!compact ? (
-        <View className="h-14 w-14 items-center justify-center rounded-2xl bg-surface">
-          <SymbolView
-            name={{
-              ios: "books.vertical",
-              android: "library_books",
-              web: "library_books",
-            }}
-            size={28}
-            tintColor={colorTokens.textSecondary}
-          />
-        </View>
+        <SymbolView
+          name={{
+            ios: "books.vertical",
+            android: "library_books",
+            web: "library_books",
+          }}
+          size={29}
+          tintColor={colorTokens.primary}
+        />
       ) : null}
     </View>
   );
@@ -107,7 +103,10 @@ export function CookbookCard({ item, onPress, width }: CookbookCardProps) {
     <>
       <CookbookCover imageUrls={item.coverImageUrls} />
       <View className="min-h-[92px] gap-1 px-4 pb-4 pt-3.5">
-        <Text className="text-[17px] font-bold leading-[23px] text-text-primary">
+        <Text
+          numberOfLines={2}
+          className="text-base font-bold leading-[22px] text-text-primary"
+        >
           {item.title}
         </Text>
         <Text className="mt-auto text-sm font-normal leading-5 text-text-secondary">
@@ -119,7 +118,7 @@ export function CookbookCard({ item, onPress, width }: CookbookCardProps) {
 
   return (
     <View
-      className={`overflow-hidden rounded-[14px] border bg-surface shadow-sm shadow-text-primary/5 ${focused ? "border-primary-strong" : "border-border"}`}
+      className={`overflow-hidden rounded-2xl border bg-surface ${focused ? "border-primary" : "border-border"}`}
       style={{ width }}
       testID={`cookbook-card-${item.id}`}
     >

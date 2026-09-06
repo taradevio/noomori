@@ -11,3 +11,17 @@
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
+
+::selection {
+  background: #e9d8a6;
+  color: #001219;
+}
+
+* {
+  scrollbar-color: #bac8c4 #fffdf8;
+}
+
+input,
+textarea {
+  caret-color: #005f73;
+}

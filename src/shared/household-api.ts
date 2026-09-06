@@ -128,6 +128,43 @@ export function markHouseholdActivityRead(
   );
 }
 
+export function registerNotificationDevice(
+  accessToken: string,
+  expoPushToken: string,
+  platform: "android" | "ios",
+  previousExpoPushToken?: string | null,
+) {
+  // NOTE: Rotation is one authenticated request so the previous token is not leaked.
+  return householdRequest<void>(
+    accessToken,
+    apiConfig.endpoints.notificationDevice,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        expo_push_token: expoPushToken,
+        platform,
+        ...(previousExpoPushToken && previousExpoPushToken !== expoPushToken
+          ? { previous_expo_push_token: previousExpoPushToken }
+          : {}),
+      }),
+    },
+  );
+}
+
+export function unregisterNotificationDevice(
+  accessToken: string,
+  expoPushToken: string,
+) {
+  return householdRequest<void>(
+    accessToken,
+    apiConfig.endpoints.notificationDevice,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ expo_push_token: expoPushToken }),
+    },
+  );
+}
+
 export function leaveHousehold(accessToken: string) {
   return householdRequest<void>(
     accessToken,

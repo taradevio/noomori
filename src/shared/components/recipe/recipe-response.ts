@@ -91,6 +91,7 @@ export function toRecipeCard(recipe: ApiRecipe): RecipeCardModel {
     imagePath: recipe.image_path,
     imageUrl: recipe.image_url,
     cookingTimeMinutes: prep + cook || null,
+    servings: recipe.servings,
     isShared: recipe.is_shared,
   };
 }

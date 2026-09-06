@@ -2,6 +2,7 @@ import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Animated, { useReducedMotion } from "react-native-reanimated";
 
 import { colorTokens } from "@/shared/design-system";
 
@@ -35,13 +36,17 @@ export function RecipeCard({
   width,
 }: RecipeCardProps) {
   const [focused, setFocused] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  const reduceMotion = useReducedMotion();
   const cookingTime = getCookingTime(item.cookingTimeMinutes);
+  const servingsLabel = `${item.servings} serving${item.servings === 1 ? "" : "s"}`;
   const sharedLabel = getSharedLabel(item);
   const cookbookName = item.cookbookName?.trim() || null;
   const imageUrl = item.imageUrl?.trim() || null;
   const accessibilityParts = [
     item.title,
     cookingTime ? `${cookingTime} minutes` : null,
+    servingsLabel,
     sharedLabel,
     cookbookName ? `In ${cookbookName}` : null,
   ].filter(Boolean);
@@ -68,25 +73,22 @@ export function RecipeCard({
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
             className="h-full w-full items-center justify-center"
+            testID={`recipe-card-missing-image-${item.id}`}
           >
-            <View className="absolute -right-5 -top-7 h-24 w-24 rounded-full bg-primary opacity-10" />
-            <View className="absolute -bottom-8 -left-4 h-24 w-24 rounded-full bg-secondary opacity-10" />
-            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-surface">
-              <SymbolView
-                name={{
-                  ios: "fork.knife",
-                  android: "restaurant",
-                  web: "restaurant",
-                }}
-                size={28}
-                tintColor={colorTokens.textSecondary}
-              />
-            </View>
+            <SymbolView
+              name={{
+                ios: "fork.knife",
+                android: "restaurant",
+                web: "restaurant",
+              }}
+              size={30}
+              tintColor={colorTokens.primary}
+            />
           </View>
         )}
 
         {sharedLabel ? (
-          <View className="absolute left-3 top-3 min-h-9 max-w-[85%] flex-row items-center gap-1.5 rounded-full border border-surface bg-surface px-3 py-1.5">
+          <View className="absolute left-3 top-3 min-h-8 max-w-[85%] flex-row items-center gap-1.5 rounded-full bg-surface px-2.5 py-1">
             <SymbolView
               accessible={false}
               name={{ ios: "person.2", android: "group", web: "group" }}
@@ -103,51 +105,90 @@ export function RecipeCard({
         ) : null}
       </View>
 
-      <View className="min-h-[100px] gap-1 px-4 pb-4 pt-3.5">
-        <Text className="text-[17px] font-bold leading-[23px] text-text-primary">
+      <View className="min-h-[104px] gap-2 px-3.5 pb-3.5 pt-3">
+        <Text
+          numberOfLines={2}
+          className="text-base font-bold leading-[22px] text-text-primary"
+        >
           {item.title}
         </Text>
 
-        {cookingTime || cookbookName ? (
-          <View className="mt-auto gap-0.5 pt-1">
-            {cookingTime ? (
-              <Text className="text-sm font-normal leading-5 text-text-secondary">
+        <View className="mt-auto flex-row items-center gap-2 pt-1">
+          {cookingTime ? (
+            <View className="shrink-0 flex-row items-center gap-1">
+              <SymbolView
+                accessible={false}
+                name={{ ios: "clock", android: "schedule", web: "schedule" }}
+                size={15}
+                tintColor={colorTokens.textSecondary}
+              />
+              <Text className="text-[13px] font-normal leading-[18px] text-text-secondary">
                 {cookingTime} min
               </Text>
-            ) : null}
-            {cookbookName ? (
-              <Text className="text-[13px] font-medium leading-[18px] text-secondary">
-                {cookbookName}
-              </Text>
-            ) : null}
+            </View>
+          ) : null}
+          {cookingTime ? (
+            <View className="h-1 w-1 shrink-0 rounded-full bg-border-strong" />
+          ) : null}
+          <View className="shrink-0 flex-row items-center gap-1">
+            <SymbolView
+              accessible={false}
+              name={{ ios: "person.2", android: "group", web: "group" }}
+              size={15}
+              tintColor={colorTokens.textSecondary}
+            />
+            <Text className="text-[13px] font-normal leading-[18px] text-text-secondary">
+              {item.servings}
+            </Text>
           </View>
-        ) : null}
+          {cookbookName ? (
+            <View className="h-1 w-1 shrink-0 rounded-full bg-border-strong" />
+          ) : null}
+          {cookbookName ? (
+            <Text
+              numberOfLines={1}
+              className="min-w-0 shrink flex-1 text-[13px] font-medium leading-[18px] text-primary"
+            >
+              {cookbookName}
+            </Text>
+          ) : null}
+        </View>
       </View>
     </>
   );
 
   return (
-    <View
-      className={`overflow-hidden rounded-[14px] border bg-surface shadow-sm shadow-text-primary/5 ${focused ? "border-primary-strong" : "border-border"}`}
-      style={{ width }}
+    <Animated.View
+      style={[
+        { width },
+        {
+          transform: [{ scale: reduceMotion || !pressed ? 1 : 0.98 }],
+          transition: "transform 120ms cubic-bezier(0.23, 1, 0.32, 1)",
+        },
+      ]}
       testID={`recipe-card-${item.id}`}
     >
-      {onPress ? (
-        <Pressable
-          accessibilityHint="Opens this recipe."
-          accessibilityLabel={accessibilityParts.join(", ")}
-          accessibilityRole="button"
-          onBlur={() => setFocused(false)}
-          onFocus={() => setFocused(true)}
-          onPress={() => onPress(item.id)}
-          className="active:opacity-[0.84]"
-        >
-          {content}
-        </Pressable>
-      ) : (
-        content
-      )}
-    </View>
+      <View
+        className={`overflow-hidden rounded-2xl border bg-surface ${focused ? "border-primary" : "border-border"}`}
+      >
+        {onPress ? (
+          <Pressable
+            accessibilityHint="Opens this recipe."
+            accessibilityLabel={accessibilityParts.join(", ")}
+            accessibilityRole="button"
+            onBlur={() => setFocused(false)}
+            onFocus={() => setFocused(true)}
+            onPress={() => onPress(item.id)}
+            onPressIn={() => setPressed(true)}
+            onPressOut={() => setPressed(false)}
+          >
+            {content}
+          </Pressable>
+        ) : (
+          content
+        )}
+      </View>
+    </Animated.View>
   );
 }
 

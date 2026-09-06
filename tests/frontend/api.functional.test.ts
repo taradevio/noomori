@@ -15,7 +15,9 @@ import {
   leaveHousehold,
   markHouseholdActivityRead,
   previewHouseholdCode,
+  registerNotificationDevice,
   revokeHouseholdCode,
+  unregisterNotificationDevice,
 } from "@/shared/household-api";
 
 const fetchMock = jest.fn();
@@ -115,5 +117,37 @@ describe("frontend API workflows", () => {
       status: 429,
       retryAfter: 30,
     });
+  });
+
+  it("registers, rotates, and unregisters the current notification device", async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(null, 204))
+      .mockResolvedValueOnce(response(null, 204));
+
+    await registerNotificationDevice(
+      "token",
+      "ExponentPushToken[new-token]",
+      "android",
+      "ExponentPushToken[old-token]",
+    );
+    await unregisterNotificationDevice(
+      "token",
+      "ExponentPushToken[new-token]",
+    );
+
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+      "PUT",
+      "DELETE",
+    ]);
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({
+        expo_push_token: "ExponentPushToken[new-token]",
+        platform: "android",
+        previous_expo_push_token: "ExponentPushToken[old-token]",
+      }),
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(
+      JSON.stringify({ expo_push_token: "ExponentPushToken[new-token]" }),
+    );
   });
 });

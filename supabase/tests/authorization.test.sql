@@ -101,6 +101,9 @@ select ok(not has_table_privilege('anon', 'public.household_join_codes', 'SELECT
 select ok(not has_table_privilege('authenticated', 'public.household_join_codes', 'SELECT'), 'authenticated users cannot read join credentials');
 select ok(not has_table_privilege('authenticated', 'public.household_join_rate_limits', 'SELECT'), 'authenticated users cannot read rate limits');
 select ok(not has_table_privilege('authenticated', 'public.household_recipe_activities', 'SELECT'), 'authenticated users cannot read activity rows directly');
+select ok(not has_table_privilege('anon', 'public.push_notification_devices', 'SELECT'), 'anonymous users cannot enumerate push devices');
+select ok(not has_table_privilege('authenticated', 'public.push_notification_devices', 'SELECT'), 'authenticated users cannot enumerate push devices');
+select ok(not has_table_privilege('authenticated', 'public.push_notification_tickets', 'SELECT'), 'authenticated users cannot enumerate push tickets');
 select ok(not has_schema_privilege('authenticated', 'private', 'USAGE'), 'authenticated users cannot use the private schema');
 -- NOTE: Compare privilege tuples, not totals. Removing an intended grant and
 -- adding an unintended grant must fail even when the cardinality is unchanged.
@@ -253,8 +256,19 @@ select ok(
 );
 reset role;
 
-insert into public.household_recipe_shares (household_id, recipe_id)
-values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '44444444-4444-4444-8444-444444444444');
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}', true);
+set local role authenticated;
+select is(
+  public.set_recipe_household_shared('44444444-4444-4444-8444-444444444444', true) ->> 'changed',
+  'true',
+  'first share reports a state change'
+);
+select is(
+  public.set_recipe_household_shared('44444444-4444-4444-8444-444444444444', true) ->> 'changed',
+  'false',
+  'idempotent share reports no state change'
+);
+reset role;
 
 select set_config('request.jwt.claims', '{"sub":"22222222-2222-4222-8222-222222222222","role":"authenticated"}', true);
 set local role authenticated;
@@ -298,6 +312,7 @@ select is(
 );
 select ok(pg_temp.denied('select * from public.household_join_codes'), 'join credential rows are inaccessible even when authenticated');
 select ok(pg_temp.denied('select * from public.household_recipe_activities'), 'activity rows are inaccessible even when authenticated');
+select ok(pg_temp.denied('delete from public.push_notification_devices'), 'users cannot delete device registrations directly');
 reset role;
 
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}', true);
@@ -393,6 +408,17 @@ select set_config('request.jwt.claims', '{"role":"authenticated"}', true);
 set local role authenticated;
 select ok(pg_temp.denied('select public.get_household_settings()'), 'RPCs reject missing auth.uid()');
 reset role;
+
+-- Server-owned push rows follow profile deletion without leaving receipts.
+insert into auth.users (id, email, raw_user_meta_data)
+values ('99999999-9999-4999-8999-999999999999', 'deleted@example.test', '{"full_name":"Deleted"}');
+insert into public.push_notification_devices (expo_push_token, user_id, platform)
+values ('ExponentPushToken[cascade-device]', '99999999-9999-4999-8999-999999999999', 'android');
+insert into public.push_notification_tickets (receipt_id, expo_push_token)
+values ('cascade-receipt', 'ExponentPushToken[cascade-device]');
+delete from auth.users where id = '99999999-9999-4999-8999-999999999999';
+select is((select count(*) from public.push_notification_devices where expo_push_token = 'ExponentPushToken[cascade-device]'), 0::bigint, 'user deletion cascades notification devices');
+select is((select count(*) from public.push_notification_tickets where receipt_id = 'cascade-receipt'), 0::bigint, 'user deletion cascades notification tickets');
 
 select * from finish();
 rollback;

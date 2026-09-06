@@ -1,5 +1,6 @@
 import { apiConfig } from "@/config/api";
 import { useSession } from "@/shared/providers/session-providers";
+import { toast } from "@/shared/ui";
 import { useNavigation, useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useEffect, useRef, useState } from "react";
@@ -158,22 +159,22 @@ export function RecipeCreateScreen({
     }
   };
 
-  const finish = async (recipe: ApiRecipe) => {
+  const finish = async (recipe: ApiRecipe, message = "Recipe saved") => {
     // PERFORMANCE: Cancel only the in-flight library request before applying the
     // authoritative create response to both caches.
     await queryClient.cancelQueries({ queryKey: recipeKeys.list, exact: true });
     cacheCreatedRecipe(queryClient, recipe);
     setIsHandlingPhotoFailure(false);
     allowNavigation.current = true;
+    toast.success(message);
     router.replace({ pathname: "/recipe/[id]", params: { id: recipe.id } });
   };
 
   const { mutateAsync, isPending, isError, reset } = useMutation({
     mutationFn: saveNewRecipe,
     onError: () => {
-      Alert.alert(
-        "Save interrupted",
-        "Your changes are still here. Check your connection and try again.",
+      toast.error(
+        "Recipe not saved. Your changes are still here—check your connection and try again.",
       );
     },
     onSuccess: async ({ recipe, photo, photoFailed }) => {
@@ -198,7 +199,10 @@ export function RecipeCreateScreen({
             "Photo still not added",
             "The recipe is safe. You can try once more or continue without a photo.",
             [
-              { text: "Continue", onPress: () => void finish(recipe) },
+              {
+                text: "Continue",
+                onPress: () => void finish(recipe, "Recipe saved without photo"),
+              },
               { text: "Try again", onPress: retryPhoto },
             ],
           );
@@ -211,7 +215,10 @@ export function RecipeCreateScreen({
         "Recipe saved without its photo",
         "The recipe is safe. Try adding the photo again?",
         [
-          { text: "Continue", onPress: () => void finish(recipe) },
+          {
+            text: "Continue",
+            onPress: () => void finish(recipe, "Recipe saved without photo"),
+          },
           { text: "Try again", onPress: retryPhoto },
         ],
       );

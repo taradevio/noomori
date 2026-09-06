@@ -19,6 +19,7 @@ import {
 } from "react-native-safe-area-context";
 
 import { colorTokens, MaxContentWidth } from "@/shared/design-system";
+import { ExternalLink } from "@/shared/platform/external-link";
 import type { RecipeDetailModel } from "@/shared/types";
 
 import {
@@ -103,9 +104,36 @@ export function RecipeDetailView({
   );
   const prep = formatDuration(recipe.prepMinutes);
   const cook = formatDuration(recipe.cookMinutes);
+  const recipeSourceLabel = sourceLabel(recipe);
   const canManage = Boolean(onEdit && onDelete);
   const isBusy = isDeleting || isSharing;
   const householdLabel = householdName?.trim() || "your household";
+  const websiteSourceLink =
+    recipe.source.type === "website" ? (
+      <ExternalLink href={recipe.source.url} asChild>
+        <Pressable
+          accessibilityLabel={`Open ${recipeSourceLabel} in browser`}
+          accessibilityRole="link"
+          className="min-h-11 self-start flex-row items-center gap-1.5 rounded-lg border-2 border-transparent focus:border-primary active:opacity-60"
+          hitSlop={4}
+        >
+          <Text className="text-base leading-6 text-text-secondary">
+            {recipeSourceLabel}
+          </Text>
+          <SymbolView
+            accessible={false}
+            name={{
+              ios: "arrow.up.right.square",
+              android: "open_in_new",
+              web: "open_in_new",
+            }}
+            size={16}
+            testID="recipe-source-external-icon"
+            tintColor={colorTokens.textSecondary}
+          />
+        </Pressable>
+      </ExternalLink>
+    ) : null;
 
   // NOTE: Run actions after dismissal so native sheets never overlap.
   const dismissActions = (action?: () => void) => {
@@ -286,9 +314,11 @@ export function RecipeDetailView({
                 </Text>
               </View>
             ) : null}
-            <Text className="text-base font-medium leading-6 text-secondary">
-              {sourceLabel(recipe)}
-            </Text>
+            {websiteSourceLink ?? (
+              <Text className="text-base font-medium leading-6 text-secondary">
+                {recipeSourceLabel}
+              </Text>
+            )}
             <View className="flex-row flex-wrap gap-x-5 gap-y-2">
               {prep ? (
                 <Text className="text-sm leading-5 text-text-secondary">
@@ -507,9 +537,11 @@ export function RecipeDetailView({
             >
               Source
             </Text>
-            <Text className="text-base leading-6 text-text-secondary">
-              {sourceLabel(recipe)}
-            </Text>
+            {websiteSourceLink ?? (
+              <Text className="text-base leading-6 text-text-secondary">
+                {recipeSourceLabel}
+              </Text>
+            )}
           </View>
         </View>
       </ScrollView>

@@ -21,6 +21,7 @@ export const apiConfig = {
     households: "/household",
     householdActivity: "/household/activity",
     householdActivityRead: "/household/activity/read",
+    notificationDevice: "/notifications/device",
     householdRecipes: "/household/recipes",
     householdInvite: "/household/invite",
     householdJoinPreview: "/household/join/preview",

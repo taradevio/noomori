@@ -1,7 +1,8 @@
 import unittest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from inspect import iscoroutinefunction
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import UUID
 
 from server.main import (
@@ -208,6 +209,38 @@ class RecipeUpdateTest(unittest.TestCase):
 
         self.assertEqual(404, raised.exception.status_code)
         self.assertEqual(1, auth.supabase.table_calls)
+
+    def test_shared_update_queues_an_edited_notification(self):
+        auth = self.auth(
+            {
+                "id": str(self.recipe_id),
+                "owner_user_id": self.owner_id,
+                "image_path": None,
+                "household_recipe_shares": [{"recipe_id": str(self.recipe_id)}],
+            }
+        )
+        tasks = BackgroundTasks()
+
+        with patch("server.main.queue_household_recipe_notification") as queue:
+            update_recipe(self.recipe_id, self.payload(), auth, tasks)
+
+        self.assertEqual("edited", queue.call_args.args[2])
+
+    def test_private_update_does_not_queue_a_notification(self):
+        auth = self.auth(
+            {
+                "id": str(self.recipe_id),
+                "owner_user_id": self.owner_id,
+                "image_path": None,
+                "household_recipe_shares": [],
+            }
+        )
+        tasks = BackgroundTasks()
+
+        with patch("server.main.queue_household_recipe_notification") as queue:
+            update_recipe(self.recipe_id, self.payload(), auth, tasks)
+
+        queue.assert_not_called()
 
 
 class FakeDeleteTable:

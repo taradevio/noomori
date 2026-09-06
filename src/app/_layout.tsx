@@ -6,10 +6,13 @@ import {
   SessionProvider,
   useSession,
 } from "@/shared/providers/session-providers";
+import { NotificationProvider } from "@/shared/providers/notification-provider";
+import { ToastHost } from "@/shared/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useState } from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SplashScreenController } from "../shared/components/splash-screen-controller";
 
 SplashScreen.preventAutoHideAsync();
@@ -66,19 +69,26 @@ export default function RootLayout() {
   const [queryClient] = useState(() => new QueryClient());
 
   return (
-    <KeyboardProvider
-      navigationBarTranslucent
-      preserveEdgeToEdge
-      statusBarTranslucent
-    >
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider value={noomoriNavigationTheme}>
-          <SessionProvider>
-            <SplashScreenController />
-            <RootNavigator />
-          </SessionProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </KeyboardProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <KeyboardProvider
+        navigationBarTranslucent
+        preserveEdgeToEdge
+        statusBarTranslucent
+      >
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider value={noomoriNavigationTheme}>
+            <SessionProvider>
+              <NotificationProvider>
+                <SplashScreenController />
+                <RootNavigator />
+                {/* NOTE: Keep the host beside the navigator so route replacement
+                    never unmounts an active toast. */}
+                <ToastHost />
+              </NotificationProvider>
+            </SessionProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </KeyboardProvider>
+    </GestureHandlerRootView>
   );
 }

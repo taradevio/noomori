@@ -1,4 +1,5 @@
 import uvicorn
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -6,7 +7,8 @@ import re
 import secrets
 import unicodedata
 
-from fastapi import FastAPI, HTTPException, Depends, Header, Response
+from contextlib import asynccontextmanager, suppress
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Depends, Header, Response
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
@@ -15,6 +17,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from server.api.health import router as health_router
 from server.config import settings
+from server.push_notifications import (
+    check_push_receipts,
+    send_household_recipe_notification,
+)
 from server.recipe_url_import import (
     ExtractedRecipe,
     WebsiteImportError,
@@ -62,9 +68,37 @@ RECIPE_UNITS = (
     "pinch",
 )
 
+
+async def push_receipt_loop() -> None:
+    while True:
+        await asyncio.sleep(15 * 60)
+        if not settings.supabase_service_role_key or not settings.expo_access_token:
+            continue
+        try:
+            await asyncio.to_thread(
+                check_push_receipts,
+                get_admin_supabase(),
+                settings.expo_access_token.get_secret_value(),
+            )
+        except Exception:
+            logger.exception("Failed to check Expo push receipts")
+
+
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    receipt_task = asyncio.create_task(push_receipt_loop())
+    try:
+        yield
+    finally:
+        receipt_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await receipt_task
+
+
 app = FastAPI(
     title="Noomori API",
     version="0.1.0",
+    lifespan=app_lifespan,
 )
 
 app.add_middleware(
@@ -126,6 +160,39 @@ class HouseholdJoinCodeRequest(BaseModel):
 
 class HouseholdActivityRead(BaseModel):
     through_activity_id: int = Field(gt=0)
+
+
+EXPO_PUSH_TOKEN_PATTERN = re.compile(
+    r"^Expo(?:nent)?PushToken\[[A-Za-z0-9_-]+\]$"
+)
+
+
+class NotificationDeviceRegistration(BaseModel):
+    expo_push_token: str = Field(min_length=20, max_length=512)
+    platform: Literal["android", "ios"]
+    previous_expo_push_token: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=512,
+    )
+
+    @field_validator("expo_push_token", "previous_expo_push_token")
+    @classmethod
+    def validate_expo_push_token(cls, value: str | None):
+        if value is not None and not EXPO_PUSH_TOKEN_PATTERN.fullmatch(value):
+            raise ValueError("Invalid Expo push token")
+        return value
+
+
+class NotificationDeviceRemoval(BaseModel):
+    expo_push_token: str = Field(min_length=20, max_length=512)
+
+    @field_validator("expo_push_token")
+    @classmethod
+    def validate_expo_push_token(cls, value: str):
+        if not EXPO_PUSH_TOKEN_PATTERN.fullmatch(value):
+            raise ValueError("Invalid Expo push token")
+        return value
 
 
 class RecipeIngredient(BaseModel):
@@ -849,6 +916,18 @@ def get_supabase(access_token: str | None = None) -> Client:
     return create_client(settings.supabase_url, settings.supabase_key, options)
 
 
+def get_admin_supabase() -> Client:
+    if not settings.supabase_service_role_key or not settings.expo_access_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Push notifications are not configured",
+        )
+    return create_client(
+        settings.supabase_url,
+        settings.supabase_service_role_key.get_secret_value(),
+    )
+
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> AuthContext:
     access_token = credentials.credentials
     supabase = get_supabase(access_token)
@@ -968,6 +1047,76 @@ def execute_household_rpc(
             status_code=500,
             detail="Could not complete the household request",
         ) from exc
+
+
+def deliver_household_recipe_notification(
+    household_id: str,
+    actor_user_id: str,
+    actor_display_name: str,
+    action: Literal["added", "edited", "unshared"],
+    recipe_id: str,
+    recipe_title: str,
+) -> None:
+    # NOTE: Push is best-effort and must never roll back recipe or activity writes.
+    if not settings.supabase_service_role_key or not settings.expo_access_token:
+        logger.warning("Push notification skipped because server secrets are missing")
+        return
+    try:
+        send_household_recipe_notification(
+            get_admin_supabase(),
+            settings.expo_access_token.get_secret_value(),
+            household_id,
+            actor_user_id,
+            actor_display_name,
+            action,
+            recipe_id,
+            recipe_title,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to send household recipe push action=%s recipe_id=%s",
+            action,
+            recipe_id,
+        )
+
+
+def queue_household_recipe_notification(
+    background_tasks: BackgroundTasks | None,
+    auth: AuthContext,
+    action: Literal["added", "edited", "unshared"],
+    recipe: dict,
+) -> None:
+    if background_tasks is None:
+        return
+    try:
+        household = execute_household_rpc(auth, "get_household_settings")
+        if household["status"] != "OK" or household.get("member_count", 0) < 2:
+            return
+        actor = next(
+            (
+                member
+                for member in household.get("members", [])
+                if member.get("user_id") == auth.user.id
+            ),
+            None,
+        )
+        background_tasks.add_task(
+            deliver_household_recipe_notification,
+            household["household_id"],
+            auth.user.id,
+            actor.get("display_name") if actor else "A household member",
+            action,
+            str(recipe["id"]),
+            recipe.get("title") or "Untitled recipe",
+        )
+    except Exception:
+        # Recipe persistence and activity history remain authoritative even when
+        # optional push delivery cannot be prepared.
+        logger.exception(
+            "Failed to queue household recipe push action=%s recipe_id=%s",
+            action,
+            recipe.get("id"),
+        )
 
 
 def get_owned_recipe(auth: AuthContext, recipe_id: UUID) -> dict:
@@ -1816,6 +1965,7 @@ def update_recipe(
     recipe_id: UUID,
     payload: CreateRecipe,
     auth: AuthContext = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
 ):
     started_at = perf_counter()
     logger.info("Updating recipe recipe_id=%s", recipe_id)
@@ -1846,13 +1996,22 @@ def update_recipe(
         recipe_id,
         (perf_counter() - started_at) * 1000,
     )
-    return recipe_with_signed_image(auth, response.data[0])
+    recipe = recipe_with_signed_image(auth, response.data[0])
+    if recipe.get("is_shared"):
+        queue_household_recipe_notification(
+            background_tasks,
+            auth,
+            "edited",
+            recipe,
+        )
+    return recipe
 
 
 def set_recipe_shared(
     recipe_id: UUID,
     shared: bool,
     auth: AuthContext,
+    background_tasks: BackgroundTasks | None = None,
 ):
     result = execute_household_rpc(
         auth,
@@ -1861,23 +2020,33 @@ def set_recipe_shared(
     )
     if result["status"] != "OK":
         raise_household_rpc_error(result)
-    return recipe_with_signed_image(auth, get_readable_recipe(auth, recipe_id))
+    recipe = recipe_with_signed_image(auth, get_readable_recipe(auth, recipe_id))
+    if result.get("changed"):
+        queue_household_recipe_notification(
+            background_tasks,
+            auth,
+            "added" if shared else "unshared",
+            recipe,
+        )
+    return recipe
 
 
 @app.put("/recipes/{recipe_id}/share")
 def share_recipe(
     recipe_id: UUID,
     auth: AuthContext = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
 ):
-    return set_recipe_shared(recipe_id, True, auth)
+    return set_recipe_shared(recipe_id, True, auth, background_tasks)
 
 
 @app.delete("/recipes/{recipe_id}/share")
 def unshare_recipe(
     recipe_id: UUID,
     auth: AuthContext = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
 ):
-    return set_recipe_shared(recipe_id, False, auth)
+    return set_recipe_shared(recipe_id, False, auth, background_tasks)
 
 
 # NOTE: Ownership is recipe-scoped; household roles grant no delete authority.
@@ -2073,6 +2242,88 @@ def mark_household_activity_read(
     )
     if result["status"] != "OK":
         raise_household_rpc_error(result)
+    return Response(status_code=204)
+
+
+@app.put("/notifications/device", status_code=204)
+def register_notification_device(
+    payload: NotificationDeviceRegistration,
+    auth: AuthContext = Depends(get_current_user),
+):
+    # NOTE: Admin access is used only after authenticating and binding ownership.
+    admin = get_admin_supabase()
+    try:
+        existing = (
+            admin.table("push_notification_devices")
+            .select("user_id")
+            .eq("expo_push_token", payload.expo_push_token)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if existing and existing[0].get("user_id") != auth.user.id:
+            raise HTTPException(
+                status_code=409,
+                detail="This notification device belongs to another account",
+            )
+        values = {
+            "expo_push_token": payload.expo_push_token,
+            "user_id": auth.user.id,
+            "platform": payload.platform,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if existing:
+            (
+                admin.table("push_notification_devices")
+                .update(values)
+                .eq("expo_push_token", payload.expo_push_token)
+                .eq("user_id", auth.user.id)
+                .execute()
+            )
+        else:
+            admin.table("push_notification_devices").insert(values).execute()
+
+        previous_token = payload.previous_expo_push_token
+        if previous_token and previous_token != payload.expo_push_token:
+            (
+                admin.table("push_notification_devices")
+                .delete()
+                .eq("expo_push_token", previous_token)
+                .eq("user_id", auth.user.id)
+                .execute()
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to register notification device user_id=%s", auth.user.id)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not enable notifications",
+        ) from exc
+    return Response(status_code=204)
+
+
+@app.delete("/notifications/device", status_code=204)
+def unregister_notification_device(
+    payload: NotificationDeviceRemoval,
+    auth: AuthContext = Depends(get_current_user),
+):
+    admin = get_admin_supabase()
+    try:
+        (
+            admin.table("push_notification_devices")
+            .delete()
+            .eq("expo_push_token", payload.expo_push_token)
+            .eq("user_id", auth.user.id)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("Failed to unregister notification device user_id=%s", auth.user.id)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not disable notifications",
+        ) from exc
     return Response(status_code=204)
 
 

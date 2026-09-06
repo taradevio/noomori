@@ -30,13 +30,21 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F6F1E8",
+          "backgroundColor": "#FFFDF8",
           "image": "./assets/images/noomori-splash.png",
           "imageWidth": 144,
           "resizeMode": "contain"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#147D78",
+          "defaultChannel": "household-recipe-activity"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

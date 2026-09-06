@@ -47,12 +47,6 @@ const recipeOptions: readonly RecipeOption[] = [
     body: "Bring in a recipe from a website.",
     icon: { ios: "link", android: "link", web: "link" },
   },
-  {
-    id: "instagram",
-    title: "Import from Instagram captions",
-    body: "Start from a public Instagram captions.",
-    icon: { ios: "camera", android: "photo_camera", web: "photo_camera" },
-  },
 ];
 
 export function AddRecipeBottomSheet({
@@ -66,6 +60,7 @@ export function AddRecipeBottomSheet({
 
   if (!isOpen) return null;
 
+  // NOTE: Expo couples pan-to-close with backdrop taps and Android back dismissal.
   return (
     <BottomSheet
       backgroundStyle={{
@@ -74,8 +69,9 @@ export function AddRecipeBottomSheet({
         borderTopRightRadius: 24,
       }}
       enableDynamicSizing
-      enablePanDownToClose={false}
+      enablePanDownToClose
       index={0}
+      onDismiss={onDismiss}
     >
       <BottomSheetView>
         <View
@@ -114,9 +110,7 @@ export function AddRecipeBottomSheet({
                     ? onWriteFromScratch
                     : option.id === "copy"
                       ? onImportFromText
-                      : option.id === "url"
-                        ? onImportFromWebsite
-                        : undefined;
+                      : onImportFromWebsite;
                 return (
                   <Pressable
                     key={option.id}

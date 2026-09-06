@@ -19,6 +19,7 @@ import {
 } from "@/shared/components/recipe/recipe-query";
 import { toRecipeCard, type ApiRecipe } from "@/shared/components/recipe/recipe-response";
 import { useSession } from "@/shared/providers/session-providers";
+import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export default function EditCookbookRecipesRoute() {
@@ -50,7 +51,7 @@ export default function EditCookbookRecipesRoute() {
       }),
     onSuccess: (cookbook) => {
       cacheUpdatedCookbook(queryClient, cookbook);
-      AccessibilityInfo.announceForAccessibility("Cookbook recipes updated");
+      toast.success("Cookbook updated");
       router.back();
     },
   });

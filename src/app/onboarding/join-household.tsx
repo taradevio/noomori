@@ -11,6 +11,7 @@ import {
   type HouseholdJoinPreview,
 } from "@/shared/household-api";
 import { useSession } from "@/shared/providers/session-providers";
+import { toast } from "@/shared/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "expo-router";
 import { useEffect, useState } from "react";
@@ -83,7 +84,10 @@ export default function JoinHousehold() {
 
   const joinMutation = useMutation({
     mutationFn: () => joinHousehold(session?.access_token ?? "", code),
-    onSuccess: refreshCanonicalState,
+    onSuccess: async () => {
+      toast.success("Joined household");
+      await refreshCanonicalState();
+    },
   });
 
   const hasIncompleteCode =

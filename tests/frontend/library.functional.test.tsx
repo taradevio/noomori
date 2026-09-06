@@ -1,13 +1,28 @@
 // NOTE: Retrospective regression coverage for behavior implemented before TDD adoption.
 import { fireEvent, render, screen } from "@testing-library/react-native";
 
-import { RecipesLibraryView } from "@/shared/components/recipe/recipes-library-view";
+import {
+  getLibraryColumnCount,
+  RecipesLibraryView,
+} from "@/shared/components/recipe/recipes-library-view";
 
 const recipes = {
   status: "ready" as const,
   data: [
-    { id: "soup", title: "Tomato soup", cookingTimeMinutes: 30, isShared: false },
-    { id: "cake", title: "Chocolate cake", cookingTimeMinutes: 50, isShared: true },
+    {
+      id: "soup",
+      title: "Tomato soup",
+      cookingTimeMinutes: 30,
+      servings: 1,
+      isShared: false,
+    },
+    {
+      id: "cake",
+      title: "Chocolate cake",
+      cookingTimeMinutes: 50,
+      servings: 8,
+      isShared: true,
+    },
   ],
 };
 const cookbooks = {
@@ -28,17 +43,42 @@ describe("recipe and cookbook library workflow", () => {
       />,
     );
 
-    await fireEvent.changeText(screen.getByTestId("library-recipes-search-input"), "cake");
+    expect(screen.getByText("Your recipes")).toBeTruthy();
+    expect(screen.queryByText(/recently saved/i)).toBeNull();
+    expect(
+      screen.getByTestId("library-segment-recipes").props.accessibilityState,
+    ).toEqual({
+      selected: true,
+    });
+    expect(
+      screen.getByRole("button", {
+        name: /Tomato soup, 30 minutes, 1 serving$/,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: /Chocolate cake, 50 minutes, 8 servings, Shared/,
+      }),
+    ).toBeTruthy();
+
+    await fireEvent.changeText(
+      screen.getByTestId("library-recipes-search-input"),
+      "cake",
+    );
     expect(screen.queryByTestId("recipe-card-soup")).toBeNull();
-    await fireEvent.press(screen.getByRole("button", { name: /Chocolate cake/ }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: /Chocolate cake/ }),
+    );
     expect(onRecipePress).toHaveBeenCalledWith("cake");
     expect(onSearchQueryChange).toHaveBeenCalledWith("recipes", "cake");
 
-    await fireEvent.press(screen.getByRole("button", { name: "Clear recipes search" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Clear recipes search" }),
+    );
     expect(screen.getByTestId("recipe-card-soup")).toBeTruthy();
   });
 
-  it("switches to cookbooks and starts create/open actions", async () => {
+  it("switches to cookbooks without duplicating the create action", async () => {
     const onSectionChange = jest.fn();
     const onCreateCookbook = jest.fn();
     const onCookbookPress = jest.fn();
@@ -66,10 +106,78 @@ describe("recipe and cookbook library workflow", () => {
         section="cookbooks"
       />,
     );
-    await fireEvent.press(screen.getByRole("button", { name: "Favorites, 2 recipes" }));
-    await fireEvent.press(screen.getByTestId("library-create-cookbook-fab"));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Favorites, 2 recipes" }),
+    );
     expect(onCookbookPress).toHaveBeenCalledWith("favorites");
+    expect(screen.queryByText("New cookbook")).toBeNull();
+    expect(onCreateCookbook).not.toHaveBeenCalled();
+
+    await view.rerender(
+      <RecipesLibraryView
+        cookbooks={{ status: "ready", data: [] }}
+        onCookbookPress={onCookbookPress}
+        onCreateCookbook={onCreateCookbook}
+        onSectionChange={onSectionChange}
+        recipes={recipes}
+        section="cookbooks"
+      />,
+    );
+    await fireEvent.press(screen.getByText("Create a cookbook"));
     expect(onCreateCookbook).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows concise real metadata, shared status, and a missing-image state", async () => {
+    await render(
+      <RecipesLibraryView
+        cookbooks={cookbooks}
+        recipes={{
+          status: "ready",
+          data: [
+            {
+              id: "shared-missing",
+              title: "A very long family recipe title that needs two lines",
+              cookingTimeMinutes: 35,
+              servings: 4,
+              cookbookName: "Weeknight favorites",
+              isShared: true,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("35 min")).toBeTruthy();
+    expect(screen.getByText("4")).toBeTruthy();
+    expect(screen.getByText("Weeknight favorites")).toBeTruthy();
+    expect(screen.getByText("Shared")).toBeTruthy();
+    expect(
+      screen.getByTestId("recipe-card-missing-image-shared-missing"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/A very long family recipe/).props.numberOfLines,
+    ).toBe(2);
+  });
+
+  it.each([360, 375, 390, 430])(
+    "uses two columns at %ipx with the default font scale",
+    (width) => {
+      expect(getLibraryColumnCount({ fontScale: 1, height: 800, width })).toBe(
+        2,
+      );
+    },
+  );
+
+  it.each([1.3, 2])("uses one column at font scale %s", (fontScale) => {
+    expect(getLibraryColumnCount({ fontScale, height: 1024, width: 768 })).toBe(
+      1,
+    );
+  });
+
+  it("uses three columns on a tablet at the default font scale", () => {
+    expect(
+      getLibraryColumnCount({ fontScale: 1, height: 1024, width: 768 }),
+    ).toBe(3);
   });
 
   it("shows recoverable errors and the household empty sharing action", async () => {
@@ -96,5 +204,36 @@ describe("recipe and cookbook library workflow", () => {
     );
     await fireEvent.press(screen.getByText("Share a recipe"));
     expect(onShareRecipe).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows loading, empty, and conditional activity states", async () => {
+    const onAddRecipe = jest.fn();
+    const onActivityPress = jest.fn();
+    const view = await render(
+      <RecipesLibraryView
+        cookbooks={{ status: "loading" }}
+        recipes={{ status: "loading" }}
+      />,
+    );
+
+    expect(screen.getAllByTestId("library-skeleton-card").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("recipe-activity-button")).toBeNull();
+
+    await view.rerender(
+      <RecipesLibraryView
+        cookbooks={{ status: "ready", data: [] }}
+        onActivityPress={onActivityPress}
+        onAddRecipe={onAddRecipe}
+        recipes={{ status: "ready", data: [] }}
+        showActivity
+        unreadActivityCount={2}
+      />,
+    );
+    expect(screen.getByTestId("library-recipes-empty")).toBeTruthy();
+    await fireEvent.press(screen.getByText("Add your first recipe"));
+    await fireEvent.press(screen.getByTestId("recipe-activity-button"));
+    expect(onAddRecipe).toHaveBeenCalledTimes(1);
+    expect(onActivityPress).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("recipe-activity-unread-dot")).toBeTruthy();
   });
 });

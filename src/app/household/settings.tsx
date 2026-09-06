@@ -9,6 +9,7 @@ import { OnboardingButton } from "@/shared/components/onboarding/onboarding-butt
 import { recipeKeys } from "@/shared/components/recipe/recipe-query";
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
+import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Clipboard from "expo-clipboard";
 import { StatusBar } from "expo-status-bar";
@@ -64,6 +65,7 @@ export default function HouseholdSettingsScreen() {
       setCopied(false);
       setActionError(null);
       await queryClient.invalidateQueries({ queryKey: ["household"] });
+      toast.success("Join code revoked");
     },
     onError: () => {
       setActionError("Couldn’t revoke the join code. Try again.");
@@ -74,6 +76,7 @@ export default function HouseholdSettingsScreen() {
     mutationFn: () => leaveHousehold(accessToken),
     onSuccess: async () => {
       setActionError(null);
+      toast.success("Left household");
       queryClient.removeQueries({
         exact: true,
         queryKey: recipeKeys.householdList,
@@ -109,6 +112,7 @@ export default function HouseholdSettingsScreen() {
       const result = await generateHouseholdCode(accessToken);
       setGeneratedCode(result);
       await queryClient.invalidateQueries({ queryKey: ["household"] });
+      toast.success("Join code generated");
     } catch {
       setActionError("Couldn’t generate a join code. Try again.");
     } finally {

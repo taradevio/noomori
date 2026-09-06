@@ -4,9 +4,9 @@ import {
   useLocalSearchParams,
   useRouter,
 } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 
-import { AddRecipeBottomSheet } from "@/shared/components/recipe/add-recipe-bottom-sheet";
+import { useAddRecipeAction } from "@/shared/components/recipe/add-recipe-action";
 import { getCookbooks, toCookbookCard } from "@/shared/cookbook-api";
 import { cookbookKeys } from "@/shared/cookbook-query";
 import {
@@ -32,7 +32,7 @@ export default function RecipesScreen() {
   const params = useLocalSearchParams<{ section?: string }>();
   const queryClient = useQueryClient();
   const { session } = useSession();
-  const [isAddRecipeOpen, setIsAddRecipeOpen] = useState(false);
+  const { openAddRecipe } = useAddRecipeAction();
   const section = params.section === "cookbooks" ? "cookbooks" : "recipes";
   const retriedRecipeImages = useRef(false);
   const hasFocusedActivity = useRef(false);
@@ -84,54 +84,35 @@ export default function RecipesScreen() {
         } as const);
 
   return (
-    <>
-      <RecipesLibraryView
-        recipes={recipes}
-        cookbooks={cookbooks}
-        onActivityPress={() => router.push("/activity" as Href)}
-        onAddRecipe={() => setIsAddRecipeOpen(true)}
-        onCookbookPress={(id) => router.push(`/cookbook/${id}` as Href)}
-        onCreateCookbook={() => router.push("/cookbook/new")}
-        onRecipePress={(id) => {
-          const recipe = recipesQuery.data?.find((item) => item.id === id);
-          if (recipe) {
-            // PERFORMANCE: Promote the full list item into detail cache so the
-            // detail screen can paint before navigation finishes.
-            seedRecipeDetail(queryClient, recipe, recipesQuery.dataUpdatedAt);
-          }
-          router.navigate(`/recipe/${id}` as Href);
-        }}
-        onRecipeImageError={() => {
-          if (retriedRecipeImages.current) return;
-          retriedRecipeImages.current = true;
-          recipesQuery.refetch();
-        }}
-        onRetryRecipes={() => recipesQuery.refetch()}
-        onRetryCookbooks={() => cookbooksQuery.refetch()}
-        onSectionChange={(nextSection) =>
-          router.setParams({ section: nextSection })
+    <RecipesLibraryView
+      recipes={recipes}
+      cookbooks={cookbooks}
+      onActivityPress={() => router.push("/activity" as Href)}
+      onAddRecipe={openAddRecipe}
+      onCookbookPress={(id) => router.push(`/cookbook/${id}` as Href)}
+      onCreateCookbook={() => router.push("/cookbook/new")}
+      onRecipePress={(id) => {
+        const recipe = recipesQuery.data?.find((item) => item.id === id);
+        if (recipe) {
+          // PERFORMANCE: Promote the full list item into detail cache so the
+          // detail screen can paint before navigation finishes.
+          seedRecipeDetail(queryClient, recipe, recipesQuery.dataUpdatedAt);
         }
-        section={section}
-        showActivity={(activityQuery.data?.member_count ?? 0) >= 2}
-        unreadActivityCount={activityQuery.data?.unread_count ?? 0}
-      />
-      <AddRecipeBottomSheet
-        isOpen={isAddRecipeOpen}
-        onDismiss={() => setIsAddRecipeOpen(false)}
-        onImportFromText={() => {
-          setIsAddRecipeOpen(false);
-          router.push("/recipe/import-text");
-        }}
-        onImportFromWebsite={() => {
-          setIsAddRecipeOpen(false);
-          router.push("/recipe/import-url");
-        }}
-        onWriteFromScratch={() => {
-          // NOTE: Close the native chooser before entering the full-screen form.
-          setIsAddRecipeOpen(false);
-          router.push("/recipe/new");
-        }}
-      />
-    </>
+        router.navigate(`/recipe/${id}` as Href);
+      }}
+      onRecipeImageError={() => {
+        if (retriedRecipeImages.current) return;
+        retriedRecipeImages.current = true;
+        recipesQuery.refetch();
+      }}
+      onRetryRecipes={() => recipesQuery.refetch()}
+      onRetryCookbooks={() => cookbooksQuery.refetch()}
+      onSectionChange={(nextSection) =>
+        router.setParams({ section: nextSection })
+      }
+      section={section}
+      showActivity={(activityQuery.data?.member_count ?? 0) >= 2}
+      unreadActivityCount={activityQuery.data?.unread_count ?? 0}
+    />
   );
 }

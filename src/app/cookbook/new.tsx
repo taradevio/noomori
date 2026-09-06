@@ -21,6 +21,7 @@ import {
 import { toRecipeCard, type ApiRecipe } from "@/shared/components/recipe/recipe-response";
 import { colorTokens, MaxContentWidth } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
+import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export default function NewCookbookRoute() {
@@ -46,6 +47,7 @@ export default function NewCookbookRoute() {
       }),
     onSuccess: (cookbook) => {
       cacheCreatedCookbook(queryClient, cookbook);
+      toast.success("Cookbook created");
       router.replace({
         pathname: "/cookbook/[id]",
         params: { id: cookbook.id },

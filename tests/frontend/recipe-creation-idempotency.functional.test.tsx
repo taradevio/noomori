@@ -18,6 +18,7 @@ import {
   type ImportedRecipeTextDraft,
 } from "@/shared/components/recipe/recipe-text-import";
 import type { RecipeDraft } from "@/shared/types";
+import { toast } from "@/shared/ui";
 
 jest.mock("expo-crypto", () => ({
   randomUUID: jest.fn(() => "22222222-2222-4222-8222-222222222222"),
@@ -131,6 +132,8 @@ beforeAll(() => {
 beforeEach(() => {
   fetchMock.mockReset();
   jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+  jest.spyOn(toast, "error").mockReturnValue(0);
+  jest.spyOn(toast, "success").mockReturnValue(0);
   jest.spyOn(console, "debug").mockImplementation(() => undefined);
 });
 
@@ -186,9 +189,8 @@ describe("recipe creation identity", () => {
     await waitFor(() =>
       expect(screen.getByTestId("save-recipe-placeholder")).toBeEnabled(),
     );
-    expect(Alert.alert).toHaveBeenCalledWith(
-      "Save interrupted",
-      "Your changes are still here. Check your connection and try again.",
+    expect(toast.error).toHaveBeenCalledWith(
+      "Recipe not saved. Your changes are still here—check your connection and try again.",
     );
     expect(screen.getByLabelText("Recipe title")).toHaveProp(
       "value",
@@ -236,6 +238,7 @@ describe("recipe creation identity", () => {
       completeRequest(response(apiRecipe("Original soup")));
     });
     await firstPress;
+    expect(toast.success).toHaveBeenCalledWith("Recipe saved");
   });
 
   it("blocks an over-limit imported initial draft until it is corrected", async () => {

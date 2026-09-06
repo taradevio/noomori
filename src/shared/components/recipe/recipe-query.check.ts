@@ -45,8 +45,10 @@ const shared = { ...recipe("shared"), is_shared: true };
 const peerShared = { ...recipe("peer-shared"), is_shared: true };
 
 assert(
-  toRecipeCard(shared).isShared && toRecipeDetail(shared).isShared,
-  "Shared state should map to both card and detail models.",
+  toRecipeCard(shared).isShared &&
+    toRecipeCard(shared).servings === 1 &&
+    toRecipeDetail(shared).isShared,
+  "Shared and servings state should map to the card model.",
 );
 
 queryClient.setQueryData(recipeKeys.list, [first, second]);

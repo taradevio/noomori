@@ -53,17 +53,9 @@ export function LibraryFeedback({
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        className="mb-6 h-24 w-24 items-center justify-center rounded-[28px] border border-border bg-surface-subtle"
+        className="mb-6 h-20 w-20 items-center justify-center rounded-2xl bg-surface-subtle"
       >
-        <View className="absolute -right-1 -top-1 h-7 w-7 rounded-full bg-secondary opacity-20" />
-        <View className="absolute -bottom-2 -left-2 h-9 w-9 rounded-full bg-primary opacity-10" />
-        <View className="h-14 w-14 items-center justify-center rounded-2xl bg-surface">
-          <SymbolView
-            name={icon}
-            size={30}
-            tintColor={colorTokens.primaryStrong}
-          />
-        </View>
+        <SymbolView name={icon} size={30} tintColor={colorTokens.primary} />
       </View>
 
       <Text
@@ -88,8 +80,9 @@ export function SkeletonCard({ width }: { width: number }) {
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      className="overflow-hidden rounded-[14px] border border-border bg-surface"
+      className="overflow-hidden rounded-2xl border border-border bg-surface"
       style={{ width }}
+      testID="library-skeleton-card"
     >
       <View className="aspect-[4/3] bg-surface-subtle" />
       <View className="min-h-[100px] gap-3 px-4 pb-4 pt-4">

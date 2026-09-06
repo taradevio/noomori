@@ -4,6 +4,7 @@ export type RecipeCardModel = {
   imagePath?: string | null;
   imageUrl?: string | null;
   cookingTimeMinutes?: number | null;
+  servings: number;
   isShared?: boolean;
   sharedLabel?: string | null;
   cookbookName?: string | null;

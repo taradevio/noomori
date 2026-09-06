@@ -7,6 +7,9 @@ class Settings(BaseSettings):
 
     supabase_url: str
     supabase_key: str
+    # NOTE: Push credentials are server-only and must never use EXPO_PUBLIC_* names.
+    supabase_service_role_key: SecretStr | None = None
+    expo_access_token: SecretStr | None = None
     household_join_code_hmac_key: SecretStr = Field(min_length=32)
 
     cors_origins: list[str] = [

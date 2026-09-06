@@ -2,7 +2,7 @@ import { apiConfig } from "@/config/api";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useRef } from "react";
-import { AccessibilityInfo, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getHouseholdSettings } from "@/shared/household-api";
@@ -20,6 +20,7 @@ import {
 } from "@/shared/components/recipe/recipe-response";
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
+import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export default function RecipeDetailRoute() {
@@ -88,11 +89,7 @@ export default function RecipeDetailRoute() {
         }),
       ]);
       cacheUpdatedRecipe(queryClient, updatedRecipe);
-      AccessibilityInfo.announceForAccessibility(
-        shared
-          ? "Recipe shared with household"
-          : "Recipe unshared from household",
-      );
+      toast.success(shared ? "Recipe shared" : "Recipe unshared");
     },
   });
 
@@ -158,6 +155,7 @@ export default function RecipeDetailRoute() {
           recipeId: normalizedRecipeId,
         });
       }
+      toast.success("Recipe deleted");
       router.dismissTo("/");
     },
   });

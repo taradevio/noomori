@@ -13,6 +13,7 @@ import {
   recipeKeys,
 } from "@/shared/components/recipe/recipe-query";
 import {
+  toRecipeCard,
   toRecipeDetail,
   toRecipeDraft,
   type ApiRecipe,
@@ -102,6 +103,7 @@ describe("recipe functional workflow", () => {
       servings: 2,
       source: { type: "family-friend", name: "Grandma" },
     });
+    expect(toRecipeCard(apiRecipe()).servings).toBe(2);
     expect(toRecipeDetail(apiRecipe()).prepMinutes).toBe(10);
   });
 

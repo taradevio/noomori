@@ -24,12 +24,16 @@ export const Fonts = Platform.select({
 // Compatibility names retained while current screens are migrated. New work
 // should use the complete 4px-based scale documented by the design system.
 export const Spacing = {
+  zero: 0,
   half: 2,
   one: 4,
   two: 8,
+  medium: 12,
   three: 16,
+  large: 20,
   four: 24,
   five: 32,
+  seven: 48,
   six: 64,
 } as const;
 

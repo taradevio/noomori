@@ -1,8 +1,9 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import UUID
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from server.main import (
     list_household_recipes,
@@ -36,13 +37,14 @@ class FakeRpc:
 
     def execute(self):
         status = self.supabase.status
+        changed = bool(self.supabase.recipe["household_recipe_shares"]) != self.shared
         if status == "OK":
             self.supabase.recipe["household_recipe_shares"] = (
                 [{"recipe_id": self.supabase.recipe["id"]}]
                 if self.shared
                 else []
             )
-        return SimpleNamespace(data={"status": status})
+        return SimpleNamespace(data={"status": status, "changed": changed})
 
 
 class FakeSupabase:
@@ -93,6 +95,21 @@ class RecipeSharingTest(unittest.TestCase):
             share_recipe(self.recipe_id, self.auth("HOUSEHOLD_NOT_READY"))
 
         self.assertEqual(409, raised.exception.status_code)
+
+    def test_idempotent_share_and_unshare_queue_only_changed_pushes(self):
+        auth = self.auth()
+        tasks = BackgroundTasks()
+        with patch("server.main.queue_household_recipe_notification") as queue:
+            share_recipe(self.recipe_id, auth, tasks)
+            share_recipe(self.recipe_id, auth, tasks)
+            unshare_recipe(self.recipe_id, auth, tasks)
+            unshare_recipe(self.recipe_id, auth, tasks)
+
+        self.assertEqual(2, queue.call_count)
+        self.assertEqual(
+            ["added", "unshared"],
+            [call.args[2] for call in queue.call_args_list],
+        )
 
     def test_non_owner_cannot_change_sharing(self):
         with self.assertRaises(HTTPException) as raised:

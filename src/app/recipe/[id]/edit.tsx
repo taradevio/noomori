@@ -27,6 +27,7 @@ import {
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
 import type { RecipeDraft } from "@/shared/types";
+import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 type EditSubmission = {
@@ -97,7 +98,7 @@ export default function EditRecipeRoute() {
     else router.replace("/");
   };
 
-  const finish = async (recipe: ApiRecipe) => {
+  const finish = async (recipe: ApiRecipe, message = "Recipe updated") => {
     // PERFORMANCE: Stop both list requests before applying the authoritative
     // response so a stale household request cannot overwrite an edited recipe.
     await Promise.all([
@@ -110,6 +111,7 @@ export default function EditRecipeRoute() {
     cacheUpdatedRecipe(queryClient, recipe);
     setIsHandlingPhotoFailure(false);
     allowNavigation.current = true;
+    toast.success(message);
     router.dismissTo({
       pathname: "/recipe/[id]",
       params: { id: normalizedRecipeId },
@@ -192,7 +194,7 @@ export default function EditRecipeRoute() {
   const { mutateAsync, isPending, isError, reset } = useMutation({
     mutationFn: updateRecipe,
     onError: () => {
-      Alert.alert("Recipe not saved", "Check your connection and try again.");
+      toast.error("Recipe not saved. Check your connection and try again.");
     },
     onSuccess: ({ recipe, submission, photoFailed }) => {
       if (!photoFailed) return finish(recipe);
@@ -213,7 +215,11 @@ export default function EditRecipeRoute() {
             "Photo still not changed",
             "Your recipe edits are safe. You can try once more or continue with the previous photo.",
             [
-              { text: "Continue", onPress: () => void finish(recipe) },
+              {
+                text: "Continue",
+                onPress: () =>
+                  void finish(recipe, "Recipe updated without changing photo"),
+              },
               { text: "Try again", onPress: retryPhoto },
             ],
           );
@@ -224,7 +230,11 @@ export default function EditRecipeRoute() {
         "Recipe saved, but the photo wasn’t changed",
         "Your recipe edits are safe. Try the photo again?",
         [
-          { text: "Continue", onPress: () => void finish(recipe) },
+          {
+            text: "Continue",
+            onPress: () =>
+              void finish(recipe, "Recipe updated without changing photo"),
+          },
           { text: "Try again", onPress: retryPhoto },
         ],
       );
