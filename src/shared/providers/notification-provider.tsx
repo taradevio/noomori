@@ -18,11 +18,19 @@ import {
   useRef,
   useState,
 } from "react";
-import { Alert, Linking, Platform } from "react-native";
+import { Alert, AppState, Linking, Platform } from "react-native";
 
 const ENABLED_KEY = "household-recipe-notifications-enabled";
 const TOKEN_KEY = "household-recipe-notifications-token";
 const CHANNEL_ID = "household-recipe-activity";
+
+// NOTE: Keep diagnostics development-only and never include auth or push tokens.
+function debugNotifications(
+  event: string,
+  details: Record<string, unknown> = {},
+) {
+  if (__DEV__) console.debug(`[notifications] ${event}`, details);
+}
 
 // NOTE: Household pushes are intentionally visual-only: no sound and no badge.
 Notifications.setNotificationHandler({
@@ -58,11 +66,13 @@ function allowsNotifications(
 
 async function ensureAndroidChannel() {
   if (Platform.OS !== "android") return;
+  debugNotifications("android_channel_creating");
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
     name: "Household recipe activity",
     importance: Notifications.AndroidImportance.DEFAULT,
     sound: null,
   });
+  debugNotifications("android_channel_ready");
 }
 
 async function getExpoPushToken() {
@@ -72,7 +82,10 @@ async function getExpoPushToken() {
   if (typeof projectId !== "string" || !projectId) {
     throw new Error("EAS project ID is missing");
   }
-  return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  debugNotifications("push_token_request_started");
+  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  debugNotifications("push_token_request_succeeded");
+  return token;
 }
 
 export function notificationRoute(data: Record<string, unknown>): Href | null {
@@ -97,150 +110,295 @@ export function NotificationProvider({ children }: React.PropsWithChildren) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { session, state } = useSession();
+  // NOTE: Pending intent drives the switch immediately; enabled changes only
+  // after registration or cleanup commits.
   const [enabled, setEnabledState] = useState(false);
+  const [pendingEnabled, setPendingEnabled] = useState<boolean | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tokenRef = useRef<string | null>(null);
   const accessToken = session?.access_token ?? "";
 
-  const disable = useCallback(async () => {
-    const storedToken = await SecureStore.getItemAsync(TOKEN_KEY);
-    const tokens = [
-      ...new Set([storedToken, tokenRef.current].filter(Boolean)),
-    ] as string[];
-    if (tokens.length > 0 && !accessToken) {
-      throw new Error(
-        "A signed-in session is required to disable notifications",
-      );
-    }
-    for (const token of tokens) {
-      await unregisterNotificationDevice(accessToken, token);
-    }
-    await Promise.all([
-      SecureStore.deleteItemAsync(ENABLED_KEY),
-      SecureStore.deleteItemAsync(TOKEN_KEY),
-    ]);
-    tokenRef.current = null;
-    setEnabledState(false);
-  }, [accessToken]);
+  const operationsRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingCountRef = useRef(0);
+  const enabledRef = useRef(false);
+  const pendingEnabledRef = useRef<boolean | null>(null);
+  const intentVersionRef = useRef(0);
+  const signingOutRef = useRef(false);
 
-  const setEnabled = useCallback(
-    async (nextEnabled: boolean) => {
-      if (!accessToken || isPending || nextEnabled === enabled) return;
+  const commitEnabled = useCallback((nextEnabled: boolean) => {
+    enabledRef.current = nextEnabled;
+    setEnabledState(nextEnabled);
+  }, []);
+
+  // One queue keeps registration and cleanup ordered, including sign-out.
+  const runExclusive = useCallback(
+    (operationName: string, operation: () => Promise<void>) => {
+      pendingCountRef.current += 1;
+      debugNotifications("operation_queued", {
+        operation: operationName,
+        pendingCount: pendingCountRef.current,
+      });
       setIsPending(true);
-      setError(null);
-      try {
-        if (!nextEnabled) {
-          await disable();
-          return;
-        }
-
-        await ensureAndroidChannel();
-        let permission = await Notifications.getPermissionsAsync();
-        if (!allowsNotifications(permission)) {
-          permission = await Notifications.requestPermissionsAsync({
-            ios: { allowAlert: true, allowBadge: false, allowSound: false },
+      const result = operationsRef.current.then(async () => {
+        debugNotifications("operation_started", { operation: operationName });
+        setError(null);
+        try {
+          await operation();
+          debugNotifications("operation_succeeded", {
+            operation: operationName,
           });
+        } catch (operationError) {
+          debugNotifications("operation_failed", {
+            operation: operationName,
+            error:
+              operationError instanceof Error
+                ? {
+                    message: operationError.message,
+                    name: operationError.name,
+                    stack: operationError.stack,
+                  }
+                : String(operationError),
+          });
+          setError(
+            "Couldn’t update notifications. Check your connection and try again.",
+          );
+          throw new Error("Could not update notifications");
+        } finally {
+          pendingCountRef.current -= 1;
+          debugNotifications("operation_finished", {
+            operation: operationName,
+            pendingCount: pendingCountRef.current,
+          });
+          if (pendingCountRef.current === 0) setIsPending(false);
         }
-        if (!allowsNotifications(permission)) {
+      });
+      // A failed operation must not prevent a later cleanup or retry.
+      operationsRef.current = result.catch(() => undefined);
+      return result;
+    },
+    [],
+  );
+
+  const disable = useCallback(
+    async (clearPreference: boolean) => {
+      const storedToken = await SecureStore.getItemAsync(TOKEN_KEY);
+      const tokens = [
+        ...new Set([storedToken, tokenRef.current].filter(Boolean)),
+      ] as string[];
+      if (tokens.length > 0 && !accessToken) {
+        throw new Error(
+          "A signed-in session is required to disable notifications",
+        );
+      }
+      for (const token of tokens) {
+        await unregisterNotificationDevice(accessToken, token);
+      }
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+      if (clearPreference) await SecureStore.deleteItemAsync(ENABLED_KEY);
+      tokenRef.current = null;
+      commitEnabled(false);
+    },
+    [accessToken, commitEnabled],
+  );
+
+  const reconcile = useCallback(
+    async (
+      requestPermission = false,
+      intentVersion = intentVersionRef.current,
+    ) => {
+      const optedIn = (await SecureStore.getItemAsync(ENABLED_KEY)) === "true";
+      debugNotifications("reconcile_started", {
+        optedIn,
+        platform: Platform.OS,
+        requestPermission,
+      });
+      if (!optedIn && !requestPermission) {
+        debugNotifications("reconcile_skipped", { reason: "not_opted_in" });
+        commitEnabled(false);
+        await disable(false);
+        return;
+      }
+
+      await ensureAndroidChannel();
+      let permission = await Notifications.getPermissionsAsync();
+      debugNotifications("permission_checked", {
+        canAskAgain: permission.canAskAgain,
+        granted: allowsNotifications(permission),
+        status: permission.status,
+        iosStatus: permission.ios?.status,
+      });
+      if (!allowsNotifications(permission) && requestPermission) {
+        debugNotifications("permission_request_started");
+        permission = await Notifications.requestPermissionsAsync({
+          ios: { allowAlert: true, allowBadge: false, allowSound: false },
+        });
+        debugNotifications("permission_request_finished", {
+          canAskAgain: permission.canAskAgain,
+          granted: allowsNotifications(permission),
+          status: permission.status,
+          iosStatus: permission.ios?.status,
+        });
+      }
+      if (!allowsNotifications(permission)) {
+        debugNotifications("permission_unavailable");
+        // OS revocation changes availability, not the user's saved preference.
+        commitEnabled(false);
+        await disable(false);
+        if (requestPermission && intentVersion === intentVersionRef.current) {
           Alert.alert(
             "Notifications are off",
             "Allow notifications in your device settings to receive household recipe updates.",
             [
-              { text: "Cancel", style: "cancel" },
-              { text: "Open settings", onPress: () => void Linking.openSettings() },
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => {
+                  void runExclusive("permission_cancelled", async () => {
+                    if (intentVersion !== intentVersionRef.current) return;
+                    intentVersionRef.current += 1;
+                    await SecureStore.deleteItemAsync(ENABLED_KEY);
+                    commitEnabled(false);
+                  }).catch(() => undefined);
+                },
+              },
+              {
+                text: "Open settings",
+                onPress: () => {
+                  void runExclusive("open_settings", async () => {
+                    if (intentVersion !== intentVersionRef.current) return;
+                    await SecureStore.setItemAsync(ENABLED_KEY, "true");
+                    debugNotifications("opening_system_settings");
+                    await Linking.openSettings();
+                  }).catch(() => undefined);
+                },
+              },
             ],
           );
-          return;
         }
+        return;
+      }
 
-        const previousToken = await SecureStore.getItemAsync(TOKEN_KEY);
-        const token = await getExpoPushToken();
+      const previousToken = await SecureStore.getItemAsync(TOKEN_KEY);
+      const token = await getExpoPushToken();
+      debugNotifications("device_registration_started", {
+        hadPreviousToken: Boolean(previousToken),
+        platform: Platform.OS,
+        tokenRotated: Boolean(previousToken && previousToken !== token),
+      });
+      // Retain even an uncertain registration so sign-out can safely remove it.
+      tokenRef.current = token;
+      try {
         await registerNotificationDevice(
           accessToken,
           token,
           Platform.OS as "android" | "ios",
           previousToken,
         );
-        tokenRef.current = token;
+        debugNotifications("device_registration_succeeded");
         try {
-          await Promise.all([
-            SecureStore.setItemAsync(ENABLED_KEY, "true"),
-            SecureStore.setItemAsync(TOKEN_KEY, token),
-          ]);
-        } catch (storageError) {
-          try {
-            await unregisterNotificationDevice(accessToken, token);
-            await Promise.all([
-              SecureStore.deleteItemAsync(ENABLED_KEY),
-              SecureStore.deleteItemAsync(TOKEN_KEY),
-            ]);
-            tokenRef.current = null;
-          } catch {
-            // Keep the in-memory state accurate so sign-out retries safe cleanup.
-            setEnabledState(true);
+          await SecureStore.setItemAsync(TOKEN_KEY, token);
+          if (requestPermission) {
+            await SecureStore.setItemAsync(ENABLED_KEY, "true");
           }
+          debugNotifications("notification_preference_saved", {
+            enabled: true,
+          });
+        } catch (storageError) {
+          // Preserve existing intent; failed cleanup retains the in-memory token.
+          await disable(false).catch(() => undefined);
           throw storageError;
         }
-        setEnabledState(true);
-      } catch {
-        setError(
-          "Couldn’t update notifications. Check your connection and try again.",
-        );
-        throw new Error("Could not update notifications");
-      } finally {
-        setIsPending(false);
+        commitEnabled(true);
+        debugNotifications("reconcile_enabled");
+      } catch (registrationError) {
+        commitEnabled(false);
+        throw registrationError;
       }
-    }, [accessToken, disable, enabled, isPending],
+    },
+    [accessToken, commitEnabled, disable, runExclusive],
+  );
+
+  const setEnabled = useCallback(
+    (nextEnabled: boolean) => {
+      debugNotifications("toggle_requested", {
+        committedEnabled: enabledRef.current,
+        nextEnabled,
+        pendingEnabled: pendingEnabledRef.current,
+      });
+      if (!accessToken || signingOutRef.current) {
+        debugNotifications("toggle_ignored", {
+          reason: !accessToken ? "no_session" : "signing_out",
+        });
+        return Promise.resolve();
+      }
+      // NOTE: Native switches can repeat the same target before React rerenders.
+      if (
+        pendingEnabledRef.current === nextEnabled ||
+        (pendingEnabledRef.current === null &&
+          enabledRef.current === nextEnabled)
+      ) {
+        debugNotifications("toggle_ignored", { reason: "duplicate_target" });
+        return Promise.resolve();
+      }
+      const intentVersion = ++intentVersionRef.current;
+      pendingEnabledRef.current = nextEnabled;
+      setPendingEnabled(nextEnabled);
+      return runExclusive(nextEnabled ? "enable" : "disable", () =>
+        nextEnabled ? reconcile(true, intentVersion) : disable(true),
+      ).finally(() => {
+        if (intentVersion !== intentVersionRef.current) return;
+        pendingEnabledRef.current = null;
+        setPendingEnabled(null);
+      });
+    },
+    [accessToken, disable, reconcile, runExclusive],
   );
 
   const prepareForSignOut = useCallback(async () => {
-    // NOTE: Server cleanup must succeed before the session can be discarded.
-    const optedIn = (await SecureStore.getItemAsync(ENABLED_KEY)) === "true";
-    if (enabled || optedIn) await disable();
-  }, [disable, enabled]);
+    signingOutRef.current = true;
+    intentVersionRef.current += 1;
+    try {
+      // Includes retained tokens even when the switch and preference are off.
+      await runExclusive("sign_out_cleanup", () => disable(true));
+    } finally {
+      pendingEnabledRef.current = null;
+      setPendingEnabled(null);
+      signingOutRef.current = false;
+    }
+  }, [disable, runExclusive]);
 
   useEffect(() => {
-    // NOTE: Startup refreshes an existing opt-in but never prompts automatically.
     if (state !== "ready" || !accessToken) return;
     let active = true;
-    void (async () => {
-      try {
-        const optedIn = (await SecureStore.getItemAsync(ENABLED_KEY)) === "true";
-        if (!active || !optedIn) {
-          if (active) setEnabledState(false);
-          return;
-        }
-        setEnabledState(true);
-        await ensureAndroidChannel();
-        const permission = await Notifications.getPermissionsAsync();
-        if (!allowsNotifications(permission)) {
-          await disable();
-          return;
-        }
-        const previousToken = await SecureStore.getItemAsync(TOKEN_KEY);
-        tokenRef.current = previousToken;
-        const token = await getExpoPushToken();
-        await registerNotificationDevice(
-          accessToken,
-          token,
-          Platform.OS as "android" | "ios",
-          previousToken,
-        );
-        tokenRef.current = token;
-        if (token !== previousToken) {
-          await SecureStore.setItemAsync(TOKEN_KEY, token);
-        }
-      } catch {
-        if (active) {
-          setError("Notifications will retry when Noomori opens again.");
-        }
+    const refresh = () => {
+      // NOTE: Android's permission sheet can reactivate the app while enabling;
+      // that event must not enqueue a second device registration.
+      if (signingOutRef.current || pendingEnabledRef.current !== null) {
+        debugNotifications("foreground_reconcile_skipped", {
+          reason: signingOutRef.current ? "signing_out" : "toggle_pending",
+        });
+        return;
       }
-    })();
+      void runExclusive("foreground_reconcile", async () => {
+        if (active) await reconcile();
+      }).catch(() => undefined);
+    };
+    refresh();
+    let previousState = AppState.currentState;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      debugNotifications("app_state_changed", {
+        from: previousState,
+        to: nextState,
+      });
+      if (nextState === "active" && previousState !== "active") refresh();
+      previousState = nextState;
+    });
     return () => {
       active = false;
+      subscription.remove();
     };
-  }, [accessToken, disable, state]);
+  }, [accessToken, reconcile, runExclusive, state]);
 
   useEffect(() => {
     const received = Notifications.addNotificationReceivedListener(() => {
@@ -270,13 +428,13 @@ export function NotificationProvider({ children }: React.PropsWithChildren) {
   const value = useMemo(
     () => ({
       available: true,
-      enabled,
+      enabled: pendingEnabled ?? enabled,
       error,
       isPending,
       setEnabled,
       prepareForSignOut,
     }),
-    [enabled, error, isPending, prepareForSignOut, setEnabled],
+    [enabled, error, isPending, pendingEnabled, prepareForSignOut, setEnabled],
   );
 
   return (
@@ -289,7 +447,9 @@ export function NotificationProvider({ children }: React.PropsWithChildren) {
 export function useNotifications() {
   const context = useContext(NotificationContext);
   if (!context) {
-    throw new Error("useNotifications must be used inside NotificationProvider");
+    throw new Error(
+      "useNotifications must be used inside NotificationProvider",
+    );
   }
   return context;
 }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "889671443331",
+    "project_id": "noomori-36084",
+    "storage_bucket": "noomori-36084.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889671443331:android:30d903d4009e43677dccb6",
+        "android_client_info": {
+          "package_name": "com.noomori.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTY-WMCJTGCDyAxuzBfR-o--kpdGweEPA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

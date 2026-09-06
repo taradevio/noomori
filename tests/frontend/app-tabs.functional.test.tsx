@@ -1,6 +1,11 @@
 import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { Keyboard, Pressable, StyleSheet, View } from "react-native";
+import {
+  Keyboard,
+  Pressable as MockPressable,
+  StyleSheet,
+  View as MockView,
+} from "react-native";
 
 import { AppTabs } from "@/routes/app-tabs.shared";
 
@@ -16,12 +21,13 @@ const mockWindowDimensions = {
   width: 390,
 };
 
-jest.mock("react-native", () => ({
-  ...jest.requireActual("react-native"),
-  useWindowDimensions: () => mockWindowDimensions,
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
+  __esModule: true,
+  default: () => mockWindowDimensions,
 }));
 
 jest.mock("expo-router", () => ({
+  DefaultTheme: { colors: {} },
   useGlobalSearchParams: () => mockGlobalSearchParams,
   usePathname: () => mockPathname,
   useRouter: () => ({ push: mockPush }),
@@ -87,38 +93,40 @@ jest.mock("expo-router/ui", () => {
   };
 });
 
-jest.mock("@/shared/components/recipe/add-recipe-bottom-sheet", () => ({
-  AddRecipeBottomSheet: ({
-    isOpen,
-    onDismiss,
-    onImportFromText,
-    onImportFromWebsite,
-    onWriteFromScratch,
-  }: {
-    isOpen: boolean;
-    onDismiss: () => void;
-    onImportFromText: () => void;
-    onImportFromWebsite: () => void;
-    onWriteFromScratch: () => void;
-  }) =>
-    isOpen ? (
-      <View testID="add-recipe-sheet">
-        <Pressable accessibilityLabel="Close sheet" onPress={onDismiss} />
-        <Pressable
-          accessibilityLabel="Write from scratch"
-          onPress={onWriteFromScratch}
-        />
-        <Pressable
-          accessibilityLabel="Import from text"
-          onPress={onImportFromText}
-        />
-        <Pressable
-          accessibilityLabel="Import from website"
-          onPress={onImportFromWebsite}
-        />
-      </View>
-    ) : null,
-}));
+jest.mock("@/shared/components/recipe/add-recipe-bottom-sheet", () => {
+  return {
+    AddRecipeBottomSheet: ({
+      isOpen,
+      onDismiss,
+      onImportFromText,
+      onImportFromWebsite,
+      onWriteFromScratch,
+    }: {
+      isOpen: boolean;
+      onDismiss: () => void;
+      onImportFromText: () => void;
+      onImportFromWebsite: () => void;
+      onWriteFromScratch: () => void;
+    }) =>
+      isOpen ? (
+        <MockView testID="add-recipe-sheet">
+          <MockPressable accessibilityLabel="Close sheet" onPress={onDismiss} />
+          <MockPressable
+            accessibilityLabel="Write from scratch"
+            onPress={onWriteFromScratch}
+          />
+          <MockPressable
+            accessibilityLabel="Import from text"
+            onPress={onImportFromText}
+          />
+          <MockPressable
+            accessibilityLabel="Import from website"
+            onPress={onImportFromWebsite}
+          />
+        </MockView>
+      ) : null,
+  };
+});
 
 describe("custom primary navigation", () => {
   beforeEach(() => {
@@ -239,12 +247,27 @@ describe("custom primary navigation", () => {
 
     expect(screen.getByTestId("tab-slot").props.style.paddingBottom).toBe(0);
     expect(
-      StyleSheet.flatten(screen.getByTestId("primary-tab-bar").props.style)
-        .display,
+      StyleSheet.flatten(
+        screen.getByTestId("primary-tab-bar", {
+          includeHiddenElements: true,
+        }).props.style,
+      ).display,
     ).toBe("none");
-    expect(screen.getByTestId("tab-trigger-recipes")).toBeTruthy();
-    expect(screen.getByTestId("tab-trigger-household")).toBeTruthy();
-    expect(screen.getByTestId("tab-trigger-account")).toBeTruthy();
+    expect(
+      screen.getByTestId("tab-trigger-recipes", {
+        includeHiddenElements: true,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("tab-trigger-household", {
+        includeHiddenElements: true,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("tab-trigger-account", {
+        includeHiddenElements: true,
+      }),
+    ).toBeTruthy();
 
     await act(() => mockKeyboardListeners.keyboardDidHide());
     expect(screen.getByTestId("tab-slot").props.style.paddingBottom).toBe(64);
@@ -312,9 +335,7 @@ describe("custom primary navigation", () => {
     mockPathname = "/account";
     await render(<AppTabs />);
 
-    expect(
-      screen.queryByTestId("tab-add-recipe-position"),
-    ).toBeNull();
+    expect(screen.queryByTestId("tab-add-recipe-position")).toBeNull();
     expect(screen.queryByRole("button", { name: "Add recipe" })).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Create cookbook" }),

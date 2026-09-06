@@ -16,6 +16,7 @@ from server.main import (  # noqa: E402
     NotificationDeviceRegistration,
     NotificationDeviceRemoval,
     deliver_household_recipe_notification,
+    get_admin_supabase,
     register_notification_device,
     unregister_notification_device,
 )
@@ -352,6 +353,47 @@ class NotificationDeviceEndpointTest(unittest.TestCase):
         for table, filters in self.admin.deletes:
             if table == "push_notification_devices":
                 self.assertIn(("eq", "user_id", "user-1"), filters)
+
+    def test_device_endpoints_do_not_require_expo_credentials(self):
+        with (
+            patch("server.main.settings.supabase_url", "https://example.supabase.co"),
+            patch("server.main.settings.supabase_service_role_key", SecretStr("service-role")),
+            patch("server.main.settings.expo_access_token", None),
+            patch("server.main.create_client", return_value=self.admin) as create_client,
+            patch("server.main.send_household_recipe_notification") as send,
+        ):
+            registered = register_notification_device(
+                NotificationDeviceRegistration(
+                    expo_push_token="ExponentPushToken[token]", platform="android",
+                ),
+                self.auth,
+            )
+            removed = unregister_notification_device(
+                NotificationDeviceRemoval(expo_push_token="ExponentPushToken[token]"),
+                self.auth,
+            )
+            deliver_household_recipe_notification(
+                "household", "user-1", "Tara", "added", "recipe", "Soup",
+            )
+
+        self.assertEqual(204, registered.status_code)
+        self.assertEqual(204, removed.status_code)
+        create_client.assert_called_with("https://example.supabase.co", "service-role")
+        send.assert_not_called()
+
+    def test_admin_client_requires_supabase_credentials(self):
+        for url, key in [("", SecretStr("service-role")), ("https://example.supabase.co", None)]:
+            with (
+                self.subTest(url=url, has_key=key is not None),
+                patch("server.main.settings.supabase_url", url),
+                patch("server.main.settings.supabase_service_role_key", key),
+                patch("server.main.create_client") as create_client,
+            ):
+                with self.assertRaises(HTTPException) as raised:
+                    get_admin_supabase()
+                self.assertEqual(503, raised.exception.status_code)
+                self.assertEqual("Supabase admin credentials are missing", raised.exception.detail)
+                create_client.assert_not_called()
 
     def test_registration_cannot_take_over_another_users_token(self):
         self.admin.rows["push_notification_devices"] = [

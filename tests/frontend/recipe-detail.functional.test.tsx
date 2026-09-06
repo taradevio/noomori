@@ -17,6 +17,7 @@ jest.mock("@expo/ui/community/bottom-sheet", () => ({
 jest.mock("expo-linking", () => ({ openURL: jest.fn() }));
 
 jest.mock("expo-router", () => ({
+  DefaultTheme: { colors: {} },
   Link: ({
     children,
     onPress,

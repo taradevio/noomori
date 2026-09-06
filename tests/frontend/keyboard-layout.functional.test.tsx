@@ -11,13 +11,17 @@ import {
   RecipeForm,
 } from "@/shared/components/recipe/recipe-form";
 
+jest.mock("@/global.css", () => ({}));
+
 jest.mock("expo-splash-screen", () => ({
   preventAutoHideAsync: jest.fn(),
   setOptions: jest.fn(),
 }));
 
 jest.mock("expo-router", () => ({
+  DefaultTheme: { colors: {} },
   ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
+  useRouter: () => ({ push: jest.fn() }),
 }));
 
 jest.mock("@/shared/components/splash-screen-controller", () => ({

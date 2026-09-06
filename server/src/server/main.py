@@ -917,10 +917,10 @@ def get_supabase(access_token: str | None = None) -> Client:
 
 
 def get_admin_supabase() -> Client:
-    if not settings.supabase_service_role_key or not settings.expo_access_token:
+    if not settings.supabase_url or not settings.supabase_service_role_key:
         raise HTTPException(
             status_code=503,
-            detail="Push notifications are not configured",
+            detail="Supabase admin credentials are missing",
         )
     return create_client(
         settings.supabase_url,

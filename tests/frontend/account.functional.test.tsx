@@ -30,6 +30,7 @@ const mockSession = {
 };
 
 jest.mock("expo-router", () => ({
+  DefaultTheme: { colors: {} },
   useRouter: () => ({ push: mockPush }),
 }));
 
@@ -44,7 +45,9 @@ jest.mock("@tanstack/react-query", () => ({
 }));
 
 jest.mock("@/lib/supabase", () => ({
-  supabase: { auth: { signOut: mockSignOut } },
+  supabase: {
+    auth: { signOut: (...args: unknown[]) => mockSignOut(...args) },
+  },
 }));
 
 jest.mock("@/shared/providers/session-providers", () => ({
@@ -110,6 +113,22 @@ describe("Account settings", () => {
 
     await fireEvent(toggle, "valueChange", true);
     expect(mockSetNotificationsEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("shows a pending notification enable as checked and disabled", async () => {
+    Object.assign(mockNotifications, {
+      available: true,
+      enabled: true,
+      isPending: true,
+    });
+    mockUseQuery.mockReturnValue({ data: { member_count: 2 } });
+    await render(<AccountScreen />);
+
+    const toggle = screen.getByRole("switch", {
+      name: "Recipe activity",
+    });
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
   });
 
   it("keeps notification settings hidden for a solo household", async () => {

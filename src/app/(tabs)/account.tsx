@@ -219,9 +219,9 @@ export default function AccountScreen() {
                   accessibilityLabel="Recipe activity"
                   accessibilityState={{
                     busy: notifications.isPending,
-                    disabled: notifications.isPending,
+                    disabled: notifications.isPending || isSigningOut,
                   }}
-                  disabled={notifications.isPending}
+                  disabled={notifications.isPending || isSigningOut}
                   onValueChange={(enabled) => {
                     void notifications.setEnabled(enabled).catch(() => undefined);
                   }}

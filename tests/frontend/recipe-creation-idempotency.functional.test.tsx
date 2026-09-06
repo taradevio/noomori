@@ -113,7 +113,10 @@ function renderScreen(
   initialPreparedPhoto: PreparedRecipePhoto | null = null,
 ) {
   const queryClient = new QueryClient({
-    defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
+    defaultOptions: {
+      mutations: { gcTime: Infinity, retry: false },
+      queries: { gcTime: Infinity, retry: false },
+    },
   });
   return render(
     <QueryClientProvider client={queryClient}>

@@ -2,14 +2,16 @@ import * as Notifications from "expo-notifications";
 
 import { notificationRoute } from "@/shared/providers/notification-provider";
 
+jest.mock("@/lib/supabase", () => ({ supabase: {} }));
+
+// The handler is installed at module import, before Jest clears call history.
+const handler = (Notifications.setNotificationHandler as jest.Mock).mock
+  .calls[0]?.[0];
+
 describe("household recipe notifications", () => {
-  it("uses a silent foreground handler", () => {
-    expect(Notifications.setNotificationHandler).toHaveBeenCalledWith({
-      handleNotification: expect.any(Function),
-    });
-    const handler = (Notifications.setNotificationHandler as jest.Mock).mock
-      .calls[0][0];
-    expect(handler.handleNotification()).resolves.toEqual({
+  it("uses a silent foreground handler", async () => {
+    expect(handler).toEqual({ handleNotification: expect.any(Function) });
+    await expect(handler.handleNotification()).resolves.toEqual({
       shouldPlaySound: false,
       shouldSetBadge: false,
       shouldShowBanner: true,
@@ -33,7 +35,9 @@ describe("household recipe notifications", () => {
         recipe_id: recipeId,
       }),
     ).toBe("/activity");
-    expect(notificationRoute({ action: "edited", recipe_id: recipeId })).toBeNull();
+    expect(
+      notificationRoute({ action: "edited", recipe_id: recipeId }),
+    ).toBeNull();
     expect(
       notificationRoute({
         kind: "household_recipe_activity",

@@ -152,7 +152,9 @@ describe("recipe and cookbook library workflow", () => {
     expect(screen.getByText("Weeknight favorites")).toBeTruthy();
     expect(screen.getByText("Shared")).toBeTruthy();
     expect(
-      screen.getByTestId("recipe-card-missing-image-shared-missing"),
+      screen.getByTestId("recipe-card-missing-image-shared-missing", {
+        includeHiddenElements: true,
+      }),
     ).toBeTruthy();
     expect(
       screen.getByText(/A very long family recipe/).props.numberOfLines,
@@ -216,7 +218,11 @@ describe("recipe and cookbook library workflow", () => {
       />,
     );
 
-    expect(screen.getAllByTestId("library-skeleton-card").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByTestId("library-skeleton-card", {
+        includeHiddenElements: true,
+      }).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByTestId("recipe-activity-button")).toBeNull();
 
     await view.rerender(
