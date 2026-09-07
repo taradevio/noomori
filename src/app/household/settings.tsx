@@ -13,7 +13,8 @@ import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Clipboard from "expo-clipboard";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { type ComponentRef, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -42,10 +43,15 @@ function formatExpiry(value: string) {
 
 /** Household membership and invite settings, separate from shared recipes. */
 export default function HouseholdSettingsScreen() {
+  const { section } = useLocalSearchParams<{ section?: "invite" }>();
   const { refreshUserState, session } = useSession();
   const queryClient = useQueryClient();
   const safeAreaInsets = useSafeAreaInsets();
   const accessToken = session?.access_token ?? "";
+  const scrollViewRef = useRef<ComponentRef<typeof ScrollView>>(null);
+  const inviteHeadingRef = useRef<ComponentRef<typeof Text>>(null);
+  const handledInviteTargetRef = useRef(false);
+  const [inviteSectionY, setInviteSectionY] = useState<number | null>(null);
   const [generatedCode, setGeneratedCode] =
     useState<GeneratedHouseholdCode | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -101,6 +107,33 @@ export default function HouseholdSettingsScreen() {
       AccessibilityInfo.announceForAccessibility(actionError);
     }
   }, [actionError]);
+
+  // NOTE: Route-targeted invite navigation scrolls and focuses once; query and
+  // mutation rerenders must not pull the user back to this section.
+  useEffect(() => {
+    if (
+      section !== "invite" ||
+      settingsQuery.data?.role !== "owner" ||
+      inviteSectionY === null ||
+      handledInviteTargetRef.current ||
+      !scrollViewRef.current ||
+      !inviteHeadingRef.current
+    ) {
+      return;
+    }
+
+    handledInviteTargetRef.current = true;
+    scrollViewRef.current.scrollTo({
+      y: Math.max(0, inviteSectionY - 16),
+      animated: false,
+    });
+    const inviteHeading = inviteHeadingRef.current;
+    const focusFrame = requestAnimationFrame(() => {
+      AccessibilityInfo.sendAccessibilityEvent(inviteHeading, "focus");
+    });
+
+    return () => cancelAnimationFrame(focusFrame);
+  }, [inviteSectionY, section, settingsQuery.data?.role]);
 
   async function generateCode() {
     if (isGenerating) return;
@@ -245,6 +278,7 @@ export default function HouseholdSettingsScreen() {
     >
       <StatusBar style="dark" />
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={{
           paddingBottom: Math.max(safeAreaInsets.bottom, 16) + 32,
         }}
@@ -336,9 +370,19 @@ export default function HouseholdSettingsScreen() {
           </View>
 
           {settings.role === "owner" ? (
-            <View className="mt-8 gap-5 rounded-xl border border-border bg-surface p-5">
+            <View
+              className="mt-8 gap-5 rounded-xl border border-border bg-surface p-5"
+              onLayout={(event) => {
+                const nextY = event.nativeEvent.layout.y;
+                setInviteSectionY((currentY) =>
+                  currentY === nextY ? currentY : nextY,
+                );
+              }}
+            >
               <View className="gap-2">
                 <Text
+                  ref={inviteHeadingRef}
+                  accessible
                   accessibilityRole="header"
                   className="text-xl font-bold leading-7 text-text-primary"
                 >

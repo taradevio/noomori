@@ -13,6 +13,7 @@ const mockPush = jest.fn();
 const mockClear = jest.fn();
 const mockSignOut = jest.fn();
 const mockUseQuery = jest.fn();
+const mockRefetchHousehold = jest.fn();
 const mockSetNotificationsEnabled = jest.fn();
 const mockPrepareForSignOut = jest.fn();
 const mockNotifications = {
@@ -67,7 +68,13 @@ describe("Account settings", () => {
     mockSignOut.mockResolvedValue({ error: null });
     mockPrepareForSignOut.mockResolvedValue(undefined);
     mockSetNotificationsEnabled.mockResolvedValue(undefined);
-    mockUseQuery.mockReturnValue({ data: undefined });
+    mockRefetchHousehold.mockResolvedValue(undefined);
+    mockUseQuery.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isPending: true,
+      refetch: mockRefetchHousehold,
+    });
     Object.assign(mockNotifications, {
       available: false,
       enabled: false,
@@ -101,7 +108,12 @@ describe("Account settings", () => {
 
   it("shows one device notification switch for a multi-member household", async () => {
     mockNotifications.available = true;
-    mockUseQuery.mockReturnValue({ data: { member_count: 2 } });
+    mockUseQuery.mockReturnValue({
+      data: { member_count: 2, role: "member" },
+      isError: false,
+      isPending: false,
+      refetch: mockRefetchHousehold,
+    });
     await render(<AccountScreen />);
 
     const toggle = screen.getByRole("switch", {
@@ -121,7 +133,12 @@ describe("Account settings", () => {
       enabled: true,
       isPending: true,
     });
-    mockUseQuery.mockReturnValue({ data: { member_count: 2 } });
+    mockUseQuery.mockReturnValue({
+      data: { member_count: 2, role: "owner" },
+      isError: false,
+      isPending: false,
+      refetch: mockRefetchHousehold,
+    });
     await render(<AccountScreen />);
 
     const toggle = screen.getByRole("switch", {
@@ -131,13 +148,86 @@ describe("Account settings", () => {
     expect(toggle).toBeDisabled();
   });
 
-  it("keeps notification settings hidden for a solo household", async () => {
+  it("keeps the notification row mounted while eligibility loads", async () => {
     mockNotifications.available = true;
-    mockUseQuery.mockReturnValue({ data: { member_count: 1 } });
     await render(<AccountScreen />);
 
-    expect(screen.queryByText("Notifications")).toBeNull();
+    expect(screen.getByText("Notifications")).toBeTruthy();
+    expect(screen.getByText("Recipe activity")).toBeTruthy();
+    expect(
+      screen.getByText("Checking notification availability…"),
+    ).toBeTruthy();
     expect(screen.queryByRole("switch")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Recipe activity/ }),
+    ).toBeNull();
+    expect(screen.getByText("Session")).toBeTruthy();
+  });
+
+  it("opens the invite section for a solo household owner", async () => {
+    mockNotifications.available = true;
+    mockUseQuery.mockReturnValue({
+      data: { member_count: 1, role: "owner" },
+      isError: false,
+      isPending: false,
+      refetch: mockRefetchHousehold,
+    });
+    await render(<AccountScreen />);
+
+    const invite = screen.getByRole("button", { name: /Recipe activity/ });
+    expect(
+      screen.getByText(
+        "Invite someone to enable notifications for shared recipe changes.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("switch")).toBeNull();
+
+    await fireEvent.press(invite);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: "/household/settings",
+      params: { section: "invite" },
+    });
+  });
+
+  it("does not offer an owner action to an unexpected solo member", async () => {
+    mockNotifications.available = true;
+    mockUseQuery.mockReturnValue({
+      data: { member_count: 1, role: "member" },
+      isError: false,
+      isPending: false,
+      refetch: mockRefetchHousehold,
+    });
+    await render(<AccountScreen />);
+
+    expect(
+      screen.getByText("Household invitations are managed by the owner."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Recipe activity/ }),
+    ).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+  });
+
+  it("retries a failed household eligibility request inline", async () => {
+    mockNotifications.available = true;
+    mockUseQuery.mockReturnValue({
+      data: undefined,
+      isError: true,
+      isPending: false,
+      refetch: mockRefetchHousehold,
+    });
+    await render(<AccountScreen />);
+
+    expect(
+      screen.getByText("Couldn’t check notification availability."),
+    ).toBeTruthy();
+    await fireEvent.press(
+      screen.getByRole("button", {
+        name: "Retry notification availability",
+      }),
+    );
+    expect(mockRefetchHousehold).toHaveBeenCalledTimes(1);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("signs out locally once and clears private cached data", async () => {

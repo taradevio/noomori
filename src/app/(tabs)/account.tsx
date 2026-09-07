@@ -59,9 +59,98 @@ export default function AccountScreen() {
     queryFn: () => getHouseholdSettings(accessToken),
     retry: false,
   });
-  // NOTE: Web and one-person households keep the existing activity UI only.
-  const showNotifications =
-    notifications.available && (householdQuery.data?.member_count ?? 0) >= 2;
+  // NOTE: Keep the section mounted while eligibility resolves so Session does
+  // not shift when the household request finishes.
+  const household = householdQuery.data;
+  const notificationEligibilityFailed =
+    householdQuery.isError || (!householdQuery.isPending && !household);
+  const notificationsEligible =
+    !notificationEligibilityFailed && (household?.member_count ?? 0) >= 2;
+  const soloOwner =
+    !notificationEligibilityFailed &&
+    household?.member_count === 1 &&
+    household.role === "owner";
+  const notificationDescription = householdQuery.isPending
+    ? "Checking notification availability…"
+    : notificationEligibilityFailed
+      ? "Couldn’t check notification availability."
+      : notificationsEligible
+        ? "Get notified when shared recipes change."
+        : soloOwner
+          ? "Invite someone to enable notifications for shared recipe changes."
+          : "Household invitations are managed by the owner.";
+
+  const notificationRowContent = (
+    <>
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        className="h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-subtle"
+      >
+        <SymbolView
+          accessible={false}
+          name={{
+            ios: "bell",
+            android: "notifications",
+            web: "notifications",
+          }}
+          size={21}
+          tintColor={colorTokens.textSecondary}
+        />
+      </View>
+      <View className="min-w-0 flex-1">
+        <Text className="text-base font-bold leading-6 text-text-primary">
+          Recipe activity
+        </Text>
+        <Text className="min-h-10 text-sm font-normal leading-5 text-text-secondary">
+          {notificationDescription}
+        </Text>
+      </View>
+      <View className="w-14 shrink-0 items-end justify-center">
+        {notificationsEligible ? (
+          <Switch
+            accessibilityLabel="Recipe activity"
+            accessibilityState={{
+              busy: notifications.isPending,
+              disabled: notifications.isPending || isSigningOut,
+            }}
+            disabled={notifications.isPending || isSigningOut}
+            onValueChange={(enabled) => {
+              void notifications.setEnabled(enabled).catch(() => undefined);
+            }}
+            thumbColor={colorTokens.surface}
+            trackColor={{
+              false: colorTokens.border,
+              true: colorTokens.primary,
+            }}
+            value={notifications.enabled}
+          />
+        ) : soloOwner ? (
+          <SymbolView
+            accessible={false}
+            name={{
+              ios: "chevron.right",
+              android: "chevron_right",
+              web: "chevron_right",
+            }}
+            size={19}
+            tintColor={colorTokens.textSecondary}
+          />
+        ) : notificationEligibilityFailed ? (
+          <Pressable
+            accessibilityLabel="Retry notification availability"
+            accessibilityRole="button"
+            className="min-h-12 w-14 items-center justify-center rounded-lg border-2 border-transparent focus:border-primary active:bg-surface-subtle"
+            onPress={() => void householdQuery.refetch()}
+          >
+            <Text className="text-sm font-bold leading-5 text-primary-strong">
+              Retry
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </>
+  );
 
   async function handleSignOut() {
     if (signingOutRef.current) return;
@@ -187,52 +276,29 @@ export default function AccountScreen() {
             </View>
           </View>
 
-          {showNotifications ? (
+          {notifications.available ? (
             <View>
               <SectionLabel>Notifications</SectionLabel>
-              <View className="min-h-16 flex-row items-center gap-3 rounded-2xl bg-surface px-3 py-2.5">
-                <View
-                  accessibilityElementsHidden
-                  importantForAccessibility="no-hide-descendants"
-                  className="h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-subtle"
+              {soloOwner ? (
+                <Pressable
+                  accessibilityHint="Opens household settings at Invite member"
+                  accessibilityLabel={`Recipe activity. ${notificationDescription}`}
+                  accessibilityRole="button"
+                  className="min-h-16 flex-row items-center gap-3 rounded-2xl border-2 border-transparent bg-surface px-3 py-2.5 focus:border-primary active:bg-surface-subtle"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/household/settings",
+                      params: { section: "invite" },
+                    })
+                  }
                 >
-                  <SymbolView
-                    accessible={false}
-                    name={{
-                      ios: "bell",
-                      android: "notifications",
-                      web: "notifications",
-                    }}
-                    size={21}
-                    tintColor={colorTokens.textSecondary}
-                  />
+                  {notificationRowContent}
+                </Pressable>
+              ) : (
+                <View className="min-h-16 flex-row items-center gap-3 rounded-2xl bg-surface px-3 py-2.5">
+                  {notificationRowContent}
                 </View>
-                <View className="min-w-0 flex-1">
-                  <Text className="text-base font-bold leading-6 text-text-primary">
-                    Recipe activity
-                  </Text>
-                  <Text className="text-sm font-normal leading-5 text-text-secondary">
-                    Shared recipe additions and updates
-                  </Text>
-                </View>
-                <Switch
-                  accessibilityLabel="Recipe activity"
-                  accessibilityState={{
-                    busy: notifications.isPending,
-                    disabled: notifications.isPending || isSigningOut,
-                  }}
-                  disabled={notifications.isPending || isSigningOut}
-                  onValueChange={(enabled) => {
-                    void notifications.setEnabled(enabled).catch(() => undefined);
-                  }}
-                  thumbColor={colorTokens.surface}
-                  trackColor={{
-                    false: colorTokens.border,
-                    true: colorTokens.primary,
-                  }}
-                  value={notifications.enabled}
-                />
-              </View>
+              )}
               {notifications.error ? (
                 <Text
                   accessibilityLiveRegion="polite"

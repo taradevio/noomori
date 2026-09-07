@@ -60,22 +60,68 @@ describe("recipe and cookbook library workflow", () => {
         name: /Chocolate cake, 50 minutes, 8 servings, Shared/,
       }),
     ).toBeTruthy();
+    expect(screen.getByText("2 items")).toBeTruthy();
 
     await fireEvent.changeText(
       screen.getByTestId("library-recipes-search-input"),
       "cake",
     );
     expect(screen.queryByTestId("recipe-card-soup")).toBeNull();
+    expect(screen.getByText("1 item")).toBeTruthy();
     await fireEvent.press(
       screen.getByRole("button", { name: /Chocolate cake/ }),
     );
     expect(onRecipePress).toHaveBeenCalledWith("cake");
     expect(onSearchQueryChange).toHaveBeenCalledWith("recipes", "cake");
 
+    await fireEvent.changeText(
+      screen.getByTestId("library-recipes-search-input"),
+      "bread",
+    );
+    expect(screen.getByText("0 items")).toBeTruthy();
+
     await fireEvent.press(
       screen.getByRole("button", { name: "Clear recipes search" }),
     );
     expect(screen.getByTestId("recipe-card-soup")).toBeTruthy();
+    expect(screen.getByText("2 items")).toBeTruthy();
+  });
+
+  it("counts filtered cookbooks and household shared recipes", async () => {
+    const view = await render(
+      <RecipesLibraryView
+        cookbooks={{
+          status: "ready",
+          data: [
+            ...cookbooks.data,
+            { id: "desserts", title: "Desserts", recipeCount: 1 },
+          ],
+        }}
+        recipes={recipes}
+        section="cookbooks"
+      />,
+    );
+
+    expect(screen.getByText("2 items")).toBeTruthy();
+    await fireEvent.changeText(
+      screen.getByTestId("library-cookbooks-search-input"),
+      "favorites",
+    );
+    expect(screen.getByText("1 item")).toBeTruthy();
+
+    await view.rerender(
+      <RecipesLibraryView
+        cookbooks={{ status: "ready", data: [] }}
+        mode="household"
+        recipes={recipes}
+      />,
+    );
+    expect(screen.getByText("2 items")).toBeTruthy();
+    await fireEvent.changeText(
+      screen.getByTestId("library-recipes-search-input"),
+      "tomato",
+    );
+    expect(screen.getByText("1 item")).toBeTruthy();
   });
 
   it("switches to cookbooks without duplicating the create action", async () => {

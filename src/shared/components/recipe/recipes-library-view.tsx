@@ -313,7 +313,6 @@ function LibraryPage({
     pageSection === "recipes" ? recipes : cookbooks;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const status = resource.status;
-  const count = resource.status === "ready" ? resource.data.length : null;
   const message = resource.status === "error" ? resource.message : undefined;
   const listItems = useMemo<LibraryListItem[]>(() => {
     if (status === "loading") {
@@ -342,6 +341,8 @@ function LibraryPage({
     }
     return [];
   }, [columnCount, cookbooks, normalizedQuery, pageSection, recipes, status]);
+  // NOTE: Count the rendered results so searches stay accurate in every library mode.
+  const count = status === "ready" ? listItems.length : null;
 
   const renderEmptyState = () => {
     const noun = isHousehold
