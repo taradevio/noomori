@@ -29,14 +29,28 @@ cross-cutting design-system, hook, provider, and platform code in their existing
 
 ## API
 
-`server.app.create_app()` is the composition root. It registers implemented
-routers under `/api/v1`; currently only `modules.health` exists.
+`server.main.create_app()` is the composition root. It configures middleware and
+lifespan handling, registers the existing health router at `/api/v1/health`, and
+registers the unversioned product routers without changing their public paths.
 
-Keep request handling stateless. Create external resources during application
-startup and inject them through FastAPI dependencies. When persistence is
-needed, begin with one database and keep each module's queries and tables with
-that module while sharing connection infrastructure.
+```text
+server/src/server/
+├── main.py                 application composition and Uvicorn entrypoint
+├── core/                   authentication, Supabase clients, and lifespan
+├── modules/
+│   ├── cookbooks/          cookbook routes and persistence workflows
+│   ├── households/         household routes, RPCs, and join codes
+│   ├── notifications/      device routes and notification orchestration
+│   └── recipes/            recipe routes, schemas, images, and imports
+├── push_notifications.py   Expo push transport
+└── recipe_url_import.py    safe fetching and low-level website extraction
+```
 
-Add product modules, caching, queues, workers, or separate services only after
-a concrete feature or measured load requires them. The modular monolith remains
-the default architecture as Noomori grows.
+Feature services use the authenticated request-scoped Supabase client so RLS
+remains authoritative. Admin access stays explicit in notification workflows.
+Supabase-backed handlers remain synchronous, and optional push delivery and
+Storage cleanup remain best-effort.
+
+Add repositories, queues, caches, or separate services only after a concrete
+feature or measured load requires them. The modular monolith remains the
+default architecture as Noomori grows.

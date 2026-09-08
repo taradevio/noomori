@@ -1,9 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
 import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -14,11 +13,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { supabase } from "@/lib/supabase";
 import { colorTokens } from "@/shared/design-system";
 import { getHouseholdSettings } from "@/shared/household-api";
 import { useNotifications } from "@/shared/providers/notification-provider";
 import { useSession } from "@/shared/providers/session-providers";
+import { useLocalSignOut } from "@/shared/providers/use-local-sign-out";
 
 const SETTINGS_MAX_WIDTH = 560;
 
@@ -38,11 +37,8 @@ export default function AccountScreen() {
   const router = useRouter();
   const { session } = useSession();
   const notifications = useNotifications();
-  const queryClient = useQueryClient();
+  const { isSigningOut, signOut, signOutError } = useLocalSignOut();
   const { height, width } = useWindowDimensions();
-  const signingOutRef = useRef(false);
-  const [isSigningOut, setIsSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState<string | null>(null);
   const email = session?.user.email?.trim() || "Signed in";
   const metadataName = session?.user.user_metadata.full_name;
   const displayName =
@@ -151,30 +147,6 @@ export default function AccountScreen() {
       </View>
     </>
   );
-
-  async function handleSignOut() {
-    if (signingOutRef.current) return;
-
-    signingOutRef.current = true;
-    setIsSigningOut(true);
-    setSignOutError(null);
-
-    try {
-      await notifications.prepareForSignOut();
-      const { error } = await supabase.auth.signOut({ scope: "local" });
-
-      if (error) throw error;
-
-      // Prevent private data from remaining visible to the next local session.
-      queryClient.clear();
-    } catch {
-      signingOutRef.current = false;
-      setIsSigningOut(false);
-      setSignOutError(
-        "Couldn’t sign out. Check your connection and try again.",
-      );
-    }
-  }
 
   return (
     <SafeAreaView
@@ -324,7 +296,7 @@ export default function AccountScreen() {
                 }}
                 className="min-h-16 flex-row items-center gap-3 border-2 border-transparent px-3 py-2.5 focus:border-text-primary active:bg-surface-subtle disabled:opacity-50"
                 disabled={isSigningOut}
-                onPress={() => void handleSignOut()}
+                onPress={() => void signOut()}
               >
                 <View
                   accessibilityElementsHidden

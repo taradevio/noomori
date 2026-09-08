@@ -2,7 +2,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from server.main import ImportRecipeUrlRequest, import_recipe_url
+from server.modules.recipes.imports.website import import_recipe_url
+from server.modules.recipes.schemas import ImportRecipeUrlRequest
 from server.recipe_url_import import FetchedRecipePage
 
 
@@ -20,7 +21,10 @@ def import_fixture(filename: str, url: str):
         hostname=payload.url.host or "unknown",
         response_size=len(html.encode()),
     )
-    with patch("server.main.fetch_public_html", return_value=page):
+    with patch(
+        "server.modules.recipes.imports.website.fetch_public_html",
+        return_value=page,
+    ):
         return import_recipe_url(payload, _auth=Mock())
 
 

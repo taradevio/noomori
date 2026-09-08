@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from server.main import (
+from server.modules.cookbooks.service import (
     CookbookTitle,
     CreateCookbook,
     ReplaceCookbookRecipes,

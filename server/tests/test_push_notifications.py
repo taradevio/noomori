@@ -12,11 +12,11 @@ os.environ.setdefault(
     "0123456789abcdef0123456789abcdef",
 )
 
-from server.main import (  # noqa: E402
+from server.core.database import get_admin_supabase  # noqa: E402
+from server.modules.notifications.service import (  # noqa: E402
     NotificationDeviceRegistration,
     NotificationDeviceRemoval,
     deliver_household_recipe_notification,
-    get_admin_supabase,
     register_notification_device,
     unregister_notification_device,
 )
@@ -275,11 +275,11 @@ class PushDeliveryTest(unittest.TestCase):
 
     def test_delivery_failure_is_isolated_from_the_recipe_request(self):
         with (
-            patch("server.main.settings.supabase_service_role_key", SecretStr("service")),
-            patch("server.main.settings.expo_access_token", SecretStr("expo")),
-            patch("server.main.get_admin_supabase", return_value=FakeAdmin()),
+            patch("server.modules.notifications.service.settings.supabase_service_role_key", SecretStr("service")),
+            patch("server.modules.notifications.service.settings.expo_access_token", SecretStr("expo")),
+            patch("server.modules.notifications.service.get_admin_supabase", return_value=FakeAdmin()),
             patch(
-                "server.main.send_household_recipe_notification",
+                "server.modules.notifications.service.send_household_recipe_notification",
                 side_effect=RuntimeError("offline"),
             ),
         ):
@@ -328,7 +328,7 @@ class NotificationDeviceEndpointTest(unittest.TestCase):
         self.auth = SimpleNamespace(user=SimpleNamespace(id="user-1"))
 
     def test_registration_rotates_and_unregistration_is_owner_scoped(self):
-        with patch("server.main.get_admin_supabase", return_value=self.admin):
+        with patch("server.modules.notifications.service.get_admin_supabase", return_value=self.admin):
             registered = register_notification_device(
                 NotificationDeviceRegistration(
                     expo_push_token="ExponentPushToken[new-token]",
@@ -356,11 +356,11 @@ class NotificationDeviceEndpointTest(unittest.TestCase):
 
     def test_device_endpoints_do_not_require_expo_credentials(self):
         with (
-            patch("server.main.settings.supabase_url", "https://example.supabase.co"),
-            patch("server.main.settings.supabase_service_role_key", SecretStr("service-role")),
-            patch("server.main.settings.expo_access_token", None),
-            patch("server.main.create_client", return_value=self.admin) as create_client,
-            patch("server.main.send_household_recipe_notification") as send,
+            patch("server.modules.notifications.service.settings.supabase_url", "https://example.supabase.co"),
+            patch("server.modules.notifications.service.settings.supabase_service_role_key", SecretStr("service-role")),
+            patch("server.modules.notifications.service.settings.expo_access_token", None),
+            patch("server.core.database.create_client", return_value=self.admin) as create_client,
+            patch("server.modules.notifications.service.send_household_recipe_notification") as send,
         ):
             registered = register_notification_device(
                 NotificationDeviceRegistration(
@@ -385,9 +385,9 @@ class NotificationDeviceEndpointTest(unittest.TestCase):
         for url, key in [("", SecretStr("service-role")), ("https://example.supabase.co", None)]:
             with (
                 self.subTest(url=url, has_key=key is not None),
-                patch("server.main.settings.supabase_url", url),
-                patch("server.main.settings.supabase_service_role_key", key),
-                patch("server.main.create_client") as create_client,
+                patch("server.modules.notifications.service.settings.supabase_url", url),
+                patch("server.modules.notifications.service.settings.supabase_service_role_key", key),
+                patch("server.core.database.create_client") as create_client,
             ):
                 with self.assertRaises(HTTPException) as raised:
                     get_admin_supabase()
@@ -403,7 +403,7 @@ class NotificationDeviceEndpointTest(unittest.TestCase):
             }
         ]
 
-        with patch("server.main.get_admin_supabase", return_value=self.admin):
+        with patch("server.modules.notifications.service.get_admin_supabase", return_value=self.admin):
             with self.assertRaises(HTTPException) as raised:
                 register_notification_device(
                     NotificationDeviceRegistration(

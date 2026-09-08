@@ -1,29 +1,88 @@
 import "@/global.css";
 
 import { KeyboardProvider } from "@/shared/components/keyboard-layout";
+import { OnboardingButton } from "@/shared/components/onboarding/onboarding-button";
 import { noomoriNavigationTheme } from "@/shared/design-system";
+import { NotificationProvider } from "@/shared/providers/notification-provider";
 import {
   SessionProvider,
   useSession,
 } from "@/shared/providers/session-providers";
-import { NotificationProvider } from "@/shared/providers/notification-provider";
+import { useLocalSignOut } from "@/shared/providers/use-local-sign-out";
 import { ToastHost } from "@/shared/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
+import { ActivityIndicator, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { SplashScreenController } from "../shared/components/splash-screen-controller";
 
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 200, fade: true });
 
 // Separate RootNavigator so route guards can consume the current session state.
-function RootNavigator() {
-  const { state } = useSession();
+export function RootNavigator() {
+  const { refreshUserState, state } = useSession();
+  const { isSigningOut, signOut, signOutError } = useLocalSignOut();
 
   if (state === "loading") {
-    return null;
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center gap-4 bg-background px-5">
+        <StatusBar style="dark" />
+        <ActivityIndicator
+          color={noomoriNavigationTheme.colors.primary}
+          size="large"
+        />
+        <Text
+          accessibilityLiveRegion="polite"
+          className="text-base text-text-secondary"
+        >
+          Loading your account…
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-background px-5">
+        <StatusBar style="dark" />
+        <View className="w-full max-w-[400px] gap-4 rounded-xl border border-border bg-surface p-5">
+          <Text
+            accessibilityRole="header"
+            className="text-xl font-bold text-text-primary"
+          >
+            Couldn’t load your account
+          </Text>
+          <Text className="text-base leading-6 text-text-secondary">
+            Check your connection and try again.
+          </Text>
+          <OnboardingButton
+            disabled={isSigningOut}
+            label="Try again"
+            onPress={() => void refreshUserState()}
+          />
+          <OnboardingButton
+            label="Sign out"
+            loading={isSigningOut}
+            loadingLabel="Signing out…"
+            onPress={() => void signOut()}
+            variant="secondary"
+          />
+          {signOutError ? (
+            <Text
+              accessibilityRole="alert"
+              className="text-sm font-medium leading-5 text-error"
+            >
+              {signOutError}
+            </Text>
+          ) : null}
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (

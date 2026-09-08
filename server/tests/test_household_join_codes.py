@@ -14,7 +14,7 @@ os.environ.setdefault(
     "0123456789abcdef0123456789abcdef",
 )
 
-from server.main import (  # noqa: E402
+from server.modules.households.service import (  # noqa: E402
     HOUSEHOLD_JOIN_CODE_CONTEXT,
     HouseholdJoinCodeRequest,
     get_household_settings,
@@ -84,7 +84,7 @@ class JoinCodeInputTest(unittest.TestCase):
 
 
 class HouseholdEndpointTest(unittest.TestCase):
-    @patch("server.main.secrets.randbelow", side_effect=[42, 43])
+    @patch("server.modules.households.service.secrets.randbelow", side_effect=[42, 43])
     def test_generation_retries_a_digest_collision_without_exposing_digest(
         self,
         _randbelow,
@@ -103,7 +103,7 @@ class HouseholdEndpointTest(unittest.TestCase):
             context.supabase.calls[-1][1]["p_code_digest"],
         )
 
-    @patch("server.main.secrets.randbelow", return_value=42)
+    @patch("server.modules.households.service.secrets.randbelow", return_value=42)
     def test_generation_stops_after_five_collisions(self, _randbelow):
         context = auth(*(DatabaseError("23505") for _ in range(5)))
 

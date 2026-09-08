@@ -4,12 +4,12 @@ from pathlib import Path
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from server.main import (
+from server.modules.recipes.imports.text import parse_recipe_text
+from server.modules.recipes.schemas import (
     ImportRecipeTextRequest,
     RECIPE_TEXT_MAX_CHARS,
-    import_recipe_text,
-    parse_recipe_text,
 )
+from server.modules.recipes.service import import_recipe_text
 
 SPECS_PATH = Path(__file__).resolve().parents[2] / "specs"
 CASE_PATH = SPECS_PATH / "case.txt"

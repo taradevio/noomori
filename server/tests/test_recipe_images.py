@@ -5,20 +5,22 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
-from server.main import (
+from server.modules.households.service import create_household
+from server.modules.recipes.images import (
+    recipes_with_signed_images,
+    valid_recipe_image_path,
+)
+from server.modules.recipes.service import (
     activate_recipe_image,
-    create_household,
     create_recipe,
     delete_recipe,
     get_recipe,
     list_household_recipes,
     list_recipes,
-    recipes_with_signed_images,
     remove_recipe_image,
     share_recipe,
     unshare_recipe,
     update_recipe,
-    valid_recipe_image_path,
 )
 
 
@@ -221,7 +223,7 @@ class RecipeUpdateTest(unittest.TestCase):
         )
         tasks = BackgroundTasks()
 
-        with patch("server.main.queue_household_recipe_notification") as queue:
+        with patch("server.modules.recipes.service.queue_household_recipe_notification") as queue:
             update_recipe(self.recipe_id, self.payload(), auth, tasks)
 
         self.assertEqual("edited", queue.call_args.args[2])
@@ -237,7 +239,7 @@ class RecipeUpdateTest(unittest.TestCase):
         )
         tasks = BackgroundTasks()
 
-        with patch("server.main.queue_household_recipe_notification") as queue:
+        with patch("server.modules.recipes.service.queue_household_recipe_notification") as queue:
             update_recipe(self.recipe_id, self.payload(), auth, tasks)
 
         queue.assert_not_called()

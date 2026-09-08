@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import BackgroundTasks, HTTPException
 
-from server.main import (
+from server.modules.recipes.service import (
     list_household_recipes,
     list_recipes,
     share_recipe,
@@ -99,7 +99,7 @@ class RecipeSharingTest(unittest.TestCase):
     def test_idempotent_share_and_unshare_queue_only_changed_pushes(self):
         auth = self.auth()
         tasks = BackgroundTasks()
-        with patch("server.main.queue_household_recipe_notification") as queue:
+        with patch("server.modules.recipes.service.queue_household_recipe_notification") as queue:
             share_recipe(self.recipe_id, auth, tasks)
             share_recipe(self.recipe_id, auth, tasks)
             unshare_recipe(self.recipe_id, auth, tasks)

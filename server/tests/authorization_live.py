@@ -183,7 +183,7 @@ class LiveAuthorizationTest(unittest.IsolatedAsyncioTestCase):
         missing = await self.api.get("/recipes/00000000-0000-4000-8000-000000000000")
         self.assertEqual(401, missing.status_code)
 
-        auth_logger = logging.getLogger("server.main")
+        auth_logger = logging.getLogger("server.core.auth")
         auth_logger.disabled = True
         try:
             invalid = await self.api.get(
@@ -303,7 +303,7 @@ class LiveAuthorizationTest(unittest.IsolatedAsyncioTestCase):
             f"/rest/v1/recipes?id=eq.{creation_id}",
             json={"image_path": image_path},
         )
-        api_logger = logging.getLogger("server.main")
+        api_logger = logging.getLogger("server.modules.recipes.service")
         api_logger.disabled = True
         try:
             replay_with_image = await self.api.post(

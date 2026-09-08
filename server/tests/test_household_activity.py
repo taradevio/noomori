@@ -11,7 +11,7 @@ os.environ.setdefault(
     "0123456789abcdef0123456789abcdef",
 )
 
-from server.main import (  # noqa: E402
+from server.modules.households.service import (  # noqa: E402
     HouseholdActivityRead,
     get_household_activity,
     mark_household_activity_read,

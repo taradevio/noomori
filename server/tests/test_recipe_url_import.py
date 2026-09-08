@@ -8,18 +8,16 @@ import urllib3
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from server.main import (
-    AuthContext,
-    ImportRecipeUrlRequest,
-    _dom_nutrition,
+from server.core.auth import AuthContext, get_current_user
+from server.modules.recipes.imports.text import _dom_nutrition, parse_recipe_text
+from server.modules.recipes.imports.website import (
     _enrich_primary_groups,
-    app,
-    get_current_user,
     import_recipe_image,
     import_recipe_url,
     normalize_imported_website_recipe,
-    parse_recipe_text,
 )
+from server.modules.recipes.schemas import ImportRecipeUrlRequest
+from server.modules.recipes.router import router as recipe_router
 from server.recipe_url_import import (
     MAX_HTML_BYTES,
     MAX_IMAGE_BYTES,
@@ -856,7 +854,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
     def test_endpoint_requires_authentication(self):
         route = next(
             route
-            for route in app.routes
+            for route in recipe_router.routes
             if getattr(route, "path", None) == "/recipes/import/url"
         )
         dependency_calls = [dependency.call for dependency in route.dependant.dependencies]
@@ -871,9 +869,9 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
             response_size=4,
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
             patch(
-                "server.main.extract_recipe",
+                "server.modules.recipes.imports.website.extract_recipe",
                 return_value=extracted_recipe(
                     nutrients={
                         "calories": "120 kcal",
@@ -881,8 +879,8 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                     }
                 ),
             ),
-            patch("server.main.extract_recipe_container_text") as fallback,
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.extract_recipe_container_text") as fallback,
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url="https://example.com/recipe"),
@@ -935,13 +933,13 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                     else {"return_value": primary_result}
                 )
                 with (
-                    patch("server.main.fetch_public_html", return_value=page),
-                    patch("server.main.extract_recipe", **extract_effect),
+                    patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+                    patch("server.modules.recipes.imports.website.extract_recipe", **extract_effect),
                     patch(
-                        "server.main.extract_recipe_container_text",
+                        "server.modules.recipes.imports.website.extract_recipe_container_text",
                         return_value=fallback_text,
                     ) as fallback,
-                    patch("server.main.logger.log") as log,
+                    patch("server.modules.recipes.imports.website.logger.log") as log,
                 ):
                     response = import_recipe_url(
                         ImportRecipeUrlRequest(url="https://example.com/recipe"),
@@ -989,14 +987,14 @@ Instructions
 """
 
         with (
-            patch("server.main.fetch_public_html", return_value=page),
-            patch("server.main.extract_recipe", return_value=primary),
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.extract_recipe", return_value=primary),
             patch(
-                "server.main.extract_recipe_container_text",
+                "server.modules.recipes.imports.website.extract_recipe_container_text",
                 return_value=fallback_text,
             ),
-            patch("server.main._enrich_dom_nutrition") as dom_nutrition,
-            patch("server.main.logger.log"),
+            patch("server.modules.recipes.imports.website._enrich_dom_nutrition") as dom_nutrition,
+            patch("server.modules.recipes.imports.website.logger.log"),
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=page.url),
@@ -1029,8 +1027,8 @@ Instructions
             response_size=DOM_FIXTURE_PATH.stat().st_size,
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=page.url),
@@ -1054,8 +1052,8 @@ Instructions
             response_size=DAPUR_FIXTURE_PATH.stat().st_size,
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=page.url),
@@ -1084,8 +1082,8 @@ Instructions
             response_size=len(html.encode()),
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page) as fetch,
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page) as fetch,
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=url),
@@ -1137,8 +1135,8 @@ Instructions
             response_size=len(html.encode()),
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=url),
@@ -1194,12 +1192,12 @@ Instructions
             response_size=len(html.encode()),
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
             patch(
-                "server.main.extract_recipe",
+                "server.modules.recipes.imports.website.extract_recipe",
                 side_effect=WebsiteImportError("recipe_not_found"),
             ),
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=page.url),
@@ -1294,14 +1292,14 @@ Instructions
             response_size=4,
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
-            patch("server.main.extract_recipe", return_value=extracted_recipe()),
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.extract_recipe", return_value=extracted_recipe()),
             patch(
-                "server.main._enrich_primary_groups",
+                "server.modules.recipes.imports.website._enrich_primary_groups",
                 side_effect=RuntimeError("bad optional DOM structure"),
             ),
-            patch("server.main.extract_recipe_container_text") as nutrition_dom,
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.extract_recipe_container_text") as nutrition_dom,
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=page.url),
@@ -1325,8 +1323,8 @@ Instructions
             response_size=len(html.encode()),
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=page.url),
@@ -1367,12 +1365,12 @@ Instructions
                     response_size=len(html.encode()),
                 )
                 with (
-                    patch("server.main.fetch_public_html", return_value=page),
+                    patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
                     patch(
-                        "server.main.extract_recipe",
+                        "server.modules.recipes.imports.website.extract_recipe",
                         side_effect=WebsiteImportError("recipe_not_found"),
                     ),
-                    patch("server.main.logger.log") as log,
+                    patch("server.modules.recipes.imports.website.logger.log") as log,
                 ):
                     response = import_recipe_url(
                         ImportRecipeUrlRequest(url=page.url),
@@ -1397,13 +1395,13 @@ Instructions
             response_size=4,
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
-            patch("server.main.extract_recipe", return_value=extracted_recipe()),
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.extract_recipe", return_value=extracted_recipe()),
             patch(
-                "server.main.extract_recipe_container_text",
+                "server.modules.recipes.imports.website.extract_recipe_container_text",
                 side_effect=WebsiteImportError("recipe_not_found"),
             ),
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(
                 ImportRecipeUrlRequest(url=page.url),
@@ -1425,16 +1423,16 @@ Instructions
             response_size=4,
         )
         with (
-            patch("server.main.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
             patch(
-                "server.main.extract_recipe",
+                "server.modules.recipes.imports.website.extract_recipe",
                 side_effect=WebsiteImportError("recipe_not_found"),
             ),
             patch(
-                "server.main.extract_recipe_container_text",
+                "server.modules.recipes.imports.website.extract_recipe_container_text",
                 return_value="Soup\nIngredients\n- 1 cup water",
             ),
-            patch("server.main.logger.log") as log,
+            patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             with self.assertRaises(HTTPException) as caught:
                 import_recipe_url(
@@ -1463,11 +1461,11 @@ Instructions
             with self.subTest(detail=detail):
                 with (
                     patch(
-                        "server.main.fetch_public_html",
+                        "server.modules.recipes.imports.website.fetch_public_html",
                         side_effect=WebsiteImportError(detail),
                     ),
-                    patch("server.main.extract_recipe_container_text") as fallback,
-                    patch("server.main.logger.log") as log,
+                    patch("server.modules.recipes.imports.website.extract_recipe_container_text") as fallback,
+                    patch("server.modules.recipes.imports.website.logger.log") as log,
                 ):
                     with self.assertRaises(HTTPException) as caught:
                         import_recipe_url(
@@ -1485,7 +1483,7 @@ class ImportRecipeImageEndpointTest(unittest.TestCase):
     def test_endpoint_requires_authentication(self):
         route = next(
             route
-            for route in app.routes
+            for route in recipe_router.routes
             if getattr(route, "path", None) == "/recipes/import/image"
         )
         dependency_calls = [dependency.call for dependency in route.dependant.dependencies]
@@ -1500,7 +1498,7 @@ class ImportRecipeImageEndpointTest(unittest.TestCase):
             response_size=10,
             content_type="image/webp",
         )
-        with patch("server.main.fetch_public_image", return_value=fetched):
+        with patch("server.modules.recipes.imports.website.fetch_public_image", return_value=fetched):
             response = import_recipe_image(
                 ImportRecipeUrlRequest(url="https://example.com/photo.webp"),
                 _auth=auth,
@@ -1521,7 +1519,7 @@ class ImportRecipeImageEndpointTest(unittest.TestCase):
         }.items():
             with self.subTest(detail=detail):
                 with patch(
-                    "server.main.fetch_public_image",
+                    "server.modules.recipes.imports.website.fetch_public_image",
                     side_effect=WebsiteImportError(detail),
                 ):
                     with self.assertRaises(HTTPException) as caught:

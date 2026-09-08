@@ -12,11 +12,9 @@ os.environ.setdefault(
 
 import httpx  # noqa: E402
 
-from server.main import (  # noqa: E402
-    ImportedRecipeTextDraft,
-    app,
-    get_current_user,
-)
+from server.core.auth import get_current_user  # noqa: E402
+from server.main import create_app  # noqa: E402
+from server.modules.recipes.schemas import ImportedRecipeTextDraft  # noqa: E402
 
 
 USER_ID = "11111111-1111-4111-8111-111111111111"
@@ -206,6 +204,7 @@ class FakeDatabase:
 
 class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        self.app = create_app()
         self.database = FakeDatabase()
         self.auth = SimpleNamespace(
             user=SimpleNamespace(id=USER_ID),
@@ -224,22 +223,53 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
             "fastapi.routing.run_in_threadpool", new=run_directly
         )
         self.threadpool_patch.start()
-        app.dependency_overrides[get_current_user] = auth_override
+        self.app.dependency_overrides[get_current_user] = auth_override
         self.client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
+            transport=httpx.ASGITransport(app=self.app),
             base_url="http://testserver",
         )
 
     async def asyncTearDown(self):
-        app.dependency_overrides.clear()
+        self.app.dependency_overrides.clear()
         self.threadpool_patch.stop()
         await self.client.aclose()
+
+    async def test_app_factory_registers_the_existing_api_contract(self):
+        paths = {
+            path: set(operations)
+            for path, operations in self.app.openapi()["paths"].items()
+        }
+        self.assertEqual(
+            {
+                "/add-recipes": {"post"},
+                "/api/v1/health": {"get"},
+                "/cookbooks": {"get", "post"},
+                "/cookbooks/{cookbook_id}": {"delete", "get", "put"},
+                "/cookbooks/{cookbook_id}/recipes": {"put"},
+                "/household": {"delete", "get", "post"},
+                "/household/activity": {"get"},
+                "/household/activity/read": {"put"},
+                "/household/invite": {"delete", "post"},
+                "/household/join": {"post"},
+                "/household/join/preview": {"post"},
+                "/household/recipes": {"get"},
+                "/notifications/device": {"delete", "put"},
+                "/recipes": {"get", "post"},
+                "/recipes/import/image": {"post"},
+                "/recipes/import/text": {"post"},
+                "/recipes/import/url": {"post"},
+                "/recipes/{recipe_id}": {"delete", "get", "put"},
+                "/recipes/{recipe_id}/image": {"delete", "put"},
+                "/recipes/{recipe_id}/share": {"delete", "put"},
+            },
+            paths,
+        )
 
     async def test_health_is_public_and_protected_routes_require_authentication(self):
         health = await self.client.get("/api/v1/health")
         self.assertEqual({"status": "ok"}, health.json())
 
-        app.dependency_overrides.clear()
+        self.app.dependency_overrides.clear()
         response = await self.client.get("/recipes")
         self.assertEqual(401, response.status_code)
 
@@ -278,17 +308,17 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         )
         with ExitStack() as stack:
             stack.enter_context(
-                patch("server.main.fetch_public_html", return_value=fetched_page)
+                patch("server.modules.recipes.imports.website.fetch_public_html", return_value=fetched_page)
             )
-            stack.enter_context(patch("server.main.extract_recipe", return_value=extracted))
+            stack.enter_context(patch("server.modules.recipes.imports.website.extract_recipe", return_value=extracted))
             stack.enter_context(
-                patch("server.main.normalize_imported_website_recipe", return_value=draft)
+                patch("server.modules.recipes.imports.website.normalize_imported_website_recipe", return_value=draft)
             )
             url_response = await self.client.post(
                 "/recipes/import/url",
                 json={"url": "https://example.com/soup"},
             )
-            stack.enter_context(patch("server.main.fetch_public_image", return_value=fetched_image))
+            stack.enter_context(patch("server.modules.recipes.imports.website.fetch_public_image", return_value=fetched_image))
             image_response = await self.client.post(
                 "/recipes/import/image",
                 json={"url": "https://example.com/soup.webp"},
@@ -302,14 +332,14 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_recipe_list_detail_create_and_update_return_canonical_json(self):
         self.database.responses[("recipes", "select")] = [recipe()]
-        with patch("server.main.recipes_with_signed_images", side_effect=lambda _auth, rows: rows):
+        with patch("server.modules.recipes.service.recipes_with_signed_images", side_effect=lambda _auth, rows: rows):
             listed = await self.client.get("/recipes")
         self.assertEqual(200, listed.status_code)
         self.assertEqual(RECIPE_ID, listed.json()[0]["id"])
 
         with ExitStack() as stack:
-            stack.enter_context(patch("server.main.get_readable_recipe", return_value=recipe()))
-            stack.enter_context(patch("server.main.recipe_with_signed_image", side_effect=lambda _a, row: row))
+            stack.enter_context(patch("server.modules.recipes.service.get_readable_recipe", return_value=recipe()))
+            stack.enter_context(patch("server.modules.recipes.service.recipe_with_signed_image", side_effect=lambda _a, row: row))
             detail = await self.client.get(f"/recipes/{RECIPE_ID}")
             created = await self.client.post(
                 "/recipes",
@@ -358,14 +388,14 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_recipe_share_delete_and_image_routes_cover_mutation_contracts(self):
         shared = recipe(is_shared=True)
-        with patch("server.main.set_recipe_shared", return_value=shared) as set_shared:
+        with patch("server.modules.recipes.service.set_recipe_shared", return_value=shared) as set_shared:
             shared_response = await self.client.put(f"/recipes/{RECIPE_ID}/share")
             unshared_response = await self.client.delete(f"/recipes/{RECIPE_ID}/share")
             self.assertEqual(200, shared_response.status_code)
             self.assertEqual(200, unshared_response.status_code)
         self.assertEqual([True, False], [call.args[1] for call in set_shared.call_args_list])
 
-        with patch("server.main.get_owned_recipe", return_value=recipe()):
+        with patch("server.modules.recipes.service.get_owned_recipe", return_value=recipe()):
             deleted = await self.client.delete(f"/recipes/{RECIPE_ID}")
         self.assertEqual(204, deleted.status_code)
 
@@ -374,8 +404,8 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
             "44444444-4444-4444-8444-444444444444.webp"
         )
         with ExitStack() as stack:
-            stack.enter_context(patch("server.main.get_owned_recipe", return_value=recipe()))
-            stack.enter_context(patch("server.main.recipe_with_signed_image", side_effect=lambda _a, row: row))
+            stack.enter_context(patch("server.modules.recipes.service.get_owned_recipe", return_value=recipe()))
+            stack.enter_context(patch("server.modules.recipes.service.recipe_with_signed_image", side_effect=lambda _a, row: row))
             activated = await self.client.put(
                 f"/recipes/{RECIPE_ID}/image",
                 json={"image_path": image_path},
@@ -424,11 +454,11 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         self.database.responses[("cookbooks", "delete")] = [{"id": COOKBOOK_ID}]
 
         with ExitStack() as stack:
-            stack.enter_context(patch("server.main.cookbook_summary_rows", return_value=[summary]))
-            stack.enter_context(patch("server.main.cookbook_detail", return_value=detail))
+            stack.enter_context(patch("server.modules.cookbooks.service.cookbook_summary_rows", return_value=[summary]))
+            stack.enter_context(patch("server.modules.cookbooks.service.cookbook_detail", return_value=detail))
             stack.enter_context(
                 patch(
-                    "server.main.execute_cookbook_rpc",
+                    "server.modules.cookbooks.service.execute_cookbook_rpc",
                     return_value={"status": "OK", "cookbook_id": COOKBOOK_ID},
                 )
             )
@@ -505,7 +535,7 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         def execute(_auth, name, params=None):
             return outcomes[name]
 
-        with patch("server.main.execute_household_rpc", side_effect=execute):
+        with patch("server.modules.households.service.execute_household_rpc", side_effect=execute):
             settings = await self.client.get("/household")
             activity = await self.client.get("/household/activity")
             marked = await self.client.put(
