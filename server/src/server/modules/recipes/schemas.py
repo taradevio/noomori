@@ -56,6 +56,8 @@ class CreateRecipe(BaseModel):
     # 2,048-character website-import request limit above.
     source_url: HttpUrl | None = None
 
+    # Purpose: Enforce the source-specific metadata required by a recipe payload.
+    # Connects to: Recipe create/update endpoints through Pydantic validation.
     @model_validator(mode="after")
     def validate_source(self):
         if self.source_type == "family" and not self.source_person_name:
@@ -76,6 +78,8 @@ class RecipeImageUpdate(BaseModel):
 class ImportRecipeTextRequest(BaseModel):
     text: str = Field(min_length=1, max_length=RECIPE_TEXT_MAX_CHARS)
 
+    # Purpose: Trim imported recipe text and reject whitespace-only submissions.
+    # Connects to: The text-import endpoint before the parser receives the value.
     @field_validator("text")
     @classmethod
     def text_must_not_be_blank(cls, value: str) -> str:
@@ -101,4 +105,3 @@ class ImportedRecipeTextDraft(BaseModel):
     # NOTE: Text imports keep the default null; website imports may provide a
     # transient source URL that the client must fetch through the image proxy.
     image_url: HttpUrl | None = None
-

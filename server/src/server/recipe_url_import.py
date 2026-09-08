@@ -65,6 +65,8 @@ _REMOVED_TAGS = {
 
 
 class WebsiteImportError(Exception):
+    # Purpose: Store a stable import failure code alongside the exception message.
+    # Connects to: Fetch/extraction helpers and HTTP status mapping in URL endpoints.
     def __init__(self, detail: str):
         super().__init__(detail)
         self.detail = detail
@@ -129,6 +131,8 @@ class ExtractedRecipe:
     image_url: str | None
 
 
+# Purpose: Validate a URL and resolve only globally routable addresses on safe ports.
+# Connects to: The shared public-resource fetcher and its SSRF protections.
 def _validated_target(url: str) -> tuple[SplitResult, list[str], int]:
     try:
         parsed = urlsplit(url)
@@ -168,17 +172,23 @@ def _validated_target(url: str) -> tuple[SplitResult, list[str], int]:
     return parsed, addresses, port
 
 
+# Purpose: Render the original hostname and any non-default port for the Host header.
+# Connects to: Verified-IP HTTP requests that preserve virtual-host and TLS identity.
 def _host_header(hostname: str, parsed: SplitResult, port: int) -> str:
     rendered_host = f"[{hostname}]" if ":" in hostname else hostname
     default_port = 443 if parsed.scheme.lower() == "https" else 80
     return rendered_host if port == default_port else f"{rendered_host}:{port}"
 
 
+# Purpose: Build the origin-form path and query used for a direct HTTP request.
+# Connects to: The verified-address fetch helper and parsed import URLs.
 def _request_path(parsed: SplitResult) -> str:
     path = parsed.path or "/"
     return f"{path}?{parsed.query}" if parsed.query else path
 
 
+# Purpose: Return time left in the shared fetch deadline or stop with a timeout.
+# Connects to: Address connection, response streaming, and redirect processing.
 def _remaining(deadline: float) -> float:
     remaining = deadline - monotonic()
     if remaining <= 0:
@@ -186,6 +196,8 @@ def _remaining(deadline: float) -> float:
     return remaining
 
 
+# Purpose: Decode fetched HTML using its declared charset with a safe fallback.
+# Connects to: Public HTML fetching and the fetched-page result object.
 def _decode_html(body: bytes, content_type: str) -> str:
     message = Message()
     message["content-type"] = content_type
@@ -196,6 +208,8 @@ def _decode_html(body: bytes, content_type: str) -> str:
         return body.decode("utf-8", errors="replace")
 
 
+# Purpose: Open one HTTP request against a previously validated IP address.
+# Connects to: The resource fetch loop, urllib3 pools, TLS hostname checks, and deadlines.
 def _fetch_from_address(
     parsed: SplitResult,
     address: str,
@@ -248,6 +262,8 @@ def _fetch_from_address(
         raise
 
 
+# Purpose: Safely fetch bounded public content across revalidated redirects.
+# Connects to: HTML/image wrappers, DNS validation, direct requests, and size limits.
 def _fetch_public_resource(
     url: str,
     *,
@@ -349,6 +365,8 @@ def _fetch_public_resource(
     raise WebsiteImportError("page_unavailable")
 
 
+# Purpose: Fetch and decode a size-limited public HTML recipe page.
+# Connects to: The website import endpoint and shared SSRF-safe resource fetcher.
 def fetch_public_html(url: str) -> FetchedRecipePage:
     resource = _fetch_public_resource(
         url,
@@ -364,6 +382,8 @@ def fetch_public_html(url: str) -> FetchedRecipePage:
     )
 
 
+# Purpose: Fetch a size- and type-limited public recipe image as raw bytes.
+# Connects to: The image proxy endpoint and shared SSRF-safe resource fetcher.
 def fetch_public_image(url: str) -> FetchedRecipeImage:
     resource = _fetch_public_resource(
         url,
@@ -380,6 +400,8 @@ def fetch_public_image(url: str) -> FetchedRecipeImage:
     )
 
 
+# Purpose: Extract a tag's rendered text while preserving explicit line breaks.
+# Connects to: DOM normalization and paragraph serialization in fallback extraction.
 def _dom_text_with_breaks(tag: Tag) -> str:
     parts: list[str] = []
     for descendant in tag.descendants:
@@ -392,10 +414,14 @@ def _dom_text_with_breaks(tag: Tag) -> str:
     return "".join(parts).replace("\xa0", " ")
 
 
+# Purpose: Collapse a tag's rendered text into a whitespace-normalized single line.
+# Connects to: DOM heading, list, label, title, and structure comparisons.
 def _normalized_dom_text(tag: Tag) -> str:
     return " ".join(_dom_text_with_breaks(tag).split())
 
 
+# Purpose: Check whether a tag's id or classes match a structural identifier pattern.
+# Connects to: Recipe-root discovery and removal of noisy DOM elements.
 def _identifier_matches(tag: Tag, pattern: re.Pattern[str]) -> bool:
     identifier = tag.get("id")
     classes = tag.get("class", [])
@@ -405,6 +431,8 @@ def _identifier_matches(tag: Tag, pattern: re.Pattern[str]) -> bool:
     return any(isinstance(value, str) and pattern.search(value) for value in values)
 
 
+# Purpose: Identify DOM elements eligible to anchor one recipe candidate.
+# Connects to: Candidate selection and preservation of structural roots during cleanup.
 def _is_recipe_root(tag: Tag) -> bool:
     return tag.name in {"article", "main"} or _identifier_matches(
         tag,
@@ -412,6 +440,8 @@ def _is_recipe_root(tag: Tag) -> bool:
     )
 
 
+# Purpose: Map an exact normalized heading label to its recipe section kind.
+# Connects to: Text parsing, DOM candidate discovery, and section serialization.
 def recipe_section_name(value: str) -> str | None:
     # NOTE: Sasa renders "Bahan- Bahan"; normalizing whitespace around hyphens
     # handles that markup variation while the final alias lookup remains exact.
@@ -421,6 +451,8 @@ def recipe_section_name(value: str) -> str | None:
     return _RECIPE_SECTION_NAMES.get(normalized)
 
 
+# Purpose: Recognize paragraph/div elements made entirely from bold emphasis.
+# Connects to: Subgroup detection in DOM serialization and group extraction.
 def _standalone_emphasis_text(tag: Tag) -> str | None:
     if tag.name not in {"p", "div"}:
         return None
@@ -431,6 +463,8 @@ def _standalone_emphasis_text(tag: Tag) -> str | None:
     return text if text and text == _normalized_dom_text(emphasis) else None
 
 
+# Purpose: Classify a semantic or standalone-emphasis tag as a recipe section heading.
+# Connects to: Recipe candidate selection and scoped DOM serialization.
 def _section_kind(tag: Tag) -> str | None:
     if tag.name not in _HEADING_TAGS | {"p", "div"}:
         return None
@@ -444,10 +478,14 @@ def _section_kind(tag: Tag) -> str | None:
     return recipe_section_name(text)
 
 
+# Purpose: Test whether a tag is contained by a candidate ancestor, including itself.
+# Connects to: Candidate filtering and minimal recipe-root selection.
 def _is_descendant(tag: Tag, ancestor: Tag) -> bool:
     return tag is ancestor or any(parent is ancestor for parent in tag.parents)
 
 
+# Purpose: Find the nearest DOM scope containing two recipe section headings.
+# Connects to: Container-text and group-structure extraction.
 def _lowest_common_ancestor(first: Tag, second: Tag) -> Tag:
     first_ancestors = {id(first), *(id(parent) for parent in first.parents)}
     current: Tag | None = second
@@ -459,6 +497,8 @@ def _lowest_common_ancestor(first: Tag, second: Tag) -> Tag:
     raise WebsiteImportError("recipe_not_found")
 
 
+# Purpose: Remove hidden, navigational, advertising, and non-content DOM elements.
+# Connects to: Both fallback text extraction and group-structure extraction.
 def _clean_dom(soup: BeautifulSoup) -> None:
     for tag in list(soup.find_all(True)):
         if tag.parent is None:
@@ -488,6 +528,8 @@ def _clean_dom(soup: BeautifulSoup) -> None:
             header.decompose()
 
 
+# Purpose: Normalize and append non-empty rendered lines to a serialized recipe.
+# Connects to: Recursive DOM serialization and subgroup heading formatting.
 def _append_dom_line(lines: list[str], value: str, *, subgroup: bool = False) -> None:
     for raw_line in value.replace("\xa0", " ").splitlines():
         line = " ".join(raw_line.split())
@@ -497,6 +539,8 @@ def _append_dom_line(lines: list[str], value: str, *, subgroup: bool = False) ->
             lines.append(line)
 
 
+# Purpose: Detect a structured label at the beginning of one instruction list item.
+# Connects to: Instruction serialization and verified group-boundary extraction.
 def _leading_instruction_label(tag: Tag) -> str | None:
     # NOTE: Some recipe cards place a short action heading inside each <li>
     # (for example, "Preheat oven"), while others use a leading bold label.
@@ -527,6 +571,8 @@ def _leading_instruction_label(tag: Tag) -> str | None:
     return None
 
 
+# Purpose: Split an instruction item into optional label, body, and comparison text.
+# Connects to: Fallback serialization and DOM instruction-group extraction.
 def _instruction_item_parts(item: Tag) -> tuple[str | None, str, str]:
     label = _leading_instruction_label(item)
     # NOTE: One ordered-list item remains one editable instruction even when its
@@ -552,6 +598,8 @@ def _instruction_item_parts(item: Tag) -> tuple[str | None, str, str]:
     return None, content, content
 
 
+# Purpose: Serialize the selected recipe DOM scope into deterministic parser input.
+# Connects to: Container-text extraction and the shared recipe text parser.
 def _serialize_recipe_scope(
     scope: Tag,
     *,
@@ -567,6 +615,8 @@ def _serialize_recipe_scope(
     )
     inside_instructions = False
 
+    # Purpose: Recursively emit relevant content until the recipe scope boundary.
+    # Connects to: The enclosing serializer and all DOM line/section helpers.
     def visit(tag: Tag) -> bool:
         nonlocal inside_instructions
         if tag is title:
@@ -642,6 +692,8 @@ def _serialize_recipe_scope(
     return lines
 
 
+# Purpose: Find the immediate child of a scope that contains a descendant tag.
+# Connects to: Safe end-boundary selection for recipe container serialization.
 def _direct_branch(scope: Tag, descendant: Tag) -> Tag:
     branch = descendant
     while branch.parent is not scope:
@@ -652,6 +704,8 @@ def _direct_branch(scope: Tag, descendant: Tag) -> Tag:
     return branch
 
 
+# Purpose: Select one unambiguous recipe root, title, and ordered section pair.
+# Connects to: Container-text extraction and DOM group-structure extraction.
 def _recipe_dom_candidate(soup: BeautifulSoup) -> tuple[Tag, Tag, Tag, Tag]:
     dom_order = {id(tag): index for index, tag in enumerate(soup.find_all(True))}
     ingredients = [
@@ -707,6 +761,8 @@ def _recipe_dom_candidate(soup: BeautifulSoup) -> tuple[Tag, Tag, Tag, Tag]:
     return minimal_candidates[0]
 
 
+# Purpose: Extract a bounded recipe-only text candidate from cleaned page HTML.
+# Connects to: Website import fallback, DOM serializer, and deterministic text parser.
 def extract_recipe_container_text(
     html: str,
     *,
@@ -741,6 +797,8 @@ def extract_recipe_container_text(
     return serialized
 
 
+# Purpose: Return descendant tags located between two section markers in DOM order.
+# Connects to: Ingredient and instruction group-structure extraction.
 def _section_tags(
     scope: Tag,
     start: Tag,
@@ -755,6 +813,8 @@ def _section_tags(
     return tags[start_index + 1:end_index]
 
 
+# Purpose: Recognize a colon-ended plain-text label immediately followed by a list.
+# Connects to: Ingredient subgroup discovery in DOM structure extraction.
 def _plain_list_label(tag: Tag) -> str | None:
     if tag.name not in {"p", "div"}:
         return None
@@ -765,6 +825,8 @@ def _plain_list_label(tag: Tag) -> str | None:
     return text if sibling is not None and sibling.name in {"ul", "ol"} else None
 
 
+# Purpose: Extract verified ingredient and instruction group boundaries from HTML.
+# Connects to: Website primary-draft enrichment and DOM structural helpers.
 def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
     soup = BeautifulSoup(html, "html.parser")
     _clean_dom(soup)
@@ -851,6 +913,8 @@ def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
     return ExtractedRecipeGroupStructure(ingredient_groups, instruction_groups)
 
 
+# Purpose: Call an optional recipe-scrapers method without failing the full import.
+# Connects to: Structured recipe extraction across fields with inconsistent support.
 def _optional_value(scraper, method_name: str):
     try:
         return getattr(scraper, method_name)()
@@ -858,6 +922,8 @@ def _optional_value(scraper, method_name: str):
         return None
 
 
+# Purpose: Normalize recipe-scrapers output into the low-level extracted recipe model.
+# Connects to: Primary website import, recipe-scrapers, and URL resolution for images.
 def extract_recipe(html: str, url: str) -> ExtractedRecipe:
     try:
         scraper = scrape_html(html, url, supported_only=False)
@@ -893,9 +959,13 @@ def extract_recipe(html: str, url: str) -> ExtractedRecipe:
         if instruction and instruction.strip()
     ]
 
+    # Purpose: Retain only non-empty string values from optional scraper fields.
+    # Connects to: Title, description, yield, and image-related extraction cleanup.
     def clean_string(value) -> str | None:
         return value.strip() if isinstance(value, str) and value.strip() else None
 
+    # Purpose: Retain only non-negative integer durations from scraper output.
+    # Connects to: Prep and cook time normalization in the extracted recipe model.
     def clean_minutes(value) -> int | None:
         return value if isinstance(value, int) and value >= 0 else None
 

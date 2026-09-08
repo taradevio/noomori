@@ -2,10 +2,10 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.api.health import router as health_router
 from server.config import settings
 from server.core.lifespan import app_lifespan
 from server.modules.cookbooks.router import router as cookbook_router
+from server.modules.health.router import router as health_router
 from server.modules.households.router import router as household_router
 from server.modules.notifications.router import router as notification_router
 from server.modules.recipes.router import router as recipe_router
@@ -14,6 +14,8 @@ from server.modules.recipes.router import router as recipe_router
 __all__ = ["app", "create_app", "main"]
 
 
+# Purpose: Assemble the FastAPI application, middleware, lifespan, and routers.
+# Connects to: Every feature router plus the shared CORS and lifespan configuration.
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Noomori API",
@@ -38,6 +40,8 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
+# Purpose: Launch the local Uvicorn development server for the assembled application.
+# Connects to: The project script entry point and the module-level FastAPI app.
 def main() -> None:
     uvicorn.run(
         "server.main:app",

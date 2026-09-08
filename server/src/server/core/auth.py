@@ -18,6 +18,8 @@ class AuthContext:
     supabase: Client
 
 
+# Purpose: Authenticate a bearer token and build the request-scoped user context.
+# Connects to: FastAPI dependencies, Supabase Auth, and RLS-aware feature services.
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> AuthContext:

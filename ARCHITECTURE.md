@@ -39,6 +39,7 @@ server/src/server/
 ├── core/                   authentication, Supabase clients, and lifespan
 ├── modules/
 │   ├── cookbooks/          cookbook routes and persistence workflows
+│   ├── health/             public health route
 │   ├── households/         household routes, RPCs, and join codes
 │   ├── notifications/      device routes and notification orchestration
 │   └── recipes/            recipe routes, schemas, images, and imports

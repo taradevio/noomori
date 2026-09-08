@@ -18,6 +18,8 @@ _http = urllib3.PoolManager()
 
 
 # NOTE: Expo HTTP is used directly to avoid a separate push SDK or queue service.
+# Purpose: POST JSON to Expo with bounded retries for transient transport failures.
+# Connects to: Push ticket submission, receipt lookup, and the shared HTTP pool.
 def _post_json(url: str, payload: object, access_token: str) -> dict:
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -49,6 +51,8 @@ def _post_json(url: str, payload: object, access_token: str) -> dict:
     raise RuntimeError("Expo push request failed after retries") from last_error
 
 
+# Purpose: Delete device registrations for tokens Expo reports as stale.
+# Connects to: Push send/receipt processing and push_notification_devices.
 def _delete_tokens(admin: Client, tokens: list[str]) -> None:
     if tokens:
         (
@@ -59,6 +63,8 @@ def _delete_tokens(admin: Client, tokens: list[str]) -> None:
         )
 
 
+# Purpose: Send recipe activity pushes to every other household member's devices.
+# Connects to: Household membership, device/ticket tables, and Expo's send API.
 def send_household_recipe_notification(
     admin: Client,
     access_token: str,
@@ -140,6 +146,8 @@ def send_household_recipe_notification(
             admin.table("push_notification_tickets").upsert(receipt_rows).execute()
 
 
+# Purpose: Resolve pending Expo tickets and clean up completed or expired records.
+# Connects to: The lifespan poller, Expo receipt API, and device/ticket tables.
 def check_push_receipts(
     admin: Client,
     access_token: str,

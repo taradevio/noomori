@@ -151,17 +151,23 @@ _UNIT_DIMENSIONS = {
 }
 
 
+# Purpose: Normalize one source line by removing heading marks and emphasis syntax.
+# Connects to: The main text parser and DOM nutrition extraction preprocessing.
 def _plain_line(line: str) -> str:
     line = line.strip().lstrip("#").strip()
     return _MARKDOWN_EMPHASIS.sub(r"\g<text>", line).strip()
 
 
+# Purpose: Split a complete Markdown table row into trimmed cell values.
+# Connects to: Markdown-rule detection and metadata-table expansion.
 def _markdown_cells(line: str) -> list[str] | None:
     if not line.startswith("|") or not line.endswith("|"):
         return None
     return [cell.strip() for cell in line[1:-1].split("|")]
 
 
+# Purpose: Identify horizontal rules and Markdown table separator rows.
+# Connects to: The main parser's removal of non-content lines.
 def _is_markdown_rule(line: str) -> bool:
     compact = re.sub(r"\s+", "", line)
     if re.fullmatch(r"(?:-{3,}|\*{3,}|_{3,})", compact):
@@ -172,14 +178,20 @@ def _is_markdown_rule(line: str) -> bool:
     )
 
 
+# Purpose: Remove bullets or numbered-list markers from a content line.
+# Connects to: Ingredient, instruction, note, and nutrition parsing.
 def _without_list_prefix(line: str) -> str:
     return _LIST_PREFIX.sub("", line.strip()).strip()
 
 
+# Purpose: Detect standalone step labels that should not become instructions.
+# Connects to: Instruction handling in the main recipe text parser.
 def _is_instruction_marker(value: str) -> bool:
     return bool(_INSTRUCTION_MARKER.fullmatch(" ".join(value.split())))
 
 
+# Purpose: Convert supported hour/minute text into a total minute count.
+# Connects to: Metadata parsing for prep, cook, additional, and total times.
 def _duration_minutes(value: str) -> int | None:
     parts = list(_DURATION_PART.finditer(value))
     if parts:
@@ -192,6 +204,8 @@ def _duration_minutes(value: str) -> int | None:
     return int(bare.group(1)) if bare else None
 
 
+# Purpose: Parse a metadata line and report whether the following line was consumed.
+# Connects to: Main parsing of servings, yield, and duration fields.
 def _metadata(
     line: str,
     following: str | None,
@@ -227,6 +241,8 @@ def _metadata(
     return key, value, from_following and value is not None
 
 
+# Purpose: Convert decimal, fractional, mixed, or vulgar-fraction quantities to floats.
+# Connects to: Ingredient quantities and alternate-measurement validation.
 def _quantity(value: str) -> float:
     if value[-1] in _VULGAR_FRACTIONS:
         whole = value[:-1].strip()
@@ -241,6 +257,8 @@ def _quantity(value: str) -> float:
     return float(value)
 
 
+# Purpose: Remove a redundant same-dimension alternate measurement from an ingredient.
+# Connects to: Ingredient parsing, unit aliases, and unit-dimension safeguards.
 def _without_alternate_measurement(name: str, primary_unit: str) -> str:
     # NOTE: The left-hand measurement is canonical. Remove only a valid
     # same-dimension alternate so uncertain or density-based text remains reviewable.
@@ -283,6 +301,8 @@ def _without_alternate_measurement(name: str, primary_unit: str) -> str:
     return remainder.strip()
 
 
+# Purpose: Convert one ingredient line into name, quantity, unit, and note fields.
+# Connects to: Ingredient groups assembled by the main text parser.
 def _ingredient(line: str) -> dict:
     name = _without_list_prefix(line)
     quantity = None
@@ -312,6 +332,8 @@ def _ingredient(line: str) -> dict:
     return {"name": name, "quantity": quantity, "unit": unit, "note": note}
 
 
+# Purpose: Parse a numeric nutrition value only when its unit matches the field.
+# Connects to: Nutrition line parsing and supported nutrition-unit aliases.
 def _nutrition_value(value: str, unit_kind: str) -> float | None:
     match = _NUTRITION_VALUE.fullmatch(value.strip())
     if not match or match.group("unit").lower() not in _NUTRITION_UNITS[unit_kind]:
@@ -319,6 +341,8 @@ def _nutrition_value(value: str, unit_kind: str) -> float | None:
     return float(match.group("value").replace(",", ""))
 
 
+# Purpose: Extract supported nutrients while carrying labels split across lines.
+# Connects to: Pasted-text and website DOM nutrition parsing.
 def _nutrition_line(
     line: str,
     pending: tuple[str, str] | None,
@@ -357,6 +381,8 @@ def _nutrition_line(
     return pending, found
 
 
+# Purpose: Extract per-serving nutrition only from an explicitly labelled DOM section.
+# Connects to: Website-import normalization and shared nutrition line parsing.
 def _dom_nutrition(text: str) -> RecipeNutrition | None:
     # NOTE: Website values only map to nutrition_per_serving when the candidate
     # says so explicitly; recipe yield such as "6 Porsi" is not sufficient.
@@ -384,6 +410,8 @@ def _dom_nutrition(text: str) -> RecipeNutrition | None:
     return RecipeNutrition(**values) if len(values) >= 2 else None
 
 
+# Purpose: Transform normalized recipe text into a validated editable recipe draft.
+# Connects to: Text import endpoints and the website DOM fallback pipeline.
 def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
     title = None
     section = None
@@ -529,4 +557,3 @@ def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
             RecipeNutrition(**nutrition_values) if nutrition_values else None
         ),
     )
-

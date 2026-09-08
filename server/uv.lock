@@ -1606,6 +1606,7 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "fastapi", extra = ["standard"] },
     { name = "recipe-scrapers" },
+    { name = "sentry-sdk" },
     { name = "supabase" },
     { name = "urllib3" },
 ]
@@ -1620,6 +1621,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.15.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.141.1" },
     { name = "recipe-scrapers", specifier = ">=15.12.0" },
+    { name = "sentry-sdk", specifier = ">=2.68.0" },
     { name = "supabase", specifier = ">=2.31.0" },
     { name = "urllib3", specifier = ">=2.7.0" },
 ]

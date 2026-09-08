@@ -28,6 +28,8 @@ class NotificationDeviceRegistration(BaseModel):
         max_length=512,
     )
 
+    # Purpose: Validate current and previous device tokens against Expo's format.
+    # Connects to: Notification registration payload parsing before database writes.
     @field_validator("expo_push_token", "previous_expo_push_token")
     @classmethod
     def validate_expo_push_token(cls, value: str | None):
@@ -39,6 +41,8 @@ class NotificationDeviceRegistration(BaseModel):
 class NotificationDeviceRemoval(BaseModel):
     expo_push_token: str = Field(min_length=20, max_length=512)
 
+    # Purpose: Reject malformed Expo tokens in device-removal requests.
+    # Connects to: Notification unregistration before admin-table deletion.
     @field_validator("expo_push_token")
     @classmethod
     def validate_expo_push_token(cls, value: str):
@@ -47,6 +51,8 @@ class NotificationDeviceRemoval(BaseModel):
         return value
 
 
+# Purpose: Best-effort delivery of one household recipe activity notification.
+# Connects to: FastAPI background tasks, admin Supabase access, and Expo transport.
 def deliver_household_recipe_notification(
     household_id: str,
     actor_user_id: str,
@@ -78,6 +84,8 @@ def deliver_household_recipe_notification(
         )
 
 
+# Purpose: Prepare a household recipe notification without delaying recipe writes.
+# Connects to: Recipe sharing/edit flows, household settings RPC, and background tasks.
 def queue_household_recipe_notification(
     background_tasks: BackgroundTasks | None,
     auth: AuthContext,
@@ -117,6 +125,8 @@ def queue_household_recipe_notification(
         )
 
 
+# Purpose: Bind or refresh an Expo push token for the authenticated user's device.
+# Connects to: The device registration route and push_notification_devices table.
 def register_notification_device(
     payload: NotificationDeviceRegistration,
     auth: AuthContext = Depends(get_current_user),
@@ -175,6 +185,8 @@ def register_notification_device(
     return Response(status_code=204)
 
 
+# Purpose: Remove an authenticated user's Expo push token registration.
+# Connects to: The device removal route and push_notification_devices table.
 def unregister_notification_device(
     payload: NotificationDeviceRemoval,
     auth: AuthContext = Depends(get_current_user),

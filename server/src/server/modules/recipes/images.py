@@ -9,12 +9,16 @@ RECIPE_IMAGE_BUCKET = "noomori-recipe-images"
 RECIPE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 
 
+# Purpose: Flatten the recipe share relation into a client-facing boolean flag.
+# Connects to: Single and batch recipe response image enrichment.
 def recipe_with_share_state(recipe: dict) -> dict:
     result = dict(recipe)
     result["is_shared"] = bool(result.pop("household_recipe_shares", []))
     return result
 
 
+# Purpose: Verify that an image path belongs to the expected user and recipe.
+# Connects to: Recipe image activation and the Storage path convention.
 def valid_recipe_image_path(path: str, user_id: str, recipe_id: UUID) -> bool:
     parts = path.split("/")
     if len(parts) != 4 or parts[:3] != ["recipes", user_id, str(recipe_id)]:
@@ -29,6 +33,8 @@ def valid_recipe_image_path(path: str, user_id: str, recipe_id: UUID) -> bool:
     return True
 
 
+# Purpose: Add share state and a temporary signed image URL to one recipe.
+# Connects to: Recipe detail/write responses and the recipe image Storage bucket.
 def recipe_with_signed_image(auth: AuthContext, recipe: dict) -> dict:
     result = recipe_with_share_state(recipe)
     image_path = result.get("image_path")
@@ -46,6 +52,8 @@ def recipe_with_signed_image(auth: AuthContext, recipe: dict) -> dict:
     return result
 
 
+# Purpose: Batch-sign unique recipe image paths and map successful URLs by path.
+# Connects to: Cookbook covers, recipe lists, and the recipe image Storage bucket.
 def signed_recipe_image_urls(
     auth: AuthContext,
     image_paths: list[str],
@@ -80,6 +88,8 @@ def signed_recipe_image_urls(
 
 # PERFORMANCE: Sign every unique path in one Storage round trip. Individual
 # failures remain null so one broken image cannot delay or fail the library.
+# Purpose: Enrich a recipe collection with share state and batch-signed image URLs.
+# Connects to: Recipe/cookbook list services and the batch Storage signing helper.
 def recipes_with_signed_images(
     auth: AuthContext,
     recipes: list[dict],
@@ -98,4 +108,3 @@ def recipes_with_signed_images(
     for result in results:
         result["image_url"] = urls_by_path.get(result.get("image_path"))
     return results
-
