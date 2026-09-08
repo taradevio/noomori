@@ -105,6 +105,12 @@ describe("recipe functional workflow", () => {
     });
     expect(toRecipeCard(apiRecipe()).servings).toBe(2);
     expect(toRecipeDetail(apiRecipe()).prepMinutes).toBe(10);
+
+    expect(
+      toRecipeCreatePayload({ ...draft, servings: null }).servings,
+    ).toBeNull();
+    expect(toRecipeDraft(apiRecipe({ servings: null })).servings).toBeNull();
+    expect(toRecipeCard(apiRecipe({ servings: null })).servings).toBeNull();
   });
 
   it("adjusts servings and converts measurements without changing saved data", () => {

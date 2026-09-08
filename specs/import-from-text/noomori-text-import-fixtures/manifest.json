@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "fixture_count": 15,
+  "contract": "These fixtures encode desired semantic behavior for Noomori Import from Text. They are synthetic/original text modeled on real-world format classes, not copied recipes.",
+  "fixtures": [
+    {
+      "id": "01_plain_exact",
+      "title": "Weeknight Lemon Rice",
+      "source_class": "plain-text / explicit labels",
+      "purpose": "Baseline exact deterministic parse.",
+      "expected_status": "structured"
+    },
+    {
+      "id": "02_docs_flattened_metadata",
+      "title": "Citrus Herb Chicken",
+      "source_class": "Google Docs-style flattened metadata grid",
+      "purpose": "Covers labels-first/values-later metadata, subgroup headings without colons, and Step-by-Step Instructions.",
+      "expected_status": "structured"
+    },
+    {
+      "id": "03_markdown_table",
+      "title": "Roasted Tomato Couscous",
+      "source_class": "Markdown table + headings",
+      "purpose": "Covers Markdown heading normalization and metadata table expansion.",
+      "expected_status": "structured"
+    },
+    {
+      "id": "04_method_style",
+      "title": "Creamy Pea Pasta",
+      "source_class": "publisher-style Ingredients + Method",
+      "purpose": "Covers 'Method', compact measurements such as 300g, and 'Serves N' metadata.",
+      "expected_status": "structured"
+    },
+    {
+      "id": "05_indonesian_informal",
+      "title": "Tumis Tahu Kemangi",
+      "source_class": "Indonesian / informal household style",
+      "purpose": "Covers Indonesian headings, porsi, and dynamic/custom units that must degrade losslessly.",
+      "expected_status": "partial"
+    },
+    {
+      "id": "06_minimal_no_headings",
+      "title": "Simple Egg Toast",
+      "source_class": "minimal text / missing explicit headings",
+      "purpose": "Covers a conservative missing-headings fallback without inventing metadata.",
+      "expected_status": "partial"
+    },
+    {
+      "id": "07_ambiguous_servings",
+      "title": "Herbed Potato Tray",
+      "source_class": "ambiguous metadata",
+      "purpose": "Asserts that ranges never silently collapse to the first integer.",
+      "expected_status": "partial"
+    },
+    {
+      "id": "08_ambiguous_quantities",
+      "title": "Flexible Tomato Salsa",
+      "source_class": "dynamic ingredient quantities",
+      "purpose": "Covers lossless fallback for ranges, alternatives, qualitative amounts, and exact fractions in the same recipe.",
+      "expected_status": "partial"
+    },
+    {
+      "id": "09_wrapped_instructions",
+      "title": "Stovetop Lentils",
+      "source_class": "wrapped numbered instructions",
+      "purpose": "Covers continuation lines belonging to the preceding numbered step.",
+      "expected_status": "structured"
+    },
+    {
+      "id": "10_unicode_and_editor_noise",
+      "title": "Ginger Noodle Bowl",
+      "source_class": "clipboard / Unicode / editor noise",
+      "purpose": "Covers BOM, NBSP, Unicode bullets/en dash, and narrow editor-noise filtering.",
+      "expected_status": "partial"
+    },
+    {
+      "id": "11_duplicate_metadata_conflict",
+      "title": "Skillet Beans",
+      "source_class": "conflicting duplicate metadata",
+      "purpose": "Conflicting exact metadata must not resolve via last-write-wins.",
+      "expected_status": "partial"
+    },
+    {
+      "id": "12_multiple_recipes",
+      "title": "Two Recipes Pasted Together",
+      "source_class": "global ambiguity / multiple recipes",
+      "purpose": "Two strong recipe structures must never be merged.",
+      "expected_status": "rejected"
+    },
+    {
+      "id": "13_notes_and_footer",
+      "title": "Pan-Fried Corn Cakes",
+      "source_class": "notes + footer/document chrome",
+      "purpose": "Covers meaningful notes versus obvious repeated footer/document chrome.",
+      "expected_status": "structured"
+    },
+    {
+      "id": "14_sections_without_colons",
+      "title": "Layered Yogurt Bowl",
+      "source_class": "ingredient subgroup headings without punctuation",
+      "purpose": "Covers conservative subgroup detection without requiring a trailing colon.",
+      "expected_status": "structured"
+    },
+    {
+      "id": "15_nutrition_alternating",
+      "title": "Warm Chickpea Salad",
+      "source_class": "alternating nutrition label/value block",
+      "purpose": "Covers flattened metadata plus alternating nutrition label/value parsing.",
+      "expected_status": "structured"
+    }
+  ]
+}

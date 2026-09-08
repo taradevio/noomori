@@ -27,7 +27,7 @@ type ApiRecipe = {
     title: string | null;
     steps: { text: string }[];
   }[];
-  servings: number;
+  servings: number | null;
   prep_time_minutes: number | null;
   cook_time_minutes: number | null;
   nutrition_per_serving: Partial<

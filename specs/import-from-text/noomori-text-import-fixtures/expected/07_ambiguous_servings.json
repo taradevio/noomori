@@ -1,0 +1,14 @@
+{
+  "status": "partial",
+  "title": "Herbed Potato Tray",
+  "servings": null,
+  "servings_text": "4-6",
+  "prep_time_minutes": 10,
+  "cook_time_minutes": 35,
+  "ingredient_count": 3,
+  "instruction_count": 3,
+  "warnings": [
+    "ambiguous_servings"
+  ],
+  "error_code": null
+}

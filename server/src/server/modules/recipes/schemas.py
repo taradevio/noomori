@@ -46,7 +46,7 @@ class CreateRecipe(BaseModel):
     description: str | None = None
     ingredients: list[RecipeIngredientGroup]
     instructions: list[RecipeInstructionGroup]
-    servings: int = Field(gt=0)
+    servings: int | None = Field(default=None, gt=0)
     prep_time_minutes: int | None = Field(default=None, ge=0)
     cook_time_minutes: int | None = Field(default=None, ge=0)
     nutrition_per_serving: RecipeNutrition | None = None

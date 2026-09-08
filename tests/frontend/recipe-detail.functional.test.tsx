@@ -76,6 +76,38 @@ afterAll(() => {
 });
 
 describe("recipe source details", () => {
+  it("keeps unit conversion available when base servings are unknown", async () => {
+    await render(
+      <RecipeDetailView
+        onBack={jest.fn()}
+        recipe={{
+          ...recipe,
+          servings: null,
+          ingredientGroups: [
+            {
+              id: "group",
+              title: null,
+              ingredients: [
+                {
+                  id: "ingredient",
+                  amount: "1",
+                  unit: "cup",
+                  name: "stock",
+                  note: "",
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.queryByText(/^Base /)).toBeNull();
+    expect(screen.queryByLabelText("Increase displayed servings")).toBeNull();
+    await fireEvent.press(screen.getByTestId("recipe-measurement-metric"));
+    expect(screen.getByText("240 ml")).toBeTruthy();
+  });
+
   it("opens a website source with an external-link affordance", async () => {
     await render(<RecipeDetailView onBack={jest.fn()} recipe={recipe} />);
 

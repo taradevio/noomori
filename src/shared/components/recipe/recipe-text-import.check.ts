@@ -44,7 +44,7 @@ const withoutNutrition = toImportedRecipeDraft({
 });
 if (
   draft.title !== imported.title ||
-  draft.servings !== 1 ||
+  draft.servings !== null ||
   draft.photo !== null ||
   draft.source.type !== null ||
   draft.nutrition.calories !== "480" ||

@@ -91,6 +91,12 @@ function formatScaledAmount(snapshot: AmountSnapshot, servings: number) {
   return Number(scaled.toFixed(4)).toString();
 }
 
+function positiveServingCount(value: string) {
+  if (!/^[1-9]\d*$/.test(value.trim())) return null;
+  const servings = Number(value);
+  return Number.isSafeInteger(servings) ? servings : null;
+}
+
 function FieldLabel({
   label,
   required,
@@ -260,6 +266,7 @@ export function RecipeForm({
     null,
   );
   const [unitIngredientId, setUnitIngredientId] = useState<string | null>(null);
+  const [baseServingsInput, setBaseServingsInput] = useState("");
 
   const dirty = useMemo(
     () => JSON.stringify(draft) !== initialSignature,
@@ -412,7 +419,7 @@ export function RecipeForm({
   ) => {
     if (typeof update.amount === "string") {
       const parsed = parseRecipeAmount(update.amount);
-      if (parsed === null) {
+      if (parsed === null || draft.servings === null) {
         amountSnapshots.current.delete(ingredientId);
       } else {
         amountSnapshots.current.set(ingredientId, {
@@ -548,34 +555,62 @@ export function RecipeForm({
     }));
   };
 
-  const setServings = (servings: number) => {
-    const nextServings = Math.max(1, servings);
+  const adjustServings = (delta: number) => {
     // NOTE: Every numeric amount is derived from its stable snapshot instead of
     // the last rendered value, preventing cumulative rounding drift.
-    setDraft((current) => ({
-      ...current,
-      servings: nextServings,
-      ingredientGroups: current.ingredientGroups.map((group) => ({
-        ...group,
-        ingredients: group.ingredients.map((ingredient) => {
-          let snapshot = amountSnapshots.current.get(ingredient.id);
-          if (!snapshot) {
-            const parsed = parseRecipeAmount(ingredient.amount);
-            if (parsed === null) return ingredient;
-            snapshot = {
-              baseAmount: parsed,
-              baseRaw: ingredient.amount.trim(),
-              baseServings: current.servings,
+    setDraft((current) => {
+      if (current.servings === null) return current;
+      const currentServings = current.servings;
+      const nextServings = Math.max(1, currentServings + delta);
+      return {
+        ...current,
+        servings: nextServings,
+        ingredientGroups: current.ingredientGroups.map((group) => ({
+          ...group,
+          ingredients: group.ingredients.map((ingredient) => {
+            let snapshot = amountSnapshots.current.get(ingredient.id);
+            if (!snapshot) {
+              const parsed = parseRecipeAmount(ingredient.amount);
+              if (parsed === null) return ingredient;
+              snapshot = {
+                baseAmount: parsed,
+                baseRaw: ingredient.amount.trim(),
+                baseServings: currentServings,
+              };
+              amountSnapshots.current.set(ingredient.id, snapshot);
+            }
+            return {
+              ...ingredient,
+              amount: formatScaledAmount(snapshot, nextServings),
             };
-            amountSnapshots.current.set(ingredient.id, snapshot);
-          }
-          return {
-            ...ingredient,
-            amount: formatScaledAmount(snapshot, nextServings),
-          };
-        }),
-      })),
-    }));
+          }),
+        })),
+      };
+    });
+  };
+
+  const establishServings = () => {
+    const nextServings = positiveServingCount(baseServingsInput);
+    if (nextServings === null) return;
+
+    setDraft((current) => {
+      if (current.servings !== null) return current;
+
+      amountSnapshots.current.clear();
+      for (const group of current.ingredientGroups) {
+        for (const ingredient of group.ingredients) {
+          const parsed = parseRecipeAmount(ingredient.amount);
+          if (parsed === null) continue;
+          amountSnapshots.current.set(ingredient.id, {
+            baseAmount: parsed,
+            baseRaw: ingredient.amount.trim(),
+            baseServings: nextServings,
+          });
+        }
+      }
+
+      return { ...current, servings: nextServings };
+    });
   };
 
   const addInstruction = (groupId?: string) => {
@@ -845,45 +880,66 @@ export function RecipeForm({
 
             <View className="gap-4">
               <SectionHeading
-                body="Ingredient amounts scale from their original values."
+                body={
+                  draft.servings === null
+                    ? "Set the exact base before scaling ingredient amounts."
+                    : "Ingredient amounts scale from their original values."
+                }
                 title="Servings"
               />
-              <View className="max-w-[280px] flex-row items-center justify-between rounded-2xl border border-border bg-surface p-2">
-                <Pressable
-                  accessibilityLabel="Decrease servings"
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: draft.servings <= 1 }}
-                  className={`h-12 w-12 items-center justify-center rounded-xl border-2 border-border focus:border-primary-strong active:bg-surface-subtle ${draft.servings <= 1 ? "opacity-40" : ""}`}
-                  disabled={draft.servings <= 1}
-                  onPress={() => setServings(draft.servings - 1)}
-                >
-                  <SymbolView
-                    accessible={false}
-                    name={{ ios: "minus", android: "remove", web: "remove" }}
-                    size={22}
-                    tintColor={colorTokens.textPrimary}
+              {draft.servings === null ? (
+                <View className="max-w-[280px] gap-3">
+                  <FormInput
+                    accessibilityLabel="Base servings"
+                    keyboardType="number-pad"
+                    onChangeText={setBaseServingsInput}
+                    placeholder="For example, 4"
+                    value={baseServingsInput}
                   />
-                </Pressable>
-                <Text
-                  accessibilityLabel={`${draft.servings} servings`}
-                  className="px-4 text-2xl font-bold text-text-primary"
-                >
-                  {draft.servings}
-                </Text>
-                <Pressable
-                  accessibilityLabel="Increase servings"
-                  accessibilityRole="button"
-                  className="h-12 w-12 items-center justify-center rounded-xl border-2 border-border focus:border-primary-strong active:bg-surface-subtle"
-                  onPress={() => setServings(draft.servings + 1)}
-                >
-                  <SymbolView
-                    accessible={false}
-                    name={{ ios: "plus", android: "add", web: "add" }}
-                    size={22}
-                    tintColor={colorTokens.textPrimary}
+                  <ActionButton
+                    disabled={positiveServingCount(baseServingsInput) === null}
+                    label="Set base"
+                    onPress={establishServings}
                   />
-                </Pressable>
-              </View>
+                </View>
+              ) : (
+                <View className="max-w-[280px] flex-row items-center justify-between rounded-2xl border border-border bg-surface p-2">
+                  <Pressable
+                    accessibilityLabel="Decrease servings"
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: draft.servings <= 1 }}
+                    className={`h-12 w-12 items-center justify-center rounded-xl border-2 border-border focus:border-primary-strong active:bg-surface-subtle ${draft.servings <= 1 ? "opacity-40" : ""}`}
+                    disabled={draft.servings <= 1}
+                    onPress={() => adjustServings(-1)}
+                  >
+                    <SymbolView
+                      accessible={false}
+                      name={{ ios: "minus", android: "remove", web: "remove" }}
+                      size={22}
+                      tintColor={colorTokens.textPrimary}
+                    />
+                  </Pressable>
+                  <Text
+                    accessibilityLabel={`${draft.servings} servings`}
+                    className="px-4 text-2xl font-bold text-text-primary"
+                  >
+                    {draft.servings}
+                  </Text>
+                  <Pressable
+                    accessibilityLabel="Increase servings"
+                    accessibilityRole="button"
+                    className="h-12 w-12 items-center justify-center rounded-xl border-2 border-border focus:border-primary-strong active:bg-surface-subtle"
+                    onPress={() => adjustServings(1)}
+                  >
+                    <SymbolView
+                      accessible={false}
+                      name={{ ios: "plus", android: "add", web: "add" }}
+                      size={22}
+                      tintColor={colorTokens.textPrimary}
+                    />
+                  </Pressable>
+                </View>
+              )}
             </View>
 
             <View className="gap-4">

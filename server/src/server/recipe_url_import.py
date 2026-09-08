@@ -662,6 +662,10 @@ def _serialize_recipe_scope(
                     _append_dom_line(lines, label, subgroup=True)
                 prefix = "-" if tag.name == "ul" else f"{index}."
                 _append_dom_line(lines, f"{prefix} {item_text}")
+            if tag.name == "ol" and inside_instructions:
+                # Preserve the DOM block boundary so later sibling prose remains
+                # a separate step under the text parser's wrapping rules.
+                lines.append("")
             return False
 
         if tag.name == "p":
@@ -794,7 +798,7 @@ def extract_recipe_container_text(
             instruction_heading=instruction_heading,
         ),
     ]
-    serialized = "\n".join(line for line in lines if line).strip()
+    serialized = "\n".join(lines).strip()
     if not serialized or len(serialized) > max_chars:
         raise WebsiteImportError("recipe_not_found")
     return serialized

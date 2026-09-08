@@ -5,6 +5,7 @@ import {
   getLibraryColumnCount,
   RecipesLibraryView,
 } from "@/shared/components/recipe/recipes-library-view";
+import { RecipeCard } from "@/shared/components/recipe/recipe-card";
 
 const recipes = {
   status: "ready" as const,
@@ -31,6 +32,26 @@ const cookbooks = {
 };
 
 describe("recipe and cookbook library workflow", () => {
+  it("omits serving metadata when the base is unknown", async () => {
+    await render(
+      <RecipeCard
+        item={{
+          id: "unknown-servings",
+          title: "Flexible soup",
+          cookingTimeMinutes: 30,
+          servings: null,
+        }}
+        onPress={jest.fn()}
+        width={280}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Flexible soup, 30 minutes" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("null")).toBeNull();
+  });
+
   it("searches recipes, clears search, and opens the selected result", async () => {
     const onRecipePress = jest.fn();
     const onSearchQueryChange = jest.fn();

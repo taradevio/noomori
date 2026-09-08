@@ -1,0 +1,3 @@
+ALTER TABLE public.recipes
+  ALTER COLUMN servings DROP NOT NULL,
+  ALTER COLUMN servings DROP DEFAULT;

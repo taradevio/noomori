@@ -49,7 +49,7 @@ export function toImportedRecipeDraft(
     title: imported.title ?? "",
     prepMinutes: imported.prep_time_minutes,
     cookMinutes: imported.cook_time_minutes,
-    servings: imported.servings ?? blank.servings,
+    servings: imported.servings,
     notes: imported.description ?? "",
     // NOTE: Imported nutrition uses the existing editable fields; missing or
     // unsupported source values remain blank for review before saving.

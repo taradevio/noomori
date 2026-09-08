@@ -1,0 +1,16 @@
+{
+  "status": "structured",
+  "title": "Pan-Fried Corn Cakes",
+  "servings": 4,
+  "ingredient_count": 3,
+  "instruction_count": 3,
+  "notes_contains": [
+    "Keep the batter thick enough to hold its shape.",
+    "Serve immediately for the crispest texture."
+  ],
+  "notes_must_not_contain": [
+    "Recipe Card • Pan-Fried Corn Cakes"
+  ],
+  "warnings": [],
+  "error_code": null
+}

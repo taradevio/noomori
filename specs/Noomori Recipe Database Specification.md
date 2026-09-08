@@ -65,8 +65,8 @@ create table public.recipes (
       jsonb_typeof(instructions) = 'array'
     ),
 
-  servings integer not null default 1
-  check (servings > 0),
+  servings integer
+  check (servings is null or servings > 0),
 
   prep_time_minutes integer
     check (
@@ -464,7 +464,7 @@ class InstructionSection(BaseModel):
 ```text
 Type: INTEGER
 Required: No
-Default: 1
+Default: NULL
 ```
 
 Semantics:

@@ -1,0 +1,18 @@
+{
+  "status": "structured",
+  "title": "Citrus Herb Chicken",
+  "servings": 4,
+  "servings_text": null,
+  "prep_time_minutes": 12,
+  "cook_time_minutes": 28,
+  "ingredient_group_count": 2,
+  "ingredient_count": 5,
+  "instruction_count": 4,
+  "notes_contains": [
+    "Difficulty: Easy"
+  ],
+  "warnings": [
+    "unsupported_metadata"
+  ],
+  "error_code": null
+}

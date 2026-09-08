@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { View } from "react-native";
 
 import RootLayout from "@/app/_layout";
@@ -61,6 +61,120 @@ describe("keyboard layout", () => {
     expect(screen.getByTestId("recipe-form-scroll")).toHaveProp(
       "mode",
       "insets",
+    );
+  });
+
+  it("applies every serving increase queued before the form rerenders", async () => {
+    const draft = createBlankRecipeDraft();
+    draft.servings = 2;
+    draft.ingredientGroups = [
+      {
+        id: "group",
+        title: null,
+        ingredients: [
+          {
+            id: "ingredient",
+            amount: "1",
+            unit: "cup",
+            name: "stock",
+            note: "",
+          },
+        ],
+      },
+    ];
+
+    await render(
+      <RecipeForm
+        initialDraft={draft}
+        mode="edit"
+        onClose={jest.fn()}
+        onSubmit={jest.fn()}
+      />,
+    );
+
+    const increase = screen.getByLabelText("Increase servings");
+    let fiber = increase.unstable_fiber;
+    let onPress: (() => void) | undefined;
+    while (fiber && !onPress) {
+      if (typeof fiber.memoizedProps?.onPress === "function") {
+        onPress = fiber.memoizedProps.onPress;
+      }
+      fiber = fiber.return;
+    }
+    if (!onPress) throw new Error("Serving button has no handler");
+
+    await act(() => {
+      onPress();
+      onPress();
+    });
+
+    expect(screen.getByLabelText("4 servings")).toBeTruthy();
+    expect(screen.getByLabelText("Ingredient 1 amount")).toHaveProp(
+      "value",
+      "2",
+    );
+  });
+
+  it("establishes an unknown serving baseline before scaling", async () => {
+    const draft = createBlankRecipeDraft();
+    draft.servings = null;
+    draft.ingredientGroups = [
+      {
+        id: "group",
+        title: null,
+        ingredients: [
+          {
+            id: "ingredient",
+            amount: "1",
+            unit: "cup",
+            name: "stock",
+            note: "",
+          },
+        ],
+      },
+    ];
+
+    await render(
+      <RecipeForm
+        initialDraft={draft}
+        mode="edit"
+        onClose={jest.fn()}
+        onSubmit={jest.fn()}
+      />,
+    );
+
+    const setBase = screen.getByRole("button", { name: "Set base" });
+    expect(setBase).toBeDisabled();
+
+    await fireEvent.changeText(screen.getByLabelText("Base servings"), "0");
+    expect(setBase).toBeDisabled();
+    expect(screen.queryByLabelText("0 servings")).toBeNull();
+
+    await fireEvent.changeText(
+      screen.getByLabelText("Ingredient 1 amount"),
+      "3",
+    );
+    await fireEvent.changeText(screen.getByLabelText("Base servings"), "4");
+    expect(setBase).not.toBeDisabled();
+    await fireEvent.press(setBase);
+
+    expect(screen.getByLabelText("4 servings")).toBeTruthy();
+    expect(screen.getByLabelText("Ingredient 1 amount")).toHaveProp(
+      "value",
+      "3",
+    );
+
+    const increase = screen.getByLabelText("Increase servings");
+    await Promise.all([
+      fireEvent.press(increase),
+      fireEvent.press(increase),
+      fireEvent.press(increase),
+      fireEvent.press(increase),
+    ]);
+    expect(screen.getByLabelText("8 servings")).toBeTruthy();
+    expect(screen.getByLabelText("Ingredient 1 amount")).toHaveProp(
+      "value",
+      "6",
     );
   });
 

@@ -1,0 +1,14 @@
+{
+  "status": "structured",
+  "title": "Layered Yogurt Bowl",
+  "servings": 2,
+  "ingredient_group_count": 2,
+  "ingredient_groups": [
+    "For the yogurt",
+    "For the topping"
+  ],
+  "ingredient_count": 4,
+  "instruction_count": 2,
+  "warnings": [],
+  "error_code": null
+}

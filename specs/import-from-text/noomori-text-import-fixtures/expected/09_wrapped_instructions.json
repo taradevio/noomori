@@ -1,0 +1,13 @@
+{
+  "status": "structured",
+  "title": "Stovetop Lentils",
+  "servings": 3,
+  "ingredient_count": 3,
+  "instruction_count": 3,
+  "instruction_contains": [
+    "Rinse the lentils under cool water. Drain them well before adding them to the pan.",
+    "Add the lentils and water to a saucepan. Bring to a boil, then reduce the heat and simmer gently."
+  ],
+  "warnings": [],
+  "error_code": null
+}

@@ -1,0 +1,19 @@
+{
+  "status": "structured",
+  "title": "Warm Chickpea Salad",
+  "servings": 4,
+  "prep_time_minutes": 10,
+  "cook_time_minutes": 15,
+  "ingredient_count": 3,
+  "instruction_count": 3,
+  "nutrition": {
+    "calories_kcal": 320,
+    "protein_g": 14,
+    "fat_g": 11,
+    "carbs_g": 42,
+    "fiber_g": 9,
+    "sodium_mg": 390
+  },
+  "warnings": [],
+  "error_code": null
+}

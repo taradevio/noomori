@@ -1,5 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react-native";
 import React from "react";
 
 import ImportRecipeTextRoute from "@/app/recipe/import-text";
@@ -131,7 +136,9 @@ describe("import from text route", () => {
     fireEvent.changeText(input, "Original pasted recipe");
     fireEvent.press(screen.getByRole("button", { name: "Import recipe" }));
 
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(message));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(message),
+    );
     expect(screen.getByLabelText("Recipe text").props.value).toBe(
       "Original pasted recipe",
     );
@@ -144,7 +151,9 @@ describe("import from text route", () => {
   it("maps network and timeout failures to recoverable messages", async () => {
     const timeout = new Error("timed out");
     timeout.name = "TimeoutError";
-    fetchMock.mockRejectedValueOnce(timeout).mockRejectedValueOnce(new Error("offline"));
+    fetchMock
+      .mockRejectedValueOnce(timeout)
+      .mockRejectedValueOnce(new Error("offline"));
     renderRoute();
 
     const input = screen.getByLabelText("Recipe text");
@@ -194,7 +203,7 @@ describe("import from text route", () => {
         initiallyDirty: true,
         initialDraft: expect.objectContaining({
           photo: null,
-          servings: 1,
+          servings: null,
           source: expect.objectContaining({ type: null }),
         }),
       }),

@@ -1,0 +1,24 @@
+{
+  "status": "partial",
+  "title": "Flexible Tomato Salsa",
+  "servings": 4,
+  "ingredient_count": 5,
+  "instruction_count": 3,
+  "must_preserve_ingredient_text": [
+    "2-3 medium tomatoes",
+    "1 or 2 cloves garlic",
+    "a handful of coriander leaves",
+    "salt to taste"
+  ],
+  "exact_quantities": [
+    {
+      "source": "1/2 tsp lime zest",
+      "quantity": 0.5,
+      "unit": "tsp"
+    }
+  ],
+  "warnings": [
+    "ambiguous_quantity"
+  ],
+  "error_code": null
+}

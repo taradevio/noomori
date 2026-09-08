@@ -1,0 +1,17 @@
+{
+  "status": "partial",
+  "title": "Skillet Beans",
+  "servings": 4,
+  "prep_time_minutes": null,
+  "cook_time_minutes": 20,
+  "ingredient_count": 3,
+  "instruction_count": 3,
+  "notes_contains": [
+    "Prep Time: 10 min",
+    "Prep Time: 15 min"
+  ],
+  "warnings": [
+    "conflicting_metadata"
+  ],
+  "error_code": null
+}

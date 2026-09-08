@@ -393,6 +393,33 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(200, created.status_code)
         self.assertEqual("Updated soup", updated.json()["title"])
 
+    async def test_recipe_create_and_update_preserve_nullable_servings(self):
+        payload_without_servings = recipe_payload()
+        payload_without_servings.pop("servings")
+        created = await self.client.post(
+            "/recipes",
+            headers=RECIPE_CREATION_HEADERS,
+            json=payload_without_servings,
+        )
+        updated = await self.client.put(
+            f"/recipes/{RECIPE_ID}",
+            json=recipe_payload(servings=None),
+        )
+
+        self.assertEqual(200, created.status_code)
+        self.assertIsNone(created.json()["servings"])
+        self.assertEqual(200, updated.status_code)
+        self.assertIsNone(updated.json()["servings"])
+
+        for invalid_servings in (0, -1):
+            with self.subTest(servings=invalid_servings):
+                response = await self.client.post(
+                    "/recipes",
+                    headers=RECIPE_CREATION_HEADERS,
+                    json=recipe_payload(servings=invalid_servings),
+                )
+                self.assertEqual(422, response.status_code)
+
     async def test_recipe_creation_is_idempotent_and_last_write_wins(self):
         first = await self.client.post(
             "/recipes",

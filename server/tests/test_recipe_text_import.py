@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +20,9 @@ SPECS_PATH = Path(__file__).resolve().parents[2] / "specs"
 CASE_PATH = SPECS_PATH / "case.txt"
 CASE2_PATH = SPECS_PATH / "case2.txt"
 FIXTURES_PATH = Path(__file__).parent / "fixtures" / "text_import"
+FIXTURE_PACK_PATH = (
+    SPECS_PATH / "import-from-text" / "noomori-text-import-fixtures"
+)
 
 
 class RecipeTextRequestTest(unittest.TestCase):
@@ -714,6 +718,212 @@ Cucumber
 
 
 class RecipeTextHardeningTest(unittest.TestCase):
+    def test_imports_manifest_fixture_pack(self):
+        manifest = json.loads((FIXTURE_PACK_PATH / "manifest.json").read_text())
+        fixture_ids = [case["id"] for case in manifest["fixtures"]]
+        input_ids = sorted(
+            path.stem for path in (FIXTURE_PACK_PATH / "input").glob("*.txt")
+        )
+        expected_ids = sorted(
+            path.stem for path in (FIXTURE_PACK_PATH / "expected").glob("*.json")
+        )
+        self.assertEqual(manifest["fixture_count"], len(fixture_ids))
+        self.assertEqual(sorted(fixture_ids), input_ids)
+        self.assertEqual(sorted(fixture_ids), expected_ids)
+
+        warning_aliases = {
+            "ambiguous_servings": "ambiguous_servings_range",
+            "ambiguous_quantity": "ingredient_quantity_range",
+            "conflicting_metadata": "conflicting_metadata",
+            "inferred_structural_blocks_without_headings": (
+                "inferred_structural_blocks_without_headings"
+            ),
+            "unsupported_metadata": "unsupported_metadata",
+        }
+
+        for case in manifest["fixtures"]:
+            fixture_id = case["id"]
+            with self.subTest(fixture=fixture_id):
+                source = (FIXTURE_PACK_PATH / "input" / f"{fixture_id}.txt").read_text()
+                expected = json.loads(
+                    (FIXTURE_PACK_PATH / "expected" / f"{fixture_id}.json").read_text()
+                )
+                warnings: set[str] = set()
+
+                if expected["status"] == "rejected":
+                    with self.assertRaises(RecipeTextImportError) as error:
+                        parse_recipe_text(source, warnings)
+                    self.assertEqual(expected["error_code"], error.exception.code)
+                    if not expected["warnings"]:
+                        self.assertEqual(set(), warnings)
+                    continue
+
+                self.assertIn(expected["status"], {"structured", "partial"})
+                draft = parse_recipe_text(source, warnings)
+                direct_fields = {
+                    "title": "title",
+                    "servings": "servings",
+                    "prep_time_minutes": "prep_time_minutes",
+                    "cook_time_minutes": "cook_time_minutes",
+                }
+                for expected_key, draft_key in direct_fields.items():
+                    if expected_key in expected:
+                        self.assertEqual(
+                            expected[expected_key],
+                            getattr(draft, draft_key),
+                        )
+
+                ingredients = [
+                    item for group in draft.ingredients for item in group.items
+                ]
+                steps = [step for group in draft.instructions for step in group.steps]
+                counts = {
+                    "ingredient_group_count": len(draft.ingredients),
+                    "ingredient_count": len(ingredients),
+                    "instruction_count": len(steps),
+                }
+                for key, actual in counts.items():
+                    if key in expected:
+                        self.assertEqual(expected[key], actual)
+
+                if "ingredient_groups" in expected:
+                    self.assertEqual(
+                        expected["ingredient_groups"],
+                        [group.title for group in draft.ingredients],
+                    )
+
+                description = draft.description or ""
+                for text in expected.get("notes_contains", []):
+                    self.assertIn(text, description)
+                for text in expected.get("notes_must_not_contain", []):
+                    self.assertNotIn(text, description)
+                for text in expected.get("must_not_be_title_or_note", []):
+                    self.assertNotEqual(text, draft.title)
+                    self.assertNotIn(text, description)
+                if expected.get("servings_text") is not None:
+                    self.assertIn(expected["servings_text"], description)
+
+                rendered_ingredients = {
+                    " ".join(
+                        part
+                        for part in (
+                            f"{item.quantity:g}" if item.quantity is not None else "",
+                            item.unit or "",
+                            item.name,
+                        )
+                        if part
+                    ): item
+                    for item in ingredients
+                }
+                for text in expected.get("must_preserve_ingredient_text", []):
+                    self.assertIn(" ".join(text.split()), rendered_ingredients)
+
+                ingredient_values = {
+                    (item.quantity, item.unit) for item in ingredients
+                }
+                for quantity in expected.get("exact_quantities", []):
+                    self.assertIn(
+                        (quantity["quantity"], quantity["unit"]),
+                        ingredient_values,
+                    )
+
+                if "instruction_contains" in expected:
+                    instruction_text = [step.text for step in steps]
+                    for text in expected["instruction_contains"]:
+                        self.assertIn(text, instruction_text)
+
+                if "nutrition" in expected:
+                    self.assertIsNotNone(draft.nutrition_per_serving)
+                    nutrition = draft.nutrition_per_serving.model_dump()
+                    for key, value in expected["nutrition"].items():
+                        self.assertEqual(value, nutrition[key])
+
+                for warning in expected["warnings"]:
+                    if warning in warning_aliases:
+                        self.assertIn(warning_aliases[warning], warnings)
+                    elif warning == "unsupported_duration_label_or_semantics":
+                        self.assertIsNone(draft.prep_time_minutes)
+                        self.assertIsNone(draft.cook_time_minutes)
+                        self.assertIn("Waktu: 25 menit", description)
+                    elif warning == "ambiguous_or_custom_units":
+                        for text in expected["must_preserve_ingredient_text"]:
+                            item = rendered_ingredients[" ".join(text.split())]
+                            self.assertIsNone(item.unit)
+                    else:
+                        self.fail(f"Unhandled semantic warning: {warning}")
+                if not expected["warnings"]:
+                    self.assertEqual(set(), warnings)
+
+    def test_serving_aliases_are_header_local(self):
+        for label in ("Serves", "Porsi"):
+            with self.subTest(label=label):
+                draft = parse_recipe_text(
+                    f"""Pie
+{label}: 4
+Ingredients
+1 cup flour
+Instructions
+Mix.
+{label}: 9
+Notes
+{label}: 8
+"""
+                )
+                self.assertEqual(4, draft.servings)
+                self.assertIn(f"{label}: 9", draft.instructions[0].steps[-1].text)
+                self.assertIn(f"{label}: 8", draft.description)
+
+    def test_unheaded_inference_remains_narrow(self):
+        invalid_sources = (
+            "Toast\n2 eggs\n\n1. Cook.",
+            "Toast\nEggs to taste\n\n1. Cook.\n2. Serve.",
+            "Toast\n2 eggs\n\n1. Cook.\nServe without a number.",
+        )
+        for source in invalid_sources:
+            with self.subTest(source=source):
+                with self.assertRaisesRegex(
+                    RecipeTextImportError, "insufficient_structure"
+                ):
+                    parse_recipe_text(source)
+
+    def test_numbered_continuations_stop_at_structural_boundaries(self):
+        draft = parse_recipe_text(
+            """Soup
+Ingredients
+1 cup stock
+Instructions
+1. Simmer the stock.
+Keep the heat low.
+
+Serve in a warm bowl.
+Notes
+Season to taste.
+"""
+        )
+        self.assertEqual(
+            ["Simmer the stock. Keep the heat low.", "Serve in a warm bowl."],
+            [step.text for step in draft.instructions[0].steps],
+        )
+        self.assertEqual("Season to taste.", draft.description)
+
+    def test_footer_requires_one_bullet_and_the_exact_title(self):
+        draft = parse_recipe_text(
+            """Pie
+Ingredients
+1 cup flour
+Instructions
+Mix.
+Notes
+Recipe Card • Pie
+Recipe Card • Another Pie
+Document • Recipe Card • Pie
+"""
+        )
+        description_lines = draft.description.splitlines()
+        self.assertNotIn("Recipe Card • Pie", description_lines)
+        self.assertIn("Recipe Card • Another Pie", description_lines)
+        self.assertIn("Document • Recipe Card • Pie", description_lines)
+
     def test_logs_structural_telemetry_without_recipe_content(self):
         raw_text = (
             "Secret soup\nIngredients\n1–2 tbsp private stock\n"

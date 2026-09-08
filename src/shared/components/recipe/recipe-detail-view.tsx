@@ -93,7 +93,8 @@ export function RecipeDetailView({
   const shareAfterDismiss = useRef<boolean | null>(null);
   const pendingAction = useRef<(() => void) | null>(null);
   const safeAreaInsets = useSafeAreaInsets();
-  const baseServings = Math.max(1, recipe.servings);
+  const hasBaseServings = recipe.servings !== null;
+  const baseServings = recipe.servings ?? 1;
   // NOTE: Serving and unit selections are display-only. Ingredient amounts derive
   // from the saved recipe while nutrition remains the saved per-serving value.
   const [displayedServings, setDisplayedServings] = useState(baseServings);
@@ -330,58 +331,62 @@ export function RecipeDetailView({
                   Cook {cook}
                 </Text>
               ) : null}
-              <Text className="text-sm leading-5 text-text-secondary">
-                Base {baseServings} servings
-              </Text>
+              {hasBaseServings ? (
+                <Text className="text-sm leading-5 text-text-secondary">
+                  Base {baseServings} servings
+                </Text>
+              ) : null}
             </View>
           </View>
 
-          <View className="gap-3 border-y border-border py-5">
-            <Text
-              accessibilityRole="header"
-              className="text-xl font-bold leading-7 text-text-primary"
-            >
-              Servings
-            </Text>
-            <View className="flex-row items-center gap-4">
-              <Pressable
-                accessibilityLabel="Decrease displayed servings"
-                accessibilityRole="button"
-                accessibilityState={{ disabled: displayedServings <= 1 }}
-                className="h-12 w-12 items-center justify-center rounded-full border-2 border-border bg-surface focus:border-primary-strong active:bg-surface-subtle disabled:opacity-40"
-                disabled={displayedServings <= 1}
-                onPress={() =>
-                  setDisplayedServings((value) => Math.max(1, value - 1))
-                }
-              >
-                <SymbolView
-                  accessible={false}
-                  name={{ ios: "minus", android: "remove", web: "remove" }}
-                  size={20}
-                  tintColor={colorTokens.textPrimary}
-                />
-              </Pressable>
+          {hasBaseServings ? (
+            <View className="gap-3 border-y border-border py-5">
               <Text
-                accessibilityLiveRegion="polite"
-                className="min-w-12 text-center text-xl font-bold leading-7 text-text-primary"
+                accessibilityRole="header"
+                className="text-xl font-bold leading-7 text-text-primary"
               >
-                {displayedServings}
+                Servings
               </Text>
-              <Pressable
-                accessibilityLabel="Increase displayed servings"
-                accessibilityRole="button"
-                className="h-12 w-12 items-center justify-center rounded-full border-2 border-border bg-surface focus:border-primary-strong active:bg-surface-subtle"
-                onPress={() => setDisplayedServings((value) => value + 1)}
-              >
-                <SymbolView
-                  accessible={false}
-                  name={{ ios: "plus", android: "add", web: "add" }}
-                  size={20}
-                  tintColor={colorTokens.textPrimary}
-                />
-              </Pressable>
+              <View className="flex-row items-center gap-4">
+                <Pressable
+                  accessibilityLabel="Decrease displayed servings"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: displayedServings <= 1 }}
+                  className="h-12 w-12 items-center justify-center rounded-full border-2 border-border bg-surface focus:border-primary-strong active:bg-surface-subtle disabled:opacity-40"
+                  disabled={displayedServings <= 1}
+                  onPress={() =>
+                    setDisplayedServings((value) => Math.max(1, value - 1))
+                  }
+                >
+                  <SymbolView
+                    accessible={false}
+                    name={{ ios: "minus", android: "remove", web: "remove" }}
+                    size={20}
+                    tintColor={colorTokens.textPrimary}
+                  />
+                </Pressable>
+                <Text
+                  accessibilityLiveRegion="polite"
+                  className="min-w-12 text-center text-xl font-bold leading-7 text-text-primary"
+                >
+                  {displayedServings}
+                </Text>
+                <Pressable
+                  accessibilityLabel="Increase displayed servings"
+                  accessibilityRole="button"
+                  className="h-12 w-12 items-center justify-center rounded-full border-2 border-border bg-surface focus:border-primary-strong active:bg-surface-subtle"
+                  onPress={() => setDisplayedServings((value) => value + 1)}
+                >
+                  <SymbolView
+                    accessible={false}
+                    name={{ ios: "plus", android: "add", web: "add" }}
+                    size={20}
+                    tintColor={colorTokens.textPrimary}
+                  />
+                </Pressable>
+              </View>
             </View>
-          </View>
+          ) : null}
 
           <View className="gap-5">
             <Text

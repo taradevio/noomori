@@ -39,7 +39,10 @@ export function RecipeCard({
   const [pressed, setPressed] = useState(false);
   const reduceMotion = useReducedMotion();
   const cookingTime = getCookingTime(item.cookingTimeMinutes);
-  const servingsLabel = `${item.servings} serving${item.servings === 1 ? "" : "s"}`;
+  const servingsLabel =
+    item.servings === null
+      ? null
+      : `${item.servings} serving${item.servings === 1 ? "" : "s"}`;
   const sharedLabel = getSharedLabel(item);
   const cookbookName = item.cookbookName?.trim() || null;
   const imageUrl = item.imageUrl?.trim() || null;
@@ -127,21 +130,23 @@ export function RecipeCard({
               </Text>
             </View>
           ) : null}
-          {cookingTime ? (
+          {cookingTime && (servingsLabel || cookbookName) ? (
             <View className="h-1 w-1 shrink-0 rounded-full bg-border-strong" />
           ) : null}
-          <View className="shrink-0 flex-row items-center gap-1">
-            <SymbolView
-              accessible={false}
-              name={{ ios: "person.2", android: "group", web: "group" }}
-              size={15}
-              tintColor={colorTokens.textSecondary}
-            />
-            <Text className="text-[13px] font-normal leading-[18px] text-text-secondary">
-              {item.servings}
-            </Text>
-          </View>
-          {cookbookName ? (
+          {servingsLabel ? (
+            <View className="shrink-0 flex-row items-center gap-1">
+              <SymbolView
+                accessible={false}
+                name={{ ios: "person.2", android: "group", web: "group" }}
+                size={15}
+                tintColor={colorTokens.textSecondary}
+              />
+              <Text className="text-[13px] font-normal leading-[18px] text-text-secondary">
+                {item.servings}
+              </Text>
+            </View>
+          ) : null}
+          {servingsLabel && cookbookName ? (
             <View className="h-1 w-1 shrink-0 rounded-full bg-border-strong" />
           ) : null}
           {cookbookName ? (

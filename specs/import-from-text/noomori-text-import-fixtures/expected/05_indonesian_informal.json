@@ -1,0 +1,22 @@
+{
+  "status": "partial",
+  "title": "Tumis Tahu Kemangi",
+  "servings": 4,
+  "servings_text": null,
+  "prep_time_minutes": null,
+  "cook_time_minutes": null,
+  "ingredient_group_count": 1,
+  "ingredient_count": 6,
+  "instruction_count": 4,
+  "must_preserve_ingredient_text": [
+    "6 buah tahu putih",
+    "1 ruas jahe",
+    "cabai rawit secukupnya",
+    "1 genggam daun kemangi"
+  ],
+  "warnings": [
+    "unsupported_duration_label_or_semantics",
+    "ambiguous_or_custom_units"
+  ],
+  "error_code": null
+}

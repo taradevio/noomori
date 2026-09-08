@@ -52,7 +52,7 @@ _DURATION_PART = re.compile(
     re.IGNORECASE,
 )
 _METADATA_LINE = re.compile(
-    r"^(?P<label>servings?|yield|prep(?:aration)?(?:\s*time)?|cook(?:ing)?(?:\s*time)?|additional\s*time|total(?:\s*time)?)\b\s*:?\s*(?P<value>.*)$",
+    r"^(?P<label>servings?|serves|porsi|yield|prep(?:aration)?(?:\s*time)?|cook(?:ing)?(?:\s*time)?|additional\s*time|total(?:\s*time)?)\b\s*:?\s*(?P<value>.*)$",
     re.IGNORECASE,
 )
 _EMBEDDED_SERVINGS = re.compile(
@@ -500,7 +500,7 @@ def _expand_header_layout(lines: list[str | None]) -> list[str | None]:
 
 def _metadata_key(label: str) -> str | None:
     normalized = " ".join(label.rstrip(":").casefold().split())
-    if normalized in {"serving", "servings"}:
+    if normalized in {"serving", "servings", "serves", "porsi"}:
         return "servings"
     if normalized == "yield":
         return "yield"
@@ -598,7 +598,7 @@ def _flattened_metadata_block(
 def _matching_footer(line: str, title: str | None) -> bool:
     if title is None:
         return False
-    match = re.fullmatch(r".+\bRecipe\s*\u2022\s*(.+)", line, re.IGNORECASE)
+    match = re.fullmatch(r"[^\u2022]+\s*\u2022\s*([^\u2022]+)", line)
     return bool(
         match
         and " ".join(match.group(1).casefold().split())
@@ -651,6 +651,60 @@ def _has_multiple_recipes(lines: list[str | None]) -> bool:
     return False
 
 
+def _inferred_unheaded_sections(
+    lines: list[str | None],
+) -> list[str | None] | None:
+    if any(
+        line
+        and (
+            recipe_section_name(line)
+            or _NUTRITION_HEADING.fullmatch(line.rstrip(":").strip())
+            or line.rstrip(":").strip().casefold() in _SECTION_NAMES
+            or line.rstrip(":").strip().casefold() in _HEADER_LABELS
+        )
+        for line in lines
+    ):
+        return None
+
+    blocks: list[list[str]] = []
+    block: list[str] = []
+    for line in lines:
+        if line is None:
+            if block:
+                blocks.append(block)
+                block = []
+        else:
+            block.append(line)
+    if block:
+        blocks.append(block)
+
+    if len(blocks) != 2:
+        return None
+    title_and_ingredients, numbered_instructions = blocks
+    if len(title_and_ingredients) < 2 or len(numbered_instructions) < 2:
+        return None
+    title, *ingredient_lines = title_and_ingredients
+    if _ingredient(title)["quantity"] is not None:
+        return None
+    if not all(
+        (ingredient := _ingredient(line))["quantity"] is not None
+        and ingredient["name"]
+        for line in ingredient_lines
+    ):
+        return None
+    if not all(_NUMBERED_LIST_PREFIX.match(line) for line in numbered_instructions):
+        return None
+
+    return [
+        title,
+        "Ingredients",
+        *ingredient_lines,
+        None,
+        "Instructions",
+        *numbered_instructions,
+    ]
+
+
 # Purpose: Transform normalized recipe text into a validated editable recipe draft.
 # Connects to: Called by server/src/server/modules/recipes/service.py::import_recipe_text() and server/src/server/modules/recipes/imports/website.py::import_recipe_url(); returns ImportedRecipeTextDraft or a stable RecipeTextImportError.
 def parse_recipe_text(
@@ -670,6 +724,10 @@ def parse_recipe_text(
     previous_blank = False
 
     lines = _expand_header_layout(_normalized_lines(text))
+    inferred_lines = _inferred_unheaded_sections(lines)
+    if inferred_lines is not None:
+        lines = inferred_lines
+        _warn(warnings, "inferred_structural_blocks_without_headings")
     if _has_multiple_recipes(lines):
         raise RecipeTextImportError("multiple_recipes")
 
@@ -834,11 +892,7 @@ def parse_recipe_text(
                     if current_group["steps"]
                     else ""
                 )
-                if (
-                    continuing_numbered_step
-                    and previous_step
-                    and not re.search(r"[.!?\u2026][\"')\]]?$", previous_step)
-                ):
+                if continuing_numbered_step and previous_step:
                     current_group["steps"][-1]["text"] += f" {instruction}"
                 else:
                     current_group["steps"].append({"text": instruction})

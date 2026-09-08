@@ -1,0 +1,19 @@
+{
+  "status": "partial",
+  "title": "Ginger Noodle Bowl",
+  "servings": 2,
+  "prep_time_minutes": 7,
+  "cook_time_minutes": 12,
+  "ingredient_count": 4,
+  "instruction_count": 3,
+  "must_not_be_title_or_note": [
+    "Line spacing: 1.25"
+  ],
+  "must_preserve_ingredient_text": [
+    "2–3 spring onions"
+  ],
+  "warnings": [
+    "ambiguous_quantity"
+  ],
+  "error_code": null
+}
