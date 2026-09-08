@@ -24,6 +24,23 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const MAX_RECIPE_TEXT_LENGTH = 20_000;
+const parserErrorMessages: Record<string, string> = {
+  insufficient_structure:
+    "We couldn’t identify enough recipe information. Edit the text and try again.",
+  multiple_recipes:
+    "We found more than one recipe. Paste one recipe at a time.",
+  ambiguous_structure:
+    "We couldn’t safely separate this recipe. Adjust the pasted text and try again.",
+};
+
+class RecipeTextImportFailure extends Error {
+  constructor(code: string) {
+    super(
+      parserErrorMessages[code] ??
+        "We couldn’t process this recipe. Check the text and try again.",
+    );
+  }
+}
 
 export default function ImportRecipeTextRoute() {
   const router = useRouter();
@@ -37,24 +54,39 @@ export default function ImportRecipeTextRoute() {
       const accessToken = session?.access_token;
       if (!accessToken) throw new Error("Authentication required.");
 
-      const response = await fetch(
-        `${apiConfig.backendUrl}${apiConfig.endpoints.importRecipeText}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
+      let response: Response;
+      try {
+        response = await fetch(
+          `${apiConfig.backendUrl}${apiConfig.endpoints.importRecipeText}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ text }),
+            signal: AbortSignal.timeout(apiConfig.timeout),
           },
-          body: JSON.stringify({ text }),
-          signal: AbortSignal.timeout(apiConfig.timeout),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(
-          response.status === 422
-            ? "We couldn’t identify enough recipe information. Edit the text and try again."
-            : "We couldn’t process this recipe. Check your connection and try again.",
         );
+      } catch (error) {
+        const timedOut =
+          error instanceof Error &&
+          (error.name === "AbortError" || error.name === "TimeoutError");
+        throw new Error(
+          timedOut
+            ? "This import took too long. Try again."
+            : "We couldn’t connect to Noomori. Check your connection and try again.",
+        );
+      }
+      if (!response.ok) {
+        let code = "";
+        try {
+          const body = (await response.json()) as { detail?: unknown };
+          if (typeof body.detail === "string") code = body.detail;
+        } catch {
+          // Keep the generic failure when the server response has no JSON body.
+        }
+        throw new RecipeTextImportFailure(code);
       }
       return (await response.json()) as ImportedRecipeTextDraft;
     },

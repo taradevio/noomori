@@ -272,6 +272,11 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         self.app.dependency_overrides.clear()
         response = await self.client.get("/recipes")
         self.assertEqual(401, response.status_code)
+        text_import = await self.client.post(
+            "/recipes/import/text",
+            json={"text": "Soup\nIngredients\n1 cup stock"},
+        )
+        self.assertEqual(401, text_import.status_code)
 
     async def test_recipe_text_import_and_request_validation_use_http_contracts(self):
         response = await self.client.post(
@@ -286,6 +291,39 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
 
         invalid = await self.client.post("/recipes/import/text", json={"text": "   "})
         self.assertEqual(422, invalid.status_code)
+
+        oversized = await self.client.post(
+            "/recipes/import/text",
+            json={"text": "x" * 20_001},
+        )
+        self.assertEqual(422, oversized.status_code)
+
+        partial = await self.client.post(
+            "/recipes/import/text",
+            json={"text": "Salad\nIngredients\nTomatoes"},
+        )
+        self.assertEqual(200, partial.status_code)
+        self.assertEqual([], partial.json()["instructions"])
+
+        failures = {
+            "insufficient_structure": "Only an unstructured paragraph.",
+            "ambiguous_structure": (
+                "Pie\nIngredients\n1 cup flour\n\n"
+                "1. Mix the batter.\n2. Bake the pie."
+            ),
+            "multiple_recipes": (
+                "Pie\nIngredients\n1 cup flour\nInstructions\nMix.\n"
+                "Soup\nIngredients\n1 cup stock\nInstructions\nSimmer."
+            ),
+        }
+        for code, text in failures.items():
+            with self.subTest(code=code):
+                failed = await self.client.post(
+                    "/recipes/import/text",
+                    json={"text": text},
+                )
+                self.assertEqual(422, failed.status_code)
+                self.assertEqual(code, failed.json()["detail"])
 
     async def test_recipe_url_and_image_import_map_success_at_the_route_boundary(self):
         draft = ImportedRecipeTextDraft(

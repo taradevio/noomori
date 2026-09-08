@@ -14,7 +14,10 @@ from server.modules.recipes.images import (
     recipes_with_signed_images,
     valid_recipe_image_path,
 )
-from server.modules.recipes.imports.text import parse_recipe_text
+from server.modules.recipes.imports.text import (
+    RecipeTextImportError,
+    parse_recipe_text,
+)
 from server.modules.recipes.schemas import (
     CreateRecipe,
     ImportedRecipeTextDraft,
@@ -68,13 +71,59 @@ def import_recipe_text(
     payload: ImportRecipeTextRequest,
     _auth: AuthContext = Depends(get_current_user),
 ):
+    started_at = perf_counter()
+    warnings: set[str] = set()
+    parse_result = "failed"
+    failure_code = "none"
+    draft = None
     try:
-        return parse_recipe_text(payload.text)
-    except ValueError as exc:
+        draft = parse_recipe_text(payload.text, warnings)
+        parse_result = (
+            "complete"
+            if draft.title and draft.ingredients and draft.instructions
+            else "partial"
+        )
+        return draft
+    except RecipeTextImportError as exc:
+        failure_code = exc.code
         raise HTTPException(
             status_code=422,
-            detail="Could not identify enough recipe information",
+            detail=exc.code,
         ) from exc
+    except ValueError as exc:
+        failure_code = "insufficient_structure"
+        raise HTTPException(status_code=422, detail=failure_code) from exc
+    finally:
+        ingredient_count = (
+            sum(len(group.items) for group in draft.ingredients) if draft else 0
+        )
+        instruction_count = (
+            sum(len(group.steps) for group in draft.instructions) if draft else 0
+        )
+        logger.log(
+            logging.INFO if draft else logging.WARNING,
+            "Recipe text import parse_result=%s failure_code=%s warning_codes=%s "
+            "input_chars=%s input_lines=%s has_title=%s "
+            "ingredient_group_count=%s ingredient_count=%s "
+            "instruction_group_count=%s instruction_count=%s "
+            "has_servings=%s has_prep_time=%s has_cook_time=%s "
+            "has_nutrition=%s duration_ms=%.1f",
+            parse_result,
+            failure_code,
+            ",".join(sorted(warnings)) or "none",
+            len(payload.text),
+            len(payload.text.splitlines()) or 1,
+            bool(draft and draft.title),
+            len(draft.ingredients) if draft else 0,
+            ingredient_count,
+            len(draft.instructions) if draft else 0,
+            instruction_count,
+            bool(draft and draft.servings is not None),
+            bool(draft and draft.prep_time_minutes is not None),
+            bool(draft and draft.cook_time_minutes is not None),
+            bool(draft and draft.nutrition_per_serving is not None),
+            (perf_counter() - started_at) * 1000,
+        )
 
 
 # Purpose: List the authenticated user's recipes with client-ready image URLs.

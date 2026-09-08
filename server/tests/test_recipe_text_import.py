@@ -1,10 +1,14 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from server.modules.recipes.imports.text import parse_recipe_text
+from server.modules.recipes.imports.text import (
+    RecipeTextImportError,
+    parse_recipe_text,
+)
 from server.modules.recipes.schemas import (
     ImportRecipeTextRequest,
     RECIPE_TEXT_MAX_CHARS,
@@ -14,6 +18,7 @@ from server.modules.recipes.service import import_recipe_text
 SPECS_PATH = Path(__file__).resolve().parents[2] / "specs"
 CASE_PATH = SPECS_PATH / "case.txt"
 CASE2_PATH = SPECS_PATH / "case2.txt"
+FIXTURES_PATH = Path(__file__).parent / "fixtures" / "text_import"
 
 
 class RecipeTextRequestTest(unittest.TestCase):
@@ -33,7 +38,10 @@ class RecipeTextParserTest(unittest.TestCase):
         self.assertEqual(30, draft.prep_time_minutes)
         self.assertEqual(40, draft.cook_time_minutes)
         self.assertEqual(8, draft.servings)
-        self.assertEqual("Yield: 1 (9-inch) pie", draft.description)
+        self.assertEqual(
+            "Additional Time: 15 mins\nYield: 1 (9-inch) pie",
+            draft.description,
+        )
         self.assertEqual(10, len(items))
         self.assertEqual(9, len(draft.instructions[0].steps))
         self.assertEqual((1, "pack"), (items[0].quantity, items[0].unit))
@@ -47,7 +55,7 @@ class RecipeTextParserTest(unittest.TestCase):
         first = draft.ingredients[0].items[0]
 
         self.assertEqual("Asian Chilli Garlic Prawns (Shrimp)", draft.title)
-        self.assertEqual(1, draft.servings)
+        self.assertIsNone(draft.servings)
         self.assertEqual((166.67, "g"), (first.quantity, first.unit))
         self.assertTrue(first.name.startswith("prawns / shrimp"))
         self.assertNotIn("0.33 lb", first.name)
@@ -693,7 +701,7 @@ Cucumber
         self.assertEqual([], draft.instructions)
 
     def test_rejects_text_with_only_one_recipe_signal(self):
-        with self.assertRaisesRegex(ValueError, "enough recipe information"):
+        with self.assertRaisesRegex(ValueError, "insufficient_structure"):
             parse_recipe_text("This is only an unstructured paragraph.")
 
         with self.assertRaises(HTTPException) as error:
@@ -702,6 +710,255 @@ Cucumber
                 object(),
             )
         self.assertEqual(422, error.exception.status_code)
+        self.assertEqual("insufficient_structure", error.exception.detail)
+
+
+class RecipeTextHardeningTest(unittest.TestCase):
+    def test_logs_structural_telemetry_without_recipe_content(self):
+        raw_text = (
+            "Secret soup\nIngredients\n1–2 tbsp private stock\n"
+            "Instructions\nDo the private thing."
+        )
+        with patch("server.modules.recipes.service.logger.log") as log:
+            draft = import_recipe_text(ImportRecipeTextRequest(text=raw_text), object())
+
+        self.assertEqual("Secret soup", draft.title)
+        self.assertEqual("complete", log.call_args.args[2])
+        self.assertEqual("none", log.call_args.args[3])
+        self.assertIn("ingredient_quantity_range", log.call_args.args[4])
+        serialized_call = repr(log.call_args)
+        self.assertNotIn("Secret soup", serialized_call)
+        self.assertNotIn("private stock", serialized_call)
+        self.assertNotIn("private thing", serialized_call)
+
+        with patch("server.modules.recipes.service.logger.log") as log:
+            with self.assertRaises(HTTPException):
+                import_recipe_text(
+                    ImportRecipeTextRequest(text="Private unstructured text"),
+                    object(),
+                )
+        self.assertEqual("failed", log.call_args.args[2])
+        self.assertEqual("insufficient_structure", log.call_args.args[3])
+        self.assertNotIn("Private unstructured text", repr(log.call_args))
+
+    def test_imports_google_docs_golden_fixtures(self):
+        bolognese = parse_recipe_text(
+            (FIXTURES_PATH / "google-docs-bolognese.txt").read_text()
+        )
+        self.assertEqual("Classic Spaghetti Bolognese Recipe", bolognese.title)
+        self.assertEqual((15, 45, None), (
+            bolognese.prep_time_minutes,
+            bolognese.cook_time_minutes,
+            bolognese.servings,
+        ))
+        self.assertEqual(2, len(bolognese.ingredients))
+        self.assertEqual(7, sum(len(group.steps) for group in bolognese.instructions))
+        ingredient_names = [
+            item.name for group in bolognese.ingredients for item in group.items
+        ]
+        self.assertNotIn("Step-by-Step Instructions", ingredient_names)
+        self.assertFalse(any("Sauté the Aromatics" in name for name in ingredient_names))
+        self.assertIn("Difficulty: Easy / Intermediate", bolognese.description)
+
+        salmon = parse_recipe_text(
+            (FIXTURES_PATH / "google-docs-salmon.txt").read_text()
+        )
+        self.assertEqual((10, 15, 4), (
+            salmon.prep_time_minutes,
+            salmon.cook_time_minutes,
+            salmon.servings,
+        ))
+        self.assertEqual(5, sum(len(group.steps) for group in salmon.instructions))
+        self.assertEqual(480, salmon.nutrition_per_serving.calories_kcal)
+        self.assertIn("high-protein, heart-healthy meal", salmon.description)
+
+        chicken = parse_recipe_text(
+            (FIXTURES_PATH / "google-docs-garlic-chicken.txt").read_text()
+        )
+        self.assertEqual((10, 20, 4), (
+            chicken.prep_time_minutes,
+            chicken.cook_time_minutes,
+            chicken.servings,
+        ))
+        self.assertEqual(7, sum(len(group.steps) for group in chicken.instructions))
+        self.assertNotIn("Line spacing", chicken.model_dump_json())
+
+        carbonara = parse_recipe_text(
+            (FIXTURES_PATH / "google-docs-carbonara.txt").read_text()
+        )
+        self.assertEqual((10, 20, 4), (
+            carbonara.prep_time_minutes,
+            carbonara.cook_time_minutes,
+            carbonara.servings,
+        ))
+        self.assertEqual(6, sum(len(group.steps) for group in carbonara.instructions))
+        pepper = next(
+            item
+            for group in carbonara.ingredients
+            for item in group.items
+            if "1–2 tsp" in item.name
+        )
+        self.assertIsNone(pepper.quantity)
+        self.assertIsNone(pepper.unit)
+        self.assertNotIn("Italian Recipe •", carbonara.description)
+
+    def test_metadata_is_header_local_and_conflicts_are_not_overwritten(self):
+        draft = parse_recipe_text(
+            """Pie
+Prep Time: 5 min
+Prep Time: 5 minutes
+Cook Time: 20 min
+Cook Time: 45 min
+Ingredients
+1 cup flour
+Instructions
+Cook Time: 90 min
+Mix well.
+Notes
+Servings: 4
+"""
+        )
+        self.assertEqual(5, draft.prep_time_minutes)
+        self.assertIsNone(draft.cook_time_minutes)
+        self.assertIsNone(draft.servings)
+        self.assertIn("Cook Time: 20 min", draft.description)
+        self.assertIn("Cook Time: 45 min", draft.description)
+        self.assertIn("Cook Time: 90 min", draft.instructions[0].steps[0].text)
+        self.assertIn("Servings: 4", draft.description)
+
+    def test_metadata_tables_preserve_alignment_ranges_and_unsupported_values(self):
+        warnings: set[str] = set()
+        draft = parse_recipe_text(
+            """Pie
+Prep Time\tDifficulty\tCook Time\tServings
+10 mins\tEasy\t20 mins\t4–6 servings
+Ingredients
+1 cup flour
+Instructions
+Mix.
+""",
+            warnings,
+        )
+        self.assertEqual(10, draft.prep_time_minutes)
+        self.assertEqual(20, draft.cook_time_minutes)
+        self.assertIsNone(draft.servings)
+        self.assertIn("Servings: 4–6 servings", draft.description)
+        self.assertIn("Difficulty: Easy", draft.description)
+        self.assertIn("ambiguous_servings_range", warnings)
+
+    def test_preserves_only_meaningful_header_and_supplementary_text(self):
+        draft = parse_recipe_text(
+            """\ufeffChicken\r
+Line spacing: 1.25\r
+Recipe Overview\r
+A useful overview.\r
+Prep: 10 min\r
+Cook: 20 min\r
+Total: 45 min\r
+Additional Time: 5 min\r
+Ingredients\v1\u00a0cup\u00a0stock\r
+•••\r
+Instructions\r
+Simmer.\r
+Notes\r
+Keep warm.\r
+Italian Recipe • Chicken\r
+"""
+        )
+        self.assertEqual("Chicken", draft.title)
+        self.assertEqual((10, 20), (draft.prep_time_minutes, draft.cook_time_minutes))
+        self.assertIn("A useful overview.", draft.description)
+        self.assertIn("Additional Time: 5 min", draft.description)
+        self.assertIn("Total: 45 min", draft.description)
+        self.assertIn("Keep warm.", draft.description)
+        self.assertNotIn("Line spacing", draft.description)
+        self.assertNotIn("Italian Recipe", draft.description)
+
+    def test_guards_ranges_and_detects_uncolonized_groups(self):
+        draft = parse_recipe_text(
+            """Dinner
+Ingredients
+For the Sauce
+1 tbsp oil
+2 cloves garlic
+For the Pasta & Serving
+1 lb spaghetti
+1-2 tbsp salt
+2 to 3 tablespoons sugar
+1 or 2 tbsp pepper
+1/2 cup stock
+Instructions
+Cook.
+"""
+        )
+        self.assertEqual(
+            ["For the Sauce", "For the Pasta & Serving"],
+            [group.title for group in draft.ingredients],
+        )
+        ranged = draft.ingredients[1].items[1:4]
+        self.assertTrue(all(item.quantity is None and item.unit is None for item in ranged))
+        self.assertEqual(0.5, draft.ingredients[1].items[4].quantity)
+
+    def test_joins_wrapped_numbered_steps_without_using_number_sequence(self):
+        draft = parse_recipe_text(
+            """Chicken
+Ingredients
+1 lb chicken
+Instructions
+1. Bake the chicken until crisp and
+   the internal temperature reaches 165°F.
+1. Rest for five minutes.
+4. Serve immediately; keep warm.
+"""
+        )
+        self.assertEqual(
+            [
+                "Bake the chicken until crisp and the internal temperature reaches 165°F.",
+                "Rest for five minutes.",
+                "Serve immediately; keep warm.",
+            ],
+            [step.text for step in draft.instructions[0].steps],
+        )
+
+    def test_exact_step_aliases_do_not_match_instruction_prose(self):
+        for heading in ("Steps", "Step-by-Step Instructions", "Step by Step Instructions"):
+            with self.subTest(heading=heading):
+                draft = parse_recipe_text(
+                    f"Pie\nIngredients\n1 cup flour\n{heading}\nMix."
+                )
+                self.assertEqual("Mix.", draft.instructions[0].steps[0].text)
+
+        draft = parse_recipe_text(
+            "Pie\nIngredients\nFollow package instructions.\nRepeat the previous step."
+        )
+        self.assertEqual(2, len(draft.ingredients[0].items))
+
+    def test_rejects_ambiguous_numbered_bleed_and_multiple_recipes(self):
+        with self.assertRaisesRegex(RecipeTextImportError, "ambiguous_structure"):
+            parse_recipe_text(
+                """Pie
+Ingredients
+1 cup flour
+
+1. Mix the batter.
+2. Bake the pie.
+"""
+            )
+
+        with self.assertRaisesRegex(RecipeTextImportError, "multiple_recipes"):
+            parse_recipe_text(
+                """Pie
+Ingredients
+1 cup flour
+Instructions
+Mix.
+Soup
+Ingredients
+1 cup stock
+Instructions
+Simmer.
+"""
+            )
 
 
 if __name__ == "__main__":
