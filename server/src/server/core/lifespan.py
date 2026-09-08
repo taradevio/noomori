@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 # Purpose: Periodically request delivery receipts for previously sent push messages.
-# Connects to: The admin Supabase client and Expo push receipt transport.
+# Connects to: Called by server/src/server/core/lifespan.py::app_lifespan(); calls server/src/server/core/database.py::get_admin_supabase() and server/src/server/push_notifications.py::check_push_receipts().
 async def push_receipt_loop() -> None:
     while True:
         await asyncio.sleep(15 * 60)
@@ -30,7 +30,7 @@ async def push_receipt_loop() -> None:
 
 
 # Purpose: Start and cleanly cancel application-wide background tasks.
-# Connects to: FastAPI's lifespan hook and the push receipt polling loop.
+# Connects to: Registered by server/src/server/main.py::create_app() as FastAPI's lifespan callback; starts server/src/server/core/lifespan.py::push_receipt_loop().
 async def app_lifespan(_app: FastAPI):
     receipt_task = asyncio.create_task(push_receipt_loop())
     try:

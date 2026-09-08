@@ -8,7 +8,7 @@ router = APIRouter(
 
 
 # Purpose: Return the API's basic liveness status.
-# Connects to: The versioned health router registered by the application factory.
+# Connects to: Registered by server/src/server/modules/health/router.py::router.get() and included by server/src/server/main.py::create_app(); has no downstream local function calls.
 @router.get("")
 async def health_check():
     return {

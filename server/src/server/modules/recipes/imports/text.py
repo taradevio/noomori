@@ -152,14 +152,14 @@ _UNIT_DIMENSIONS = {
 
 
 # Purpose: Normalize one source line by removing heading marks and emphasis syntax.
-# Connects to: The main text parser and DOM nutrition extraction preprocessing.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::{parse_recipe_text(),_dom_nutrition()}; has no downstream local function calls.
 def _plain_line(line: str) -> str:
     line = line.strip().lstrip("#").strip()
     return _MARKDOWN_EMPHASIS.sub(r"\g<text>", line).strip()
 
 
 # Purpose: Split a complete Markdown table row into trimmed cell values.
-# Connects to: Markdown-rule detection and metadata-table expansion.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::{_is_markdown_rule(),parse_recipe_text()}; has no downstream local function calls.
 def _markdown_cells(line: str) -> list[str] | None:
     if not line.startswith("|") or not line.endswith("|"):
         return None
@@ -167,7 +167,7 @@ def _markdown_cells(line: str) -> list[str] | None:
 
 
 # Purpose: Identify horizontal rules and Markdown table separator rows.
-# Connects to: The main parser's removal of non-content lines.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::parse_recipe_text(); calls server/src/server/modules/recipes/imports/text.py::_markdown_cells().
 def _is_markdown_rule(line: str) -> bool:
     compact = re.sub(r"\s+", "", line)
     if re.fullmatch(r"(?:-{3,}|\*{3,}|_{3,})", compact):
@@ -179,19 +179,19 @@ def _is_markdown_rule(line: str) -> bool:
 
 
 # Purpose: Remove bullets or numbered-list markers from a content line.
-# Connects to: Ingredient, instruction, note, and nutrition parsing.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::{_ingredient(),_nutrition_line(),parse_recipe_text()}; has no downstream local function calls.
 def _without_list_prefix(line: str) -> str:
     return _LIST_PREFIX.sub("", line.strip()).strip()
 
 
 # Purpose: Detect standalone step labels that should not become instructions.
-# Connects to: Instruction handling in the main recipe text parser.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::parse_recipe_text() and server/src/server/modules/recipes/imports/website.py::normalize_imported_website_recipe(); has no downstream local function calls.
 def _is_instruction_marker(value: str) -> bool:
     return bool(_INSTRUCTION_MARKER.fullmatch(" ".join(value.split())))
 
 
 # Purpose: Convert supported hour/minute text into a total minute count.
-# Connects to: Metadata parsing for prep, cook, additional, and total times.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::_metadata(); has no downstream local function calls.
 def _duration_minutes(value: str) -> int | None:
     parts = list(_DURATION_PART.finditer(value))
     if parts:
@@ -205,7 +205,7 @@ def _duration_minutes(value: str) -> int | None:
 
 
 # Purpose: Parse a metadata line and report whether the following line was consumed.
-# Connects to: Main parsing of servings, yield, and duration fields.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::parse_recipe_text(); calls server/src/server/modules/recipes/imports/text.py::_duration_minutes().
 def _metadata(
     line: str,
     following: str | None,
@@ -242,7 +242,7 @@ def _metadata(
 
 
 # Purpose: Convert decimal, fractional, mixed, or vulgar-fraction quantities to floats.
-# Connects to: Ingredient quantities and alternate-measurement validation.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::{_ingredient(),_without_alternate_measurement()}; has no downstream local function calls.
 def _quantity(value: str) -> float:
     if value[-1] in _VULGAR_FRACTIONS:
         whole = value[:-1].strip()
@@ -258,7 +258,7 @@ def _quantity(value: str) -> float:
 
 
 # Purpose: Remove a redundant same-dimension alternate measurement from an ingredient.
-# Connects to: Ingredient parsing, unit aliases, and unit-dimension safeguards.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::_ingredient(); calls server/src/server/modules/recipes/imports/text.py::_quantity() and reads this module's unit-alias/dimension tables.
 def _without_alternate_measurement(name: str, primary_unit: str) -> str:
     # NOTE: The left-hand measurement is canonical. Remove only a valid
     # same-dimension alternate so uncertain or density-based text remains reviewable.
@@ -302,7 +302,7 @@ def _without_alternate_measurement(name: str, primary_unit: str) -> str:
 
 
 # Purpose: Convert one ingredient line into name, quantity, unit, and note fields.
-# Connects to: Ingredient groups assembled by the main text parser.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::parse_recipe_text() and server/src/server/modules/recipes/imports/website.py::normalize_imported_website_recipe(); calls server/src/server/modules/recipes/imports/text.py::{_without_list_prefix(),_quantity(),_without_alternate_measurement()}.
 def _ingredient(line: str) -> dict:
     name = _without_list_prefix(line)
     quantity = None
@@ -333,7 +333,7 @@ def _ingredient(line: str) -> dict:
 
 
 # Purpose: Parse a numeric nutrition value only when its unit matches the field.
-# Connects to: Nutrition line parsing and supported nutrition-unit aliases.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::_nutrition_line() and server/src/server/modules/recipes/imports/website.py::_website_nutrition_value(); has no downstream local function calls.
 def _nutrition_value(value: str, unit_kind: str) -> float | None:
     match = _NUTRITION_VALUE.fullmatch(value.strip())
     if not match or match.group("unit").lower() not in _NUTRITION_UNITS[unit_kind]:
@@ -342,7 +342,7 @@ def _nutrition_value(value: str, unit_kind: str) -> float | None:
 
 
 # Purpose: Extract supported nutrients while carrying labels split across lines.
-# Connects to: Pasted-text and website DOM nutrition parsing.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::{parse_recipe_text(),_dom_nutrition()}; calls server/src/server/modules/recipes/imports/text.py::{_without_list_prefix(),_nutrition_value()}.
 def _nutrition_line(
     line: str,
     pending: tuple[str, str] | None,
@@ -382,7 +382,7 @@ def _nutrition_line(
 
 
 # Purpose: Extract per-serving nutrition only from an explicitly labelled DOM section.
-# Connects to: Website-import normalization and shared nutrition line parsing.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::_enrich_dom_nutrition(); calls server/src/server/modules/recipes/imports/text.py::{_plain_line(),_nutrition_line()} and server/src/server/recipe_url_import.py::recipe_section_name().
 def _dom_nutrition(text: str) -> RecipeNutrition | None:
     # NOTE: Website values only map to nutrition_per_serving when the candidate
     # says so explicitly; recipe yield such as "6 Porsi" is not sufficient.
@@ -411,7 +411,7 @@ def _dom_nutrition(text: str) -> RecipeNutrition | None:
 
 
 # Purpose: Transform normalized recipe text into a validated editable recipe draft.
-# Connects to: Text import endpoints and the website DOM fallback pipeline.
+# Connects to: Called by server/src/server/modules/recipes/service.py::import_recipe_text() and server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/modules/recipes/imports/text.py::{_plain_line(),_is_markdown_rule(),_markdown_cells(),_metadata(),_ingredient(),_nutrition_line(),_without_list_prefix(),_is_instruction_marker()} and server/src/server/recipe_url_import.py::recipe_section_name().
 def parse_recipe_text(text: str) -> ImportedRecipeTextDraft:
     title = None
     section = None

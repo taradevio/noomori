@@ -19,7 +19,7 @@ class AuthContext:
 
 
 # Purpose: Authenticate a bearer token and build the request-scoped user context.
-# Connects to: FastAPI dependencies, Supabase Auth, and RLS-aware feature services.
+# Connects to: Called by FastAPI Depends() in server/src/server/modules/cookbooks/service.py::{list_cookbooks(),create_cookbook(),get_cookbook(),rename_cookbook(),replace_cookbook_recipes(),delete_cookbook()}, server/src/server/modules/households/service.py::{get_household_settings(),get_household_activity(),mark_household_activity_read(),leave_household(),replace_household_join_code(),revoke_household_join_code(),preview_household_join_code(),join_household_with_code(),create_household()}, server/src/server/modules/notifications/service.py::{register_notification_device(),unregister_notification_device()}, server/src/server/modules/recipes/service.py::{import_recipe_text(),list_recipes(),list_household_recipes(),get_recipe(),create_recipe(),update_recipe(),share_recipe(),unshare_recipe(),delete_recipe(),activate_recipe_image(),remove_recipe_image()}, and server/src/server/modules/recipes/imports/website.py::{import_recipe_url(),import_recipe_image()}; calls server/src/server/core/database.py::get_supabase() and Supabase auth.get_user().
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> AuthContext:

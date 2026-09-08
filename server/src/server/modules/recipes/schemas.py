@@ -57,7 +57,7 @@ class CreateRecipe(BaseModel):
     source_url: HttpUrl | None = None
 
     # Purpose: Enforce the source-specific metadata required by a recipe payload.
-    # Connects to: Recipe create/update endpoints through Pydantic validation.
+    # Connects to: Called by Pydantic when server/src/server/modules/recipes/service.py::{create_recipe(),update_recipe()} validates CreateRecipe; has no downstream local function calls.
     @model_validator(mode="after")
     def validate_source(self):
         if self.source_type == "family" and not self.source_person_name:
@@ -79,7 +79,7 @@ class ImportRecipeTextRequest(BaseModel):
     text: str = Field(min_length=1, max_length=RECIPE_TEXT_MAX_CHARS)
 
     # Purpose: Trim imported recipe text and reject whitespace-only submissions.
-    # Connects to: The text-import endpoint before the parser receives the value.
+    # Connects to: Called by Pydantic before server/src/server/modules/recipes/service.py::import_recipe_text(); its output is passed to server/src/server/modules/recipes/imports/text.py::parse_recipe_text().
     @field_validator("text")
     @classmethod
     def text_must_not_be_blank(cls, value: str) -> str:

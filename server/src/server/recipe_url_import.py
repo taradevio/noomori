@@ -66,7 +66,7 @@ _REMOVED_TAGS = {
 
 class WebsiteImportError(Exception):
     # Purpose: Store a stable import failure code alongside the exception message.
-    # Connects to: Fetch/extraction helpers and HTTP status mapping in URL endpoints.
+    # Connects to: Instantiated by server/src/server/recipe_url_import.py::{_validated_target(),_remaining(),_fetch_public_resource(),_lowest_common_ancestor(),_direct_branch(),_recipe_dom_candidate(),extract_recipe_container_text(),extract_recipe_group_structure(),extract_recipe()}; caught by server/src/server/modules/recipes/imports/website.py::{import_recipe_url(),import_recipe_image()}.
     def __init__(self, detail: str):
         super().__init__(detail)
         self.detail = detail
@@ -132,7 +132,7 @@ class ExtractedRecipe:
 
 
 # Purpose: Validate a URL and resolve only globally routable addresses on safe ports.
-# Connects to: The shared public-resource fetcher and its SSRF protections.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_public_resource(); calls socket.getaddrinfo() and supplies validated addresses to server/src/server/recipe_url_import.py::_fetch_from_address().
 def _validated_target(url: str) -> tuple[SplitResult, list[str], int]:
     try:
         parsed = urlsplit(url)
@@ -173,7 +173,7 @@ def _validated_target(url: str) -> tuple[SplitResult, list[str], int]:
 
 
 # Purpose: Render the original hostname and any non-default port for the Host header.
-# Connects to: Verified-IP HTTP requests that preserve virtual-host and TLS identity.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_from_address(); has no downstream local function calls.
 def _host_header(hostname: str, parsed: SplitResult, port: int) -> str:
     rendered_host = f"[{hostname}]" if ":" in hostname else hostname
     default_port = 443 if parsed.scheme.lower() == "https" else 80
@@ -181,14 +181,14 @@ def _host_header(hostname: str, parsed: SplitResult, port: int) -> str:
 
 
 # Purpose: Build the origin-form path and query used for a direct HTTP request.
-# Connects to: The verified-address fetch helper and parsed import URLs.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_from_address(); has no downstream local function calls.
 def _request_path(parsed: SplitResult) -> str:
     path = parsed.path or "/"
     return f"{path}?{parsed.query}" if parsed.query else path
 
 
 # Purpose: Return time left in the shared fetch deadline or stop with a timeout.
-# Connects to: Address connection, response streaming, and redirect processing.
+# Connects to: Called by server/src/server/recipe_url_import.py::{_fetch_from_address(),_fetch_public_resource()}; has no downstream local function calls.
 def _remaining(deadline: float) -> float:
     remaining = deadline - monotonic()
     if remaining <= 0:
@@ -197,7 +197,7 @@ def _remaining(deadline: float) -> float:
 
 
 # Purpose: Decode fetched HTML using its declared charset with a safe fallback.
-# Connects to: Public HTML fetching and the fetched-page result object.
+# Connects to: Called by server/src/server/recipe_url_import.py::fetch_public_html(); has no downstream local function calls.
 def _decode_html(body: bytes, content_type: str) -> str:
     message = Message()
     message["content-type"] = content_type
@@ -209,7 +209,7 @@ def _decode_html(body: bytes, content_type: str) -> str:
 
 
 # Purpose: Open one HTTP request against a previously validated IP address.
-# Connects to: The resource fetch loop, urllib3 pools, TLS hostname checks, and deadlines.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_public_resource(); calls server/src/server/recipe_url_import.py::{_remaining(),_request_path(),_host_header()} and urllib3 HTTP(S)ConnectionPool.urlopen().
 def _fetch_from_address(
     parsed: SplitResult,
     address: str,
@@ -263,7 +263,7 @@ def _fetch_from_address(
 
 
 # Purpose: Safely fetch bounded public content across revalidated redirects.
-# Connects to: HTML/image wrappers, DNS validation, direct requests, and size limits.
+# Connects to: Called by server/src/server/recipe_url_import.py::{fetch_public_html(),fetch_public_image()}; calls server/src/server/recipe_url_import.py::{_remaining(),_validated_target(),_fetch_from_address()}.
 def _fetch_public_resource(
     url: str,
     *,
@@ -366,7 +366,7 @@ def _fetch_public_resource(
 
 
 # Purpose: Fetch and decode a size-limited public HTML recipe page.
-# Connects to: The website import endpoint and shared SSRF-safe resource fetcher.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_fetch_public_resource(),_decode_html()}.
 def fetch_public_html(url: str) -> FetchedRecipePage:
     resource = _fetch_public_resource(
         url,
@@ -383,7 +383,7 @@ def fetch_public_html(url: str) -> FetchedRecipePage:
 
 
 # Purpose: Fetch a size- and type-limited public recipe image as raw bytes.
-# Connects to: The image proxy endpoint and shared SSRF-safe resource fetcher.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_image(); calls server/src/server/recipe_url_import.py::_fetch_public_resource().
 def fetch_public_image(url: str) -> FetchedRecipeImage:
     resource = _fetch_public_resource(
         url,
@@ -401,7 +401,7 @@ def fetch_public_image(url: str) -> FetchedRecipeImage:
 
 
 # Purpose: Extract a tag's rendered text while preserving explicit line breaks.
-# Connects to: DOM normalization and paragraph serialization in fallback extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::_normalized_dom_text() and server/src/server/recipe_url_import.py::_serialize_recipe_scope()::visit(); has no downstream local function calls.
 def _dom_text_with_breaks(tag: Tag) -> str:
     parts: list[str] = []
     for descendant in tag.descendants:
@@ -415,13 +415,13 @@ def _dom_text_with_breaks(tag: Tag) -> str:
 
 
 # Purpose: Collapse a tag's rendered text into a whitespace-normalized single line.
-# Connects to: DOM heading, list, label, title, and structure comparisons.
+# Connects to: Called by server/src/server/recipe_url_import.py::{_standalone_emphasis_text(),_section_kind(),_leading_instruction_label(),_instruction_item_parts(),_recipe_dom_candidate(),extract_recipe_container_text(),_plain_list_label(),extract_recipe_group_structure(),_serialize_recipe_scope()::visit()}; calls server/src/server/recipe_url_import.py::_dom_text_with_breaks().
 def _normalized_dom_text(tag: Tag) -> str:
     return " ".join(_dom_text_with_breaks(tag).split())
 
 
 # Purpose: Check whether a tag's id or classes match a structural identifier pattern.
-# Connects to: Recipe-root discovery and removal of noisy DOM elements.
+# Connects to: Called by server/src/server/recipe_url_import.py::{_is_recipe_root(),_clean_dom()}; has no downstream local function calls.
 def _identifier_matches(tag: Tag, pattern: re.Pattern[str]) -> bool:
     identifier = tag.get("id")
     classes = tag.get("class", [])
@@ -432,7 +432,7 @@ def _identifier_matches(tag: Tag, pattern: re.Pattern[str]) -> bool:
 
 
 # Purpose: Identify DOM elements eligible to anchor one recipe candidate.
-# Connects to: Candidate selection and preservation of structural roots during cleanup.
+# Connects to: Called by server/src/server/recipe_url_import.py::_clean_dom() and passed to BeautifulSoup.find_all() by server/src/server/recipe_url_import.py::_recipe_dom_candidate(); calls server/src/server/recipe_url_import.py::_identifier_matches().
 def _is_recipe_root(tag: Tag) -> bool:
     return tag.name in {"article", "main"} or _identifier_matches(
         tag,
@@ -441,7 +441,7 @@ def _is_recipe_root(tag: Tag) -> bool:
 
 
 # Purpose: Map an exact normalized heading label to its recipe section kind.
-# Connects to: Text parsing, DOM candidate discovery, and section serialization.
+# Connects to: Called by server/src/server/modules/recipes/imports/text.py::{parse_recipe_text(),_dom_nutrition()} and server/src/server/recipe_url_import.py::{_section_kind(),_leading_instruction_label(),_plain_list_label(),extract_recipe_group_structure()}; has no downstream local function calls.
 def recipe_section_name(value: str) -> str | None:
     # NOTE: Sasa renders "Bahan- Bahan"; normalizing whitespace around hyphens
     # handles that markup variation while the final alias lookup remains exact.
@@ -452,7 +452,7 @@ def recipe_section_name(value: str) -> str | None:
 
 
 # Purpose: Recognize paragraph/div elements made entirely from bold emphasis.
-# Connects to: Subgroup detection in DOM serialization and group extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::{_section_kind(),extract_recipe_group_structure(),_serialize_recipe_scope()::visit()}; calls server/src/server/recipe_url_import.py::_normalized_dom_text().
 def _standalone_emphasis_text(tag: Tag) -> str | None:
     if tag.name not in {"p", "div"}:
         return None
@@ -464,7 +464,7 @@ def _standalone_emphasis_text(tag: Tag) -> str | None:
 
 
 # Purpose: Classify a semantic or standalone-emphasis tag as a recipe section heading.
-# Connects to: Recipe candidate selection and scoped DOM serialization.
+# Connects to: Called by server/src/server/recipe_url_import.py::{_recipe_dom_candidate(),_serialize_recipe_scope()::visit()}; calls server/src/server/recipe_url_import.py::{_normalized_dom_text(),_standalone_emphasis_text(),recipe_section_name()}.
 def _section_kind(tag: Tag) -> str | None:
     if tag.name not in _HEADING_TAGS | {"p", "div"}:
         return None
@@ -479,13 +479,13 @@ def _section_kind(tag: Tag) -> str | None:
 
 
 # Purpose: Test whether a tag is contained by a candidate ancestor, including itself.
-# Connects to: Candidate filtering and minimal recipe-root selection.
+# Connects to: Called by server/src/server/recipe_url_import.py::_recipe_dom_candidate(); has no downstream local function calls.
 def _is_descendant(tag: Tag, ancestor: Tag) -> bool:
     return tag is ancestor or any(parent is ancestor for parent in tag.parents)
 
 
 # Purpose: Find the nearest DOM scope containing two recipe section headings.
-# Connects to: Container-text and group-structure extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::{extract_recipe_container_text(),extract_recipe_group_structure()}; has no downstream local function calls.
 def _lowest_common_ancestor(first: Tag, second: Tag) -> Tag:
     first_ancestors = {id(first), *(id(parent) for parent in first.parents)}
     current: Tag | None = second
@@ -498,7 +498,7 @@ def _lowest_common_ancestor(first: Tag, second: Tag) -> Tag:
 
 
 # Purpose: Remove hidden, navigational, advertising, and non-content DOM elements.
-# Connects to: Both fallback text extraction and group-structure extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::{extract_recipe_container_text(),extract_recipe_group_structure()}; calls server/src/server/recipe_url_import.py::{_identifier_matches(),_is_recipe_root()}.
 def _clean_dom(soup: BeautifulSoup) -> None:
     for tag in list(soup.find_all(True)):
         if tag.parent is None:
@@ -529,7 +529,7 @@ def _clean_dom(soup: BeautifulSoup) -> None:
 
 
 # Purpose: Normalize and append non-empty rendered lines to a serialized recipe.
-# Connects to: Recursive DOM serialization and subgroup heading formatting.
+# Connects to: Called by the nested server/src/server/recipe_url_import.py::_serialize_recipe_scope()::visit(); has no downstream local function calls.
 def _append_dom_line(lines: list[str], value: str, *, subgroup: bool = False) -> None:
     for raw_line in value.replace("\xa0", " ").splitlines():
         line = " ".join(raw_line.split())
@@ -540,7 +540,7 @@ def _append_dom_line(lines: list[str], value: str, *, subgroup: bool = False) ->
 
 
 # Purpose: Detect a structured label at the beginning of one instruction list item.
-# Connects to: Instruction serialization and verified group-boundary extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::_instruction_item_parts(); calls server/src/server/recipe_url_import.py::{_normalized_dom_text(),recipe_section_name()}.
 def _leading_instruction_label(tag: Tag) -> str | None:
     # NOTE: Some recipe cards place a short action heading inside each <li>
     # (for example, "Preheat oven"), while others use a leading bold label.
@@ -572,7 +572,7 @@ def _leading_instruction_label(tag: Tag) -> str | None:
 
 
 # Purpose: Split an instruction item into optional label, body, and comparison text.
-# Connects to: Fallback serialization and DOM instruction-group extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::{extract_recipe_group_structure(),_serialize_recipe_scope()::visit()}; calls server/src/server/recipe_url_import.py::{_leading_instruction_label(),_normalized_dom_text()}.
 def _instruction_item_parts(item: Tag) -> tuple[str | None, str, str]:
     label = _leading_instruction_label(item)
     # NOTE: One ordered-list item remains one editable instruction even when its
@@ -599,7 +599,7 @@ def _instruction_item_parts(item: Tag) -> tuple[str | None, str, str]:
 
 
 # Purpose: Serialize the selected recipe DOM scope into deterministic parser input.
-# Connects to: Container-text extraction and the shared recipe text parser.
+# Connects to: Called by server/src/server/recipe_url_import.py::extract_recipe_container_text(); defines and invokes server/src/server/recipe_url_import.py::_serialize_recipe_scope()::visit().
 def _serialize_recipe_scope(
     scope: Tag,
     *,
@@ -616,7 +616,7 @@ def _serialize_recipe_scope(
     inside_instructions = False
 
     # Purpose: Recursively emit relevant content until the recipe scope boundary.
-    # Connects to: The enclosing serializer and all DOM line/section helpers.
+    # Connects to: Defined and first called by server/src/server/recipe_url_import.py::_serialize_recipe_scope(); recursively calls server/src/server/recipe_url_import.py::_serialize_recipe_scope()::visit() plus server/src/server/recipe_url_import.py::{_section_kind(),_append_dom_line(),_normalized_dom_text(),_standalone_emphasis_text(),_instruction_item_parts(),_dom_text_with_breaks()}.
     def visit(tag: Tag) -> bool:
         nonlocal inside_instructions
         if tag is title:
@@ -693,7 +693,7 @@ def _serialize_recipe_scope(
 
 
 # Purpose: Find the immediate child of a scope that contains a descendant tag.
-# Connects to: Safe end-boundary selection for recipe container serialization.
+# Connects to: Called by server/src/server/recipe_url_import.py::extract_recipe_container_text(); has no downstream local function calls.
 def _direct_branch(scope: Tag, descendant: Tag) -> Tag:
     branch = descendant
     while branch.parent is not scope:
@@ -705,7 +705,7 @@ def _direct_branch(scope: Tag, descendant: Tag) -> Tag:
 
 
 # Purpose: Select one unambiguous recipe root, title, and ordered section pair.
-# Connects to: Container-text extraction and DOM group-structure extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::{extract_recipe_container_text(),extract_recipe_group_structure()}; calls server/src/server/recipe_url_import.py::{_section_kind(),_normalized_dom_text(),_is_descendant()} and uses server/src/server/recipe_url_import.py::_is_recipe_root() as a BeautifulSoup predicate.
 def _recipe_dom_candidate(soup: BeautifulSoup) -> tuple[Tag, Tag, Tag, Tag]:
     dom_order = {id(tag): index for index, tag in enumerate(soup.find_all(True))}
     ingredients = [
@@ -762,7 +762,7 @@ def _recipe_dom_candidate(soup: BeautifulSoup) -> tuple[Tag, Tag, Tag, Tag]:
 
 
 # Purpose: Extract a bounded recipe-only text candidate from cleaned page HTML.
-# Connects to: Website import fallback, DOM serializer, and deterministic text parser.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_clean_dom(),_recipe_dom_candidate(),_lowest_common_ancestor(),_direct_branch(),_normalized_dom_text(),_serialize_recipe_scope()}.
 def extract_recipe_container_text(
     html: str,
     *,
@@ -798,7 +798,7 @@ def extract_recipe_container_text(
 
 
 # Purpose: Return descendant tags located between two section markers in DOM order.
-# Connects to: Ingredient and instruction group-structure extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::extract_recipe_group_structure(); has no downstream local function calls.
 def _section_tags(
     scope: Tag,
     start: Tag,
@@ -814,7 +814,7 @@ def _section_tags(
 
 
 # Purpose: Recognize a colon-ended plain-text label immediately followed by a list.
-# Connects to: Ingredient subgroup discovery in DOM structure extraction.
+# Connects to: Called by server/src/server/recipe_url_import.py::extract_recipe_group_structure(); calls server/src/server/recipe_url_import.py::{_normalized_dom_text(),recipe_section_name()}.
 def _plain_list_label(tag: Tag) -> str | None:
     if tag.name not in {"p", "div"}:
         return None
@@ -826,7 +826,7 @@ def _plain_list_label(tag: Tag) -> str | None:
 
 
 # Purpose: Extract verified ingredient and instruction group boundaries from HTML.
-# Connects to: Website primary-draft enrichment and DOM structural helpers.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::_enrich_primary_groups(); calls server/src/server/recipe_url_import.py::{_clean_dom(),_recipe_dom_candidate(),_lowest_common_ancestor(),_section_tags(),_standalone_emphasis_text(),_normalized_dom_text(),_plain_list_label(),recipe_section_name(),_instruction_item_parts()}.
 def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
     soup = BeautifulSoup(html, "html.parser")
     _clean_dom(soup)
@@ -914,7 +914,7 @@ def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
 
 
 # Purpose: Call an optional recipe-scrapers method without failing the full import.
-# Connects to: Structured recipe extraction across fields with inconsistent support.
+# Connects to: Called by server/src/server/recipe_url_import.py::extract_recipe(); invokes the requested method on the recipe-scrapers object and has no downstream local function calls.
 def _optional_value(scraper, method_name: str):
     try:
         return getattr(scraper, method_name)()
@@ -923,7 +923,7 @@ def _optional_value(scraper, method_name: str):
 
 
 # Purpose: Normalize recipe-scrapers output into the low-level extracted recipe model.
-# Connects to: Primary website import, recipe-scrapers, and URL resolution for images.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_optional_value(),extract_recipe()::clean_string(),extract_recipe()::clean_minutes()} and recipe_scrapers.scrape_html().
 def extract_recipe(html: str, url: str) -> ExtractedRecipe:
     try:
         scraper = scrape_html(html, url, supported_only=False)
@@ -960,12 +960,12 @@ def extract_recipe(html: str, url: str) -> ExtractedRecipe:
     ]
 
     # Purpose: Retain only non-empty string values from optional scraper fields.
-    # Connects to: Title, description, yield, and image-related extraction cleanup.
+    # Connects to: Defined and called by server/src/server/recipe_url_import.py::extract_recipe() for title, description, and yield fields; has no downstream local function calls.
     def clean_string(value) -> str | None:
         return value.strip() if isinstance(value, str) and value.strip() else None
 
     # Purpose: Retain only non-negative integer durations from scraper output.
-    # Connects to: Prep and cook time normalization in the extracted recipe model.
+    # Connects to: Defined and called by server/src/server/recipe_url_import.py::extract_recipe() for prep_time and cook_time fields; has no downstream local function calls.
     def clean_minutes(value) -> int | None:
         return value if isinstance(value, int) and value >= 0 else None
 

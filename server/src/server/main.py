@@ -15,7 +15,7 @@ __all__ = ["app", "create_app", "main"]
 
 
 # Purpose: Assemble the FastAPI application, middleware, lifespan, and routers.
-# Connects to: Every feature router plus the shared CORS and lifespan configuration.
+# Connects to: Called by server/src/server/main.py's module-level app initialization; registers server/src/server/core/lifespan.py::app_lifespan(), server/src/server/modules/health/router.py::health_check(), and handlers attached through server/src/server/modules/cookbooks/router.py::router.add_api_route(), server/src/server/modules/households/router.py::router.add_api_route(), server/src/server/modules/notifications/router.py::router.add_api_route(), and server/src/server/modules/recipes/router.py::router.add_api_route().
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Noomori API",
@@ -41,7 +41,7 @@ app = create_app()
 
 
 # Purpose: Launch the local Uvicorn development server for the assembled application.
-# Connects to: The project script entry point and the module-level FastAPI app.
+# Connects to: Called by server/pyproject.toml's server script; serves the module-level app created by server/src/server/main.py::create_app() through uvicorn.run().
 def main() -> None:
     uvicorn.run(
         "server.main:app",

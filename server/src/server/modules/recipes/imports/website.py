@@ -62,14 +62,14 @@ _WEBSITE_IMPORT_STATUS_CODES = {
 
 
 # Purpose: Parse the leading amount from a website nutrition property.
-# Connects to: Structured website normalization and shared nutrition-unit parsing.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::normalize_imported_website_recipe(); calls server/src/server/modules/recipes/imports/text.py::_nutrition_value().
 def _website_nutrition_value(value: str, unit_kind: str) -> float | None:
     amount = _WEBSITE_NUTRITION_AMOUNT.match(value)
     return _nutrition_value(amount.group(), unit_kind) if amount else None
 
 
 # Purpose: Convert extractor output into the app's validated editable recipe schema.
-# Connects to: The primary URL-import path and shared ingredient/nutrition helpers.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/modules/recipes/imports/text.py::{_ingredient(),_is_instruction_marker()} and server/src/server/modules/recipes/imports/website.py::_website_nutrition_value().
 def normalize_imported_website_recipe(
     extracted: ExtractedRecipe,
 ) -> ImportedRecipeTextDraft:
@@ -140,7 +140,7 @@ def normalize_imported_website_recipe(
 
 
 # Purpose: Count ingredient items and instruction steps in an imported draft.
-# Connects to: URL-import completeness checks and extraction diagnostics.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); has no downstream local function calls.
 def _draft_core_counts(draft: ImportedRecipeTextDraft) -> tuple[int, int]:
     return (
         sum(len(group.items) for group in draft.ingredients),
@@ -149,7 +149,7 @@ def _draft_core_counts(draft: ImportedRecipeTextDraft) -> tuple[int, int]:
 
 
 # Purpose: Classify which core recipe sections were absent from primary extraction.
-# Connects to: URL-import fallback telemetry and strategy selection.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); has no downstream local function calls.
 def _missing_primary_reason(ingredient_count: int, instruction_count: int) -> str:
     if not ingredient_count and not instruction_count:
         return "primary_missing_both"
@@ -159,7 +159,7 @@ def _missing_primary_reason(ingredient_count: int, instruction_count: int) -> st
 
 
 # Purpose: Fill missing nutrition from an explicitly per-serving DOM candidate.
-# Connects to: Primary and fallback URL-import paths plus the DOM nutrition parser.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/modules/recipes/imports/text.py::_dom_nutrition().
 def _enrich_dom_nutrition(
     draft: ImportedRecipeTextDraft,
     candidate_text: str,
@@ -176,14 +176,14 @@ def _enrich_dom_nutrition(
 
 
 # Purpose: Canonicalize rendered text for strict DOM-versus-primary comparisons.
-# Connects to: Group-boundary verification during primary draft enrichment.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::_enrich_primary_groups(); has no downstream local function calls.
 def _dom_structure_match(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).casefold()
     return re.sub(r"\s+", "", normalized)
 
 
 # Purpose: Remove a verified rendered group label from the first instruction step.
-# Connects to: DOM instruction-group enrichment after structural comparison.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::_enrich_primary_groups(); has no downstream local function calls.
 def _strip_verified_group_label(value: str, label_prefix: str) -> str | None:
     # NOTE: Keep the DOM's exact rendered prefix (including optional colon) and
     # tolerate whitespace only. This lets semantic headings without colons pass
@@ -201,7 +201,7 @@ def _strip_verified_group_label(value: str, label_prefix: str) -> str | None:
 
 
 # Purpose: Add verified DOM group boundaries without replacing primary recipe values.
-# Connects to: Primary URL import and low-level DOM group extraction.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/modules/recipes/imports/website.py::{_dom_structure_match(),_strip_verified_group_label()} and server/src/server/recipe_url_import.py::extract_recipe_group_structure().
 def _enrich_primary_groups(
     draft: ImportedRecipeTextDraft,
     extracted: ExtractedRecipe,
@@ -301,7 +301,7 @@ def _enrich_primary_groups(
 
 
 # Purpose: Import a recipe URL using structured extraction with a guarded DOM fallback.
-# Connects to: The URL-import route, safe fetcher, extractors, parser, and telemetry.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for POST /recipes/import/url; calls server/src/server/modules/recipes/imports/website.py::{normalize_imported_website_recipe(),_missing_primary_reason(),_draft_core_counts(),_enrich_primary_groups(),_enrich_dom_nutrition()}, server/src/server/recipe_url_import.py::{fetch_public_html(),extract_recipe(),extract_recipe_container_text()}, and server/src/server/modules/recipes/imports/text.py::parse_recipe_text().
 def import_recipe_url(
     payload: ImportRecipeUrlRequest,
     _auth: AuthContext = Depends(get_current_user),
@@ -466,7 +466,7 @@ def import_recipe_url(
 
 
 # Purpose: Proxy a validated remote recipe image without persisting it server-side.
-# Connects to: The image-import route and SSRF-safe public image fetcher.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for POST /recipes/import/image; calls server/src/server/recipe_url_import.py::fetch_public_image().
 def import_recipe_image(
     payload: ImportRecipeUrlRequest,
     _auth: AuthContext = Depends(get_current_user),

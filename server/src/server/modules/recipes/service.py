@@ -29,7 +29,7 @@ HOUSEHOLD_RECIPE_SELECT = "*,household_recipe_shares!inner(recipe_id)"
 
 
 # Purpose: Load the minimal recipe record only when the current user owns it.
-# Connects to: Recipe deletion/image workflows and the Supabase recipes table.
+# Connects to: Called by server/src/server/modules/recipes/service.py::{delete_recipe(),activate_recipe_image(),remove_recipe_image()}; queries Supabase recipes and has no downstream local function calls.
 def get_owned_recipe(auth: AuthContext, recipe_id: UUID) -> dict:
     response = (
         auth.supabase
@@ -47,7 +47,7 @@ def get_owned_recipe(auth: AuthContext, recipe_id: UUID) -> dict:
 
 
 # Purpose: Load a recipe that the current user's RLS permissions allow them to read.
-# Connects to: Recipe detail/sharing flows and the recipes/share relation query.
+# Connects to: Called by server/src/server/modules/recipes/service.py::{get_recipe(),set_recipe_shared()}; queries Supabase recipes with household_recipe_shares and has no downstream local function calls.
 def get_readable_recipe(auth: AuthContext, recipe_id: UUID) -> dict:
     response = (
         auth.supabase
@@ -63,7 +63,7 @@ def get_readable_recipe(auth: AuthContext, recipe_id: UUID) -> dict:
 
 
 # Purpose: Convert submitted free-form recipe text into a structured draft.
-# Connects to: The POST /recipes/import/text route and deterministic text parser.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for POST /recipes/import/text; calls server/src/server/modules/recipes/imports/text.py::parse_recipe_text().
 def import_recipe_text(
     payload: ImportRecipeTextRequest,
     _auth: AuthContext = Depends(get_current_user),
@@ -78,7 +78,7 @@ def import_recipe_text(
 
 
 # Purpose: List the authenticated user's recipes with client-ready image URLs.
-# Connects to: The GET /recipes route, recipes table, and batch image signing.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for GET /recipes; calls server/src/server/modules/recipes/images.py::recipes_with_signed_images() after querying Supabase recipes.
 def list_recipes(auth: AuthContext = Depends(get_current_user)):
     started_at = perf_counter()
     response = (
@@ -103,7 +103,7 @@ def list_recipes(auth: AuthContext = Depends(get_current_user)):
 
 
 # Purpose: List recipes shared into the authenticated user's household.
-# Connects to: The household recipes route, share relation, and image signing.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for GET /household/recipes; calls server/src/server/modules/recipes/images.py::recipes_with_signed_images() after querying Supabase recipes and household_recipe_shares.
 def list_household_recipes(auth: AuthContext = Depends(get_current_user)):
     started_at = perf_counter()
     response = (
@@ -126,7 +126,7 @@ def list_household_recipes(auth: AuthContext = Depends(get_current_user)):
 
 
 # Purpose: Return one readable recipe with share state and a signed image URL.
-# Connects to: The GET recipe route, readable lookup, and image response helper.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for GET /recipes/{recipe_id}; calls server/src/server/modules/recipes/service.py::get_readable_recipe() and server/src/server/modules/recipes/images.py::recipe_with_signed_image().
 def get_recipe(
     recipe_id: UUID,
     auth: AuthContext = Depends(get_current_user),
@@ -135,7 +135,7 @@ def get_recipe(
 
 
 # Purpose: Idempotently save a new recipe using the client-provided creation ID.
-# Connects to: Recipe creation routes, the recipes table, and image response signing.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for POST /recipes and POST /add-recipes; upserts Supabase recipes and calls server/src/server/modules/recipes/images.py::recipe_with_signed_image().
 def create_recipe(
     payload: CreateRecipe,
     recipe_creation_id: UUID = Header(alias="Recipe-Creation-Id"),
@@ -177,7 +177,7 @@ def create_recipe(
 
 
 # Purpose: Update an owned recipe and notify household members when it is shared.
-# Connects to: The PUT recipe route, recipes table, image signing, and push queue.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for PUT /recipes/{recipe_id}; calls server/src/server/modules/recipes/images.py::recipe_with_signed_image() and server/src/server/modules/notifications/service.py::queue_household_recipe_notification().
 def update_recipe(
     recipe_id: UUID,
     payload: CreateRecipe,
@@ -225,7 +225,7 @@ def update_recipe(
 
 
 # Purpose: Apply the desired household-sharing state to an owned recipe.
-# Connects to: Share routes, set_recipe_household_shared RPC, and push notifications.
+# Connects to: Called by server/src/server/modules/recipes/service.py::{share_recipe(),unshare_recipe()}; calls server/src/server/modules/recipes/service.py::get_readable_recipe(), server/src/server/modules/households/service.py::{execute_household_rpc(),raise_household_rpc_error()}, server/src/server/modules/recipes/images.py::recipe_with_signed_image(), and server/src/server/modules/notifications/service.py::queue_household_recipe_notification().
 def set_recipe_shared(
     recipe_id: UUID,
     shared: bool,
@@ -251,7 +251,7 @@ def set_recipe_shared(
 
 
 # Purpose: Expose the shared-state helper as the recipe sharing endpoint.
-# Connects to: The PUT recipe share route and set_recipe_shared.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for PUT /recipes/{recipe_id}/share; calls server/src/server/modules/recipes/service.py::set_recipe_shared().
 def share_recipe(
     recipe_id: UUID,
     auth: AuthContext = Depends(get_current_user),
@@ -261,7 +261,7 @@ def share_recipe(
 
 
 # Purpose: Expose the shared-state helper as the recipe unsharing endpoint.
-# Connects to: The DELETE recipe share route and set_recipe_shared.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for DELETE /recipes/{recipe_id}/share; calls server/src/server/modules/recipes/service.py::set_recipe_shared().
 def unshare_recipe(
     recipe_id: UUID,
     auth: AuthContext = Depends(get_current_user),
@@ -271,7 +271,7 @@ def unshare_recipe(
 
 
 # Purpose: Delete an unshared owned recipe and best-effort remove its stored image.
-# Connects to: The DELETE recipe route, recipes table, and image Storage bucket.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for DELETE /recipes/{recipe_id}; calls server/src/server/modules/recipes/service.py::get_owned_recipe(), deletes from Supabase recipes, and removes from the recipe image Storage bucket.
 def delete_recipe(
     recipe_id: UUID,
     auth: AuthContext = Depends(get_current_user),
@@ -334,7 +334,7 @@ def delete_recipe(
 
 
 # Purpose: Validate a staged WebP object and make it the recipe's active image.
-# Connects to: The PUT recipe image route, recipes table, and image Storage bucket.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for PUT /recipes/{recipe_id}/image; calls server/src/server/modules/recipes/service.py::get_owned_recipe() and server/src/server/modules/recipes/images.py::{valid_recipe_image_path(),recipe_with_signed_image()} while reading/writing Supabase Storage and recipes.
 def activate_recipe_image(
     recipe_id: UUID,
     payload: RecipeImageUpdate,
@@ -404,7 +404,7 @@ def activate_recipe_image(
 
 
 # Purpose: Clear a recipe's image reference and best-effort delete the old object.
-# Connects to: The DELETE recipe image route, recipes table, and Storage bucket.
+# Connects to: Registered by server/src/server/modules/recipes/router.py::router.add_api_route() for DELETE /recipes/{recipe_id}/image; calls server/src/server/modules/recipes/service.py::get_owned_recipe() and server/src/server/modules/recipes/images.py::recipe_with_signed_image() while updating recipes and deleting from Storage.
 def remove_recipe_image(
     recipe_id: UUID,
     auth: AuthContext = Depends(get_current_user),

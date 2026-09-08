@@ -18,7 +18,7 @@ class CookbookTitle(BaseModel):
     title: str = Field(min_length=1, max_length=100)
 
     # Purpose: Trim cookbook titles and reject values that contain only whitespace.
-    # Connects to: Cookbook create and rename payload validation.
+    # Connects to: Called by Pydantic before server/src/server/modules/cookbooks/service.py::{create_cookbook(),rename_cookbook()}; has no downstream local function calls.
     @field_validator("title")
     @classmethod
     def normalize_title(cls, value: str) -> str:
@@ -37,7 +37,7 @@ class ReplaceCookbookRecipes(BaseModel):
 
 
 # Purpose: Execute a cookbook RPC and translate its status into HTTP behavior.
-# Connects to: Supabase cookbook RPCs and the shared RPC response validator.
+# Connects to: Called by server/src/server/modules/cookbooks/service.py::{create_cookbook(),replace_cookbook_recipes()}; calls server/src/server/core/database.py::rpc_result() after Supabase rpc().execute().
 def execute_cookbook_rpc(
     auth: AuthContext,
     name: str,
@@ -67,7 +67,7 @@ def execute_cookbook_rpc(
 
 
 # Purpose: Load a cookbook only when it belongs to the authenticated user.
-# Connects to: Cookbook detail/rename flows and the Supabase cookbooks table.
+# Connects to: Called by server/src/server/modules/cookbooks/service.py::cookbook_detail(); queries the Supabase cookbooks table and has no downstream local function calls.
 def get_owned_cookbook(auth: AuthContext, cookbook_id: UUID) -> dict:
     response = (
         auth.supabase
@@ -84,7 +84,7 @@ def get_owned_cookbook(auth: AuthContext, cookbook_id: UUID) -> dict:
 
 
 # Purpose: Collect the recipe identifiers currently assigned to a cookbook.
-# Connects to: Cookbook detail assembly and the cookbook_recipes join table.
+# Connects to: Called by server/src/server/modules/cookbooks/service.py::cookbook_detail(); queries the Supabase cookbook_recipes table and has no downstream local function calls.
 def cookbook_member_recipe_ids(auth: AuthContext, cookbook_id: UUID) -> list[str]:
     response = (
         auth.supabase
@@ -97,7 +97,7 @@ def cookbook_member_recipe_ids(auth: AuthContext, cookbook_id: UUID) -> list[str
 
 
 # Purpose: Enrich cookbook rows with recipe counts and signed cover images.
-# Connects to: The cookbook list endpoint, recipe membership, and Storage signing.
+# Connects to: Called by server/src/server/modules/cookbooks/service.py::list_cookbooks(); calls server/src/server/modules/recipes/images.py::signed_recipe_image_urls() after querying cookbook_recipes and recipes.
 def cookbook_summary_rows(auth: AuthContext, cookbooks: list[dict]) -> list[dict]:
     if not cookbooks:
         return []
@@ -163,7 +163,7 @@ def cookbook_summary_rows(auth: AuthContext, cookbooks: list[dict]) -> list[dict
 
 
 # Purpose: Assemble one owned cookbook with all of its readable recipe records.
-# Connects to: Cookbook endpoints, membership lookup, recipes, and image signing.
+# Connects to: Called by server/src/server/modules/cookbooks/service.py::{create_cookbook(),get_cookbook(),rename_cookbook(),replace_cookbook_recipes()}; calls server/src/server/modules/cookbooks/service.py::{get_owned_cookbook(),cookbook_member_recipe_ids()} and server/src/server/modules/recipes/images.py::recipes_with_signed_images().
 def cookbook_detail(auth: AuthContext, cookbook_id: UUID) -> dict:
     cookbook = get_owned_cookbook(auth, cookbook_id)
     recipe_ids = cookbook_member_recipe_ids(auth, cookbook_id)
@@ -188,7 +188,7 @@ def cookbook_detail(auth: AuthContext, cookbook_id: UUID) -> dict:
 
 
 # Purpose: Return summaries for every cookbook owned by the current user.
-# Connects to: The GET /cookbooks route and the Supabase cookbooks table.
+# Connects to: Registered by server/src/server/modules/cookbooks/router.py::router.add_api_route() for GET /cookbooks; calls server/src/server/modules/cookbooks/service.py::cookbook_summary_rows().
 def list_cookbooks(auth: AuthContext = Depends(get_current_user)):
     response = (
         auth.supabase
@@ -202,7 +202,7 @@ def list_cookbooks(auth: AuthContext = Depends(get_current_user)):
 
 
 # Purpose: Create a personal cookbook and return its fully assembled detail.
-# Connects to: The POST /cookbooks route and create_personal_cookbook RPC.
+# Connects to: Registered by server/src/server/modules/cookbooks/router.py::router.add_api_route() for POST /cookbooks; calls server/src/server/modules/cookbooks/service.py::{execute_cookbook_rpc(),cookbook_detail()}.
 def create_cookbook(
     payload: CreateCookbook,
     auth: AuthContext = Depends(get_current_user),
@@ -219,7 +219,7 @@ def create_cookbook(
 
 
 # Purpose: Return one cookbook after enforcing authenticated ownership.
-# Connects to: The GET /cookbooks/{cookbook_id} route and detail assembler.
+# Connects to: Registered by server/src/server/modules/cookbooks/router.py::router.add_api_route() for GET /cookbooks/{cookbook_id}; calls server/src/server/modules/cookbooks/service.py::cookbook_detail().
 def get_cookbook(
     cookbook_id: UUID,
     auth: AuthContext = Depends(get_current_user),
@@ -228,7 +228,7 @@ def get_cookbook(
 
 
 # Purpose: Rename an owned cookbook and return its refreshed detail.
-# Connects to: The PUT cookbook route and the Supabase cookbooks table.
+# Connects to: Registered by server/src/server/modules/cookbooks/router.py::router.add_api_route() for PUT /cookbooks/{cookbook_id}; updates Supabase cookbooks and calls server/src/server/modules/cookbooks/service.py::cookbook_detail().
 def rename_cookbook(
     cookbook_id: UUID,
     payload: CookbookTitle,
@@ -253,7 +253,7 @@ def rename_cookbook(
 
 
 # Purpose: Replace a cookbook's complete recipe membership set.
-# Connects to: The recipe-membership route and replace_personal_cookbook_recipes RPC.
+# Connects to: Registered by server/src/server/modules/cookbooks/router.py::router.add_api_route() for PUT /cookbooks/{cookbook_id}/recipes; calls server/src/server/modules/cookbooks/service.py::{execute_cookbook_rpc(),cookbook_detail()}.
 def replace_cookbook_recipes(
     cookbook_id: UUID,
     payload: ReplaceCookbookRecipes,
@@ -271,7 +271,7 @@ def replace_cookbook_recipes(
 
 
 # Purpose: Delete a cookbook owned by the authenticated user.
-# Connects to: The DELETE cookbook route and the Supabase cookbooks table.
+# Connects to: Registered by server/src/server/modules/cookbooks/router.py::router.add_api_route() for DELETE /cookbooks/{cookbook_id}; deletes from Supabase cookbooks and has no downstream local function calls.
 def delete_cookbook(
     cookbook_id: UUID,
     auth: AuthContext = Depends(get_current_user),

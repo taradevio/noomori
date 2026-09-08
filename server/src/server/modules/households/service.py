@@ -25,7 +25,7 @@ class HouseholdJoinCodeRequest(BaseModel):
     code: str = Field(min_length=6, max_length=32)
 
     # Purpose: Normalize human-entered invite codes and require exactly six digits.
-    # Connects to: Household invite preview and join request validation.
+    # Connects to: Called by Pydantic before server/src/server/modules/households/service.py::{preview_household_join_code(),join_household_with_code()}; has no downstream local function calls.
     @field_validator("code")
     @classmethod
     def normalize_code(cls, value: str) -> str:
@@ -40,7 +40,7 @@ class HouseholdActivityRead(BaseModel):
 
 
 # Purpose: Create a keyed, context-bound digest for a household join code.
-# Connects to: Invite-code RPCs and the server-only HMAC configuration secret.
+# Connects to: Called by server/src/server/modules/households/service.py::{replace_household_join_code(),preview_household_join_code(),join_household_with_code()}; reads settings.household_join_code_hmac_key and has no downstream local function calls.
 def household_join_code_digest(code: str) -> str:
     key = settings.household_join_code_hmac_key.get_secret_value().encode("utf-8")
     return hmac.new(
@@ -51,7 +51,7 @@ def household_join_code_digest(code: str) -> str:
 
 
 # Purpose: Extract a PostgreSQL-style error code from Supabase exceptions.
-# Connects to: Household RPC and invite-code conflict handling.
+# Connects to: Called by server/src/server/modules/households/service.py::{execute_household_rpc(),replace_household_join_code()}; inspects exceptions from Supabase rpc().execute().
 def database_error_code(exc: Exception) -> str | None:
     code = getattr(exc, "code", None)
     if isinstance(code, str):
@@ -65,7 +65,7 @@ def database_error_code(exc: Exception) -> str | None:
 
 
 # Purpose: Translate household RPC status values into stable HTTP errors.
-# Connects to: Every household workflow and recipe sharing RPC handling.
+# Connects to: Called by server/src/server/modules/households/service.py::{get_household_settings(),get_household_activity(),mark_household_activity_read(),leave_household(),replace_household_join_code(),revoke_household_join_code(),preview_household_join_code(),join_household_with_code()} and server/src/server/modules/recipes/service.py::set_recipe_shared(); has no downstream local function calls.
 def raise_household_rpc_error(result: dict) -> None:
     status = result["status"]
     if status == "FORBIDDEN":
@@ -107,7 +107,7 @@ def raise_household_rpc_error(result: dict) -> None:
 
 
 # Purpose: Execute an authenticated household RPC with shared failure handling.
-# Connects to: Supabase RPCs, response validation, and household service endpoints.
+# Connects to: Called by server/src/server/modules/households/service.py::{get_household_settings(),get_household_activity(),mark_household_activity_read(),leave_household(),revoke_household_join_code(),preview_household_join_code(),join_household_with_code()}, server/src/server/modules/notifications/service.py::queue_household_recipe_notification(), and server/src/server/modules/recipes/service.py::set_recipe_shared(); calls server/src/server/modules/households/service.py::database_error_code() and server/src/server/core/database.py::rpc_result().
 def execute_household_rpc(
     auth: AuthContext,
     name: str,
@@ -136,7 +136,7 @@ def execute_household_rpc(
 
 
 # Purpose: Return household settings visible to the authenticated member.
-# Connects to: The household settings route and get_household_settings RPC.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for GET /household; calls server/src/server/modules/households/service.py::{execute_household_rpc(),raise_household_rpc_error()}.
 def get_household_settings(auth: AuthContext = Depends(get_current_user)):
     result = execute_household_rpc(auth, "get_household_settings")
     if result["status"] != "OK":
@@ -145,7 +145,7 @@ def get_household_settings(auth: AuthContext = Depends(get_current_user)):
 
 
 # Purpose: Return the current member's household activity feed and unread state.
-# Connects to: The household activity route and get_household_activity RPC.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for GET /household/activity; calls server/src/server/modules/households/service.py::{execute_household_rpc(),raise_household_rpc_error()}.
 def get_household_activity(auth: AuthContext = Depends(get_current_user)):
     result = execute_household_rpc(auth, "get_household_activity")
     if result["status"] != "OK":
@@ -154,7 +154,7 @@ def get_household_activity(auth: AuthContext = Depends(get_current_user)):
 
 
 # Purpose: Mark household activity through a supplied record as read.
-# Connects to: The activity read route and mark_household_activity_read RPC.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for PUT /household/activity/read; calls server/src/server/modules/households/service.py::{execute_household_rpc(),raise_household_rpc_error()}.
 def mark_household_activity_read(
     payload: HouseholdActivityRead,
     auth: AuthContext = Depends(get_current_user),
@@ -170,7 +170,7 @@ def mark_household_activity_read(
 
 
 # Purpose: Remove the current non-owner member from their household.
-# Connects to: The leave-household route and leave_household RPC.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for DELETE /household; calls server/src/server/modules/households/service.py::{execute_household_rpc(),raise_household_rpc_error()}.
 def leave_household(auth: AuthContext = Depends(get_current_user)):
     result = execute_household_rpc(auth, "leave_household")
     if result["status"] != "LEFT":
@@ -179,7 +179,7 @@ def leave_household(auth: AuthContext = Depends(get_current_user)):
 
 
 # Purpose: Generate and store a new unique household invite code for an owner.
-# Connects to: The join-code route, HMAC digest helper, and replacement RPC.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for POST /household/invite; calls server/src/server/modules/households/service.py::{household_join_code_digest(),database_error_code(),raise_household_rpc_error()} and server/src/server/core/database.py::rpc_result().
 def replace_household_join_code(auth: AuthContext = Depends(get_current_user)):
     for _attempt in range(5):
         code = f"{secrets.randbelow(1_000_000):06d}"
@@ -217,7 +217,7 @@ def replace_household_join_code(auth: AuthContext = Depends(get_current_user)):
 
 
 # Purpose: Invalidate the household owner's currently active invite code.
-# Connects to: The join-code revocation route and revoke_household_join_code RPC.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for DELETE /household/invite; calls server/src/server/modules/households/service.py::{execute_household_rpc(),raise_household_rpc_error()}.
 def revoke_household_join_code(auth: AuthContext = Depends(get_current_user)):
     result = execute_household_rpc(auth, "revoke_household_join_code")
     if result["status"] != "OK":
@@ -226,7 +226,7 @@ def revoke_household_join_code(auth: AuthContext = Depends(get_current_user)):
 
 
 # Purpose: Preview the household associated with an invite code without joining it.
-# Connects to: The invite preview route, digest helper, and preview RPC.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for POST /household/join/preview; calls server/src/server/modules/households/service.py::{household_join_code_digest(),execute_household_rpc(),raise_household_rpc_error()}.
 def preview_household_join_code(
     payload: HouseholdJoinCodeRequest,
     auth: AuthContext = Depends(get_current_user),
@@ -242,7 +242,7 @@ def preview_household_join_code(
 
 
 # Purpose: Join the authenticated user to the household identified by an invite code.
-# Connects to: The household join route, digest helper, and join RPC.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for POST /household/join; calls server/src/server/modules/households/service.py::{household_join_code_digest(),execute_household_rpc(),raise_household_rpc_error()}.
 def join_household_with_code(
     payload: HouseholdJoinCodeRequest,
     auth: AuthContext = Depends(get_current_user),
@@ -258,7 +258,7 @@ def join_household_with_code(
 
 
 # Purpose: Create a household, its owner membership, and completed onboarding state.
-# Connects to: The create-household route and households, members, and profiles tables.
+# Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for POST /household; writes Supabase households, household_members, and profiles and has no downstream local function calls.
 def create_household(payload: CreateHousehold, auth: AuthContext = Depends(get_current_user)):
     supabase = auth.supabase
     user_id = auth.user.id
