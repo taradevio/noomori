@@ -1,6 +1,7 @@
 import logging
 import socket
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -48,6 +49,11 @@ DAPUR_FIXTURE_PATH = (
     Path(__file__).resolve().parents[1]
     / "fixtures"
     / "recipe_url_import_dapur_umami.html"
+)
+COOKPAD_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "recipe_url_import_cookpad_groups.html"
 )
 SERIOUS_EATS_FIXTURE_PATH = (
     Path(__file__).resolve().parents[1]
@@ -160,7 +166,7 @@ class RecipeExtractionTest(unittest.TestCase):
         draft = normalize_imported_website_recipe(extracted)
 
         self.assertEqual("Brown Butter Cookies", draft.title)
-        self.assertEqual("Crisp-edged cookies with a soft center.", draft.description)
+        self.assertIsNone(draft.description)
         self.assertEqual(15, draft.prep_time_minutes)
         self.assertEqual(12, draft.cook_time_minutes)
         self.assertEqual(99, draft.total_time_minutes)
@@ -227,12 +233,12 @@ class RecipeExtractionTest(unittest.TestCase):
         self.assertEqual("Soup", draft.title)
         self.assertEqual([], draft.instructions)
 
-    def test_preserves_non_serving_yield_as_note(self):
+    def test_does_not_create_notes_from_description_or_non_serving_yield(self):
         draft = normalize_imported_website_recipe(
             extracted_recipe(yield_text="1 large loaf"),
         )
         self.assertIsNone(draft.servings)
-        self.assertEqual("Simple and warm.\nYield: 1 large loaf", draft.description)
+        self.assertIsNone(draft.description)
 
     def test_explicit_notes_override_description_and_keep_non_serving_yield(self):
         draft = normalize_imported_website_recipe(
@@ -292,11 +298,32 @@ class RecipeExtractionTest(unittest.TestCase):
         )
         self.assertIsNone(draft.nutrition_per_serving)
 
-    def test_requires_structured_nutrition_serving_size(self):
+    def test_accepts_structured_nutrition_with_trusted_serving_yield(self):
         draft = normalize_imported_website_recipe(
             extracted_recipe(nutrients={"calories": "120 kcal"})
         )
-        self.assertIsNone(draft.nutrition_per_serving)
+        self.assertEqual(120, draft.nutrition_per_serving.calories_kcal)
+
+    def test_accepts_porsi_yield_for_servings_and_structured_nutrition(self):
+        draft = normalize_imported_website_recipe(
+            extracted_recipe(
+                yield_text="4 Porsi",
+                nutrients={"calories": "120 kcal"},
+            )
+        )
+        self.assertEqual(4, draft.servings)
+        self.assertEqual(120, draft.nutrition_per_serving.calories_kcal)
+
+    def test_rejects_structured_nutrition_without_serving_semantics(self):
+        for yield_text in (None, "1 loaf"):
+            with self.subTest(yield_text=yield_text):
+                draft = normalize_imported_website_recipe(
+                    extracted_recipe(
+                        yield_text=yield_text,
+                        nutrients={"calories": "120 kcal"},
+                    )
+                )
+                self.assertIsNone(draft.nutrition_per_serving)
 
     def test_nutrition_does_not_count_as_a_useful_recipe_signal(self):
         with self.assertRaises(ValueError):
@@ -336,22 +363,67 @@ class RecipeExtractionTest(unittest.TestCase):
 
 
 class RecipeDomFallbackTest(unittest.TestCase):
-    def test_extracts_one_exact_notes_block_and_passive_duration(self):
+    def test_extracts_nested_notes_until_the_next_section(self):
+        html = """
+        <html><body class="content-sidebar"><article>
+          <h1>Cold Soup</h1>
+          <h2>Ingredients</h2><ul><li>1 cup water</li></ul>
+          <h2>Method</h2><ol><li>Stir.</li></ol>
+          <div><span>Chill:</span><span>1 hr 30 min</span></div>
+          <section>
+            <div class="heading"><h2>Tips &amp; Notes</h2></div>
+            <div class="content">
+              <p>Keep refrigerated.</p>
+              <div><span>Serve cold.</span></div>
+              <button>Share these notes</button>
+              <div class="author"><p>Author biography.</p></div>
+              <div class="comments"><p>Reader comment.</p></div>
+              <div class="ratings"><p>Five stars.</p></div>
+              <div class="purchase"><p>Buy now.</p></div>
+              <div class="promotion"><p>Sponsored product.</p></div>
+            </div>
+          </section>
+          <section><h2>Additional Info</h2><p>Not a note.</p></section>
+        </article></body></html>
+        """
+
+        metadata = extract_recipe_dom_metadata(html)
+
+        self.assertEqual("Keep refrigerated.\nServe cold.", metadata.notes)
+        self.assertEqual("Chill", metadata.additional_time_label)
+        self.assertEqual("1 hr 30 min", metadata.additional_time_text)
+
+    def test_ignores_notes_outside_the_selected_recipe_root(self):
+        html = """
+        <main>
+          <article class="recipe-card">
+            <h1>Cold Soup</h1>
+            <h2>Ingredients</h2><ul><li>1 cup water</li></ul>
+            <h2>Method</h2><ol><li>Stir.</li></ol>
+          </article>
+          <section><h2>Notes</h2><p>Unrelated article notes.</p></section>
+        </main>
+        """
+
+        self.assertIsNone(extract_recipe_dom_metadata(html).notes)
+
+    def test_bounds_standalone_emphasis_notes_heading(self):
         html = """
         <article>
           <h1>Cold Soup</h1>
           <h2>Ingredients</h2><ul><li>1 cup water</li></ul>
           <h2>Method</h2><ol><li>Stir.</li></ol>
-          <div><span>Chill:</span><span>1 hr 30 min</span></div>
-          <h2>Tips &amp; Notes</h2><p>Keep refrigerated.</p>
+          <p><strong>Recipe Notes:</strong></p>
+          <div><p>Keep refrigerated.</p></div>
+          <p><strong>Storage:</strong></p>
+          <p>Not a recipe note.</p>
         </article>
         """
 
-        metadata = extract_recipe_dom_metadata(html)
-
-        self.assertEqual("Keep refrigerated.", metadata.notes)
-        self.assertEqual("Chill", metadata.additional_time_label)
-        self.assertEqual("1 hr 30 min", metadata.additional_time_text)
+        self.assertEqual(
+            "Keep refrigerated.",
+            extract_recipe_dom_metadata(html).notes,
+        )
 
     def test_rejects_ambiguous_notes_and_passive_times_and_ignores_active(self):
         html = """
@@ -1105,7 +1177,10 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
             hostname="example.com",
             response_size=4,
         )
-        fallback_text = "Soup\nIngredients\n- 1 cup water\nMethod\n1. Stir well."
+        fallback_text = (
+            "Soup\nPublisher introduction.\nIngredients\n- 1 cup water\n"
+            "Method\n1. Stir well."
+        )
         cases = (
             (
                 WebsiteImportError("recipe_not_found"),
@@ -1147,6 +1222,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                 self.assertEqual(1, len(response.ingredients[0].items))
                 self.assertEqual("water", response.ingredients[0].items[0].name)
                 self.assertEqual(1, len(response.instructions[0].steps))
+                self.assertIsNone(response.description)
                 self.assertEqual(
                     ("dom_fallback", reason, "none", 0),
                     log.call_args.args[-4:],
@@ -1232,6 +1308,57 @@ Instructions
         )
         dom_nutrition.assert_not_called()
 
+    def test_fallback_preserves_explicit_notes_with_non_serving_yield(self):
+        page = FetchedRecipePage(
+            html="html",
+            url="https://example.com/recipe",
+            hostname="example.com",
+            response_size=4,
+        )
+        primary = extracted_recipe(
+            description="Publisher description",
+            instructions=[],
+            yield_text="1 large loaf",
+        )
+        fallback_text = (
+            "Fallback Soup\nPublisher introduction.\nIngredients\n"
+            "- 2 cups water\nInstructions\n1. Boil the water."
+        )
+
+        with (
+            patch(
+                "server.modules.recipes.imports.website.fetch_public_html",
+                return_value=page,
+            ),
+            patch(
+                "server.modules.recipes.imports.website.extract_recipe_dom_metadata",
+                return_value=ExtractedRecipeDomMetadata(
+                    notes="Keep refrigerated.",
+                    additional_time_label=None,
+                    additional_time_text=None,
+                ),
+            ),
+            patch(
+                "server.modules.recipes.imports.website.extract_recipe",
+                return_value=primary,
+            ),
+            patch(
+                "server.modules.recipes.imports.website.extract_recipe_container_text",
+                return_value=fallback_text,
+            ),
+            patch("server.modules.recipes.imports.website.logger.log"),
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual(
+            "Keep refrigerated.\nYield: 1 large loaf",
+            response.description,
+        )
+        self.assertIsNone(response.servings)
+
     def test_fallback_preserves_total_when_primary_has_too_few_core_signals(self):
         page = FetchedRecipePage(
             html="html",
@@ -1309,7 +1436,7 @@ Instructions
             )
 
         self.assertEqual("Spring Roll Sayur ala SAORI", response.title)
-        self.assertEqual(6, response.servings)
+        self.assertEqual(4, response.servings)
         self.assertEqual(40, response.cook_time_minutes)
         self.assertEqual(
             [("Bahan Utama", 2), ("Bahan Isi", 2)],
@@ -1318,7 +1445,11 @@ Instructions
         self.assertEqual(1, len(response.instructions))
         self.assertIsNone(response.instructions[0].title)
         self.assertEqual(5, len(response.instructions[0].steps))
-        self.assertIsNone(response.nutrition_per_serving)
+        self.assertEqual(576, response.nutrition_per_serving.calories_kcal)
+        self.assertEqual(5.8, response.nutrition_per_serving.protein_g)
+        self.assertEqual(102.5, response.nutrition_per_serving.carbs_g)
+        self.assertEqual(14.8, response.nutrition_per_serving.fat_g)
+        self.assertEqual(1.5, response.nutrition_per_serving.fiber_g)
         self.assertEqual(
             ("recipe_scrapers", "none", "none", 0),
             log.call_args.args[-4:],
@@ -1517,6 +1648,43 @@ Instructions
                         [group.title for group in result.instructions],
                     )
 
+    def test_group_enrichment_rejects_unsafe_or_unverified_label_rows(self):
+        fixture = COOKPAD_FIXTURE_PATH.read_text()
+        list_block = """<li>1 tbsp oil</li>
+        <li class="font-semibold"><span>Spice Mix:</span></li>
+        <li>1 tsp paprika</li>
+        <li>1 tsp garlic powder</li>"""
+        label_last = """<li>1 tbsp oil</li>
+        <li>1 tsp paprika</li>
+        <li>1 tsp garlic powder</li>
+        <li class="font-semibold"><span>Spice Mix:</span></li>"""
+        cases = (
+            fixture.replace("Spice Mix:", "2 Spice Mix:"),
+            fixture.replace("Spice Mix:", "cup Mix:"),
+            fixture.replace(list_block, label_last),
+            fixture.replace('"Spice Mix:",', '"Spice Blend:",', 1),
+        )
+
+        for index, html in enumerate(cases):
+            with self.subTest(index=index):
+                extracted = extract_recipe(
+                    html,
+                    "https://example.com/weeknight-noodles",
+                )
+                draft = normalize_imported_website_recipe(extracted)
+                result, enriched = _enrich_primary_groups(
+                    draft,
+                    extracted,
+                    html,
+                )
+
+                self.assertFalse(enriched)
+                self.assertEqual(
+                    [None],
+                    [group.title for group in result.ingredients],
+                )
+                self.assertEqual(5, len(result.ingredients[0].items))
+
     def test_group_enrichment_never_overwrites_native_groups(self):
         html = SERIOUS_EATS_FIXTURE_PATH.read_text()
         url = "https://www.seriouseats.com/chicken-pot-pie-biscuit-topping-recipe"
@@ -1577,14 +1745,20 @@ Instructions
             "<!-- nutrition-marker -->",
             "<h2>Informasi Nilai Gizi per Porsi</h2>",
         )
+        url = "https://www.dapurumami.com/resep/spring-roll-sayur-ala-saori"
+        primary = replace(extract_recipe(html, url), nutrients={})
         page = FetchedRecipePage(
             html=html,
-            url="https://www.dapurumami.com/resep/spring-roll-sayur-ala-saori",
+            url=url,
             hostname="www.dapurumami.com",
             response_size=len(html.encode()),
         )
         with (
             patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch(
+                "server.modules.recipes.imports.website.extract_recipe",
+                return_value=primary,
+            ),
             patch("server.modules.recipes.imports.website.logger.log") as log,
         ):
             response = import_recipe_url(

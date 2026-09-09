@@ -39,6 +39,7 @@ class ImportRecipeUrlSiteTest(unittest.TestCase):
             [(None, 2), ("Spice Mix", 2)],
             [(group.title, len(group.items)) for group in draft.ingredients],
         )
+        self.assertIsNone(draft.description)
         self.assertEqual(4, sum(len(group.items) for group in draft.ingredients))
         self.assertEqual(2, sum(len(group.steps) for group in draft.instructions))
 
