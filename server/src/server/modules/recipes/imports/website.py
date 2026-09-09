@@ -26,6 +26,7 @@ from server.modules.recipes.schemas import (
     RecipeNutrition,
 )
 from server.recipe_url_import import (
+    ExtractedIngredientGroup,
     ExtractedRecipe,
     WebsiteImportError,
     extract_recipe,
@@ -39,7 +40,7 @@ from server.recipe_url_import import (
 
 logger = logging.getLogger(__name__)
 _SERVING_YIELD = re.compile(
-    r"^(?P<count>[1-9]\d*)\s+servings?\s*$",
+    r"^(?P<count>[1-9]\d*)\s+(?:servings?|porsi)\s*$",
     re.IGNORECASE,
 )
 _WEBSITE_NUTRITION_AMOUNT = re.compile(r"^\s*[\d,.]+\s*[A-Za-z]+")
@@ -71,21 +72,19 @@ def _website_nutrition_value(value: str, unit_kind: str) -> float | None:
     return _nutrition_value(amount.group(), unit_kind) if amount else None
 
 
-# Purpose: Apply Notes/description precedence and interpret only a serving Yield.
+# Purpose: Keep explicit Notes only and interpret a strict serving Yield.
 # Connects to: Called by server/src/server/modules/recipes/imports/website.py::{normalize_imported_website_recipe(),import_recipe_url()}; has no downstream local function calls.
 def _website_description_and_servings(
     extracted: ExtractedRecipe,
     notes: str | None,
 ) -> tuple[str | None, int | None]:
-    description_parts = (
-        [notes or extracted.description] if (notes or extracted.description) else []
-    )
+    description_parts = [notes] if notes else []
     servings = None
     if extracted.yield_text:
         serving_yield = _SERVING_YIELD.fullmatch(extracted.yield_text)
         if serving_yield:
             servings = int(serving_yield.group("count"))
-        else:
+        elif description_parts:
             description_parts.append(f"Yield: {extracted.yield_text}")
     return "\n".join(description_parts) or None, servings
 
@@ -134,7 +133,9 @@ def normalize_imported_website_recipe(
 
     nutrition_values = {}
     serving_size = extracted.nutrients.get("servingSize")
-    if isinstance(serving_size, str) and serving_size.strip():
+    if (
+        isinstance(serving_size, str) and serving_size.strip()
+    ) or servings is not None:
         for source_key, (target_key, unit_kind) in (
             _WEBSITE_NUTRITION_FIELDS.items()
         ):
@@ -226,6 +227,45 @@ def _strip_verified_group_label(value: str, label_prefix: str) -> str | None:
     return stripped or None
 
 
+# Purpose: Strictly map a flat primary ingredient stream onto DOM groups.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::_enrich_primary_groups(); calls server/src/server/modules/recipes/imports/website.py::_dom_structure_match().
+def _match_primary_ingredient_groups(
+    ingredient_lines: list[str],
+    groups: list[ExtractedIngredientGroup],
+) -> list[list[int]] | None:
+    matched_indexes: list[list[int]] = []
+    offset = 0
+    for group in groups:
+        if group.title and offset < len(ingredient_lines):
+            candidate = ingredient_lines[offset].strip()
+            if (
+                candidate.endswith(":")
+                and len(candidate) <= 80
+                and not re.match(r"^[\d.,/\s¼½¾⅓⅔⅛]+", candidate)
+                and not any(
+                    word.rstrip(".").casefold() in _UNITS_BY_LOWER
+                    for word in candidate.removesuffix(":").split()
+                )
+                and _dom_structure_match(candidate.removesuffix(":"))
+                == _dom_structure_match(group.title.removesuffix(":"))
+            ):
+                offset += 1
+
+        group_indexes = []
+        for dom_line in group.ingredients:
+            if (
+                offset >= len(ingredient_lines)
+                or _dom_structure_match(ingredient_lines[offset])
+                != _dom_structure_match(dom_line)
+            ):
+                return None
+            group_indexes.append(offset)
+            offset += 1
+        matched_indexes.append(group_indexes)
+
+    return matched_indexes if offset == len(ingredient_lines) else None
+
+
 # Purpose: Add verified DOM group boundaries without replacing primary recipe values.
 # Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/modules/recipes/imports/website.py::{_dom_structure_match(),_strip_verified_group_label()} and server/src/server/recipe_url_import.py::extract_recipe_group_structure().
 def _enrich_primary_groups(
@@ -248,11 +288,6 @@ def _enrich_primary_groups(
         and len(structure.ingredient_groups) >= 2
     ):
         ingredient_lines = extracted.ingredient_groups[0].ingredients
-        dom_ingredient_lines = [
-            item
-            for group in structure.ingredient_groups
-            for item in group.ingredients
-        ]
         ingredient_titles_valid = all(
             (index == 0 and group.title is None)
             or (
@@ -265,25 +300,30 @@ def _enrich_primary_groups(
             )
             for index, group in enumerate(structure.ingredient_groups)
         )
-        if (
-            ingredient_titles_valid
+        matched_indexes = (
+            _match_primary_ingredient_groups(
+                ingredient_lines,
+                structure.ingredient_groups,
+            )
+            if ingredient_titles_valid
             and len(ingredient_lines) == len(draft.ingredients[0].items)
-            and [_dom_structure_match(line) for line in ingredient_lines]
-            == [_dom_structure_match(line) for line in dom_ingredient_lines]
-        ):
-            ingredient_groups = []
-            offset = 0
-            for group in structure.ingredient_groups:
-                next_offset = offset + len(group.ingredients)
-                ingredient_groups.append(
-                    RecipeIngredientGroup(
-                        title=group.title,
-                        items=draft.ingredients[0].items[offset:next_offset],
-                    )
+            else None
+        )
+        if matched_indexes is not None:
+            updates["ingredients"] = [
+                RecipeIngredientGroup(
+                    title=group.title,
+                    items=[
+                        draft.ingredients[0].items[index]
+                        for index in item_indexes
+                    ],
                 )
-                offset = next_offset
-            if offset == len(draft.ingredients[0].items):
-                updates["ingredients"] = ingredient_groups
+                for group, item_indexes in zip(
+                    structure.ingredient_groups,
+                    matched_indexes,
+                    strict=True,
+                )
+            ]
 
     if (
         len(draft.instructions) == 1
@@ -364,6 +404,7 @@ def import_recipe_url(
         primary_metadata = {}
         extracted = None
         dom_notes = None
+        website_description = None
         additional_time_label = None
         additional_time_minutes = None
         try:
@@ -372,6 +413,7 @@ def import_recipe_url(
             pass
         else:
             dom_notes = dom_metadata.notes
+            website_description = dom_notes
             parsed_additional_time = (
                 _duration_minutes(dom_metadata.additional_time_text)
                 if dom_metadata.additional_time_text
@@ -385,10 +427,10 @@ def import_recipe_url(
             extracted_description, extracted_servings = (
                 _website_description_and_servings(extracted, dom_notes)
             )
+            website_description = extracted_description
             primary_metadata = {
                 field: value
                 for field, value in {
-                    "description": extracted_description,
                     "servings": extracted_servings,
                     "prep_time_minutes": extracted.prep_time_minutes,
                     "cook_time_minutes": extracted.cook_time_minutes,
@@ -493,7 +535,6 @@ def import_recipe_url(
                 update={
                     field: value
                     for field in (
-                        "description",
                         "servings",
                         "prep_time_minutes",
                         "cook_time_minutes",
@@ -508,20 +549,17 @@ def import_recipe_url(
             )
         elif primary_metadata:
             draft = draft.model_copy(update=primary_metadata)
-        elif dom_notes or additional_time_minutes is not None:
+        elif additional_time_minutes is not None:
             draft = draft.model_copy(
                 update={
-                    **({"description": dom_notes} if dom_notes else {}),
-                    **(
-                        {
-                            "additional_time_label": additional_time_label,
-                            "additional_time_minutes": additional_time_minutes,
-                        }
-                        if additional_time_minutes is not None
-                        else {}
-                    ),
+                    "additional_time_label": additional_time_label,
+                    "additional_time_minutes": additional_time_minutes,
                 }
             )
+
+        # Website imports expose explicit recipe Notes only. Clear any prose the
+        # general text fallback interpreted as a description.
+        draft = draft.model_copy(update={"description": website_description})
 
         extraction_strategy = "dom_fallback"
         result = "success"

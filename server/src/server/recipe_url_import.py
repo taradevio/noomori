@@ -51,8 +51,9 @@ _RECIPE_SECTION_NAMES = {
 }
 _RECIPE_IDENTIFIER = re.compile(r"(?:^|[-_])recipe(?:$|[-_])", re.IGNORECASE)
 _NOISE_IDENTIFIER = re.compile(
-    r"(?:^|[-_])(?:ad|ads|advert|advertisement|hidden|nav|navigation|newsletter|"
-    r"related|recommend(?:ation|ations|ed)?|share|sharing|sidebar|social|"
+    r"(?:^|[-_])(?:ad|ads|advert|advertisement|author|comments?|hidden|nav|"
+    r"navigation|newsletter|promotion|purchase|ratings?|related|"
+    r"recommend(?:ation|ations|ed)?|share|sharing|sidebar|social|"
     r"sr-only|visually-hidden)(?:$|[-_])",
     re.IGNORECASE,
 )
@@ -753,7 +754,7 @@ def _clean_dom(soup: BeautifulSoup) -> None:
             # Content sites sometimes mark the whole recipe article as an ad
             # container. Preserve structural roots; nested ad blocks are still
             # removed and roots without recipe sections cannot become candidates.
-            or (noise_identifier and tag.name not in {"article", "main"})
+            or (noise_identifier and tag.name not in {"article", "main", "body"})
         ):
             tag.decompose()
 
@@ -1187,6 +1188,42 @@ def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
     )
 
 
+# Purpose: Collect one Notes section across nested wrappers without crossing its boundary.
+# Connects to: Called by server/src/server/recipe_url_import.py::extract_recipe_dom_metadata(); calls server/src/server/recipe_url_import.py::{_normalized_dom_text(),_standalone_emphasis_text()}.
+def _bounded_notes_text(root: Tag, heading: Tag) -> str | None:
+    heading_level = (
+        int(heading.name[1]) if heading.name in _HEADING_TAGS else None
+    )
+    lines: list[str] = []
+    after_heading = False
+    for tag in root.find_all(True):
+        if tag is heading:
+            after_heading = True
+            continue
+        if not after_heading or heading in tag.parents:
+            continue
+        if tag.name in _HEADING_TAGS and (
+            heading_level is None or int(tag.name[1]) <= heading_level
+        ):
+            break
+        if heading_level is None and _standalone_emphasis_text(tag):
+            break
+        if tag.name == "button" or tag.find_parent("button") is not None:
+            continue
+        if tag.name not in {"p", "li", "dd", "div", "section", "span"}:
+            continue
+        if tag.find(
+            [*(_HEADING_TAGS), "p", "li", "dd", "div", "section", "span"]
+        ):
+            continue
+        text = _normalized_dom_text(tag)
+        if text:
+            lines.append(text)
+
+    candidate = "\n".join(lines).strip()
+    return candidate if candidate and len(candidate) <= 20_000 else None
+
+
 # Purpose: Extract one exact Notes block and one recognized passive time label/value.
 # Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_clean_dom(),_recipe_dom_candidate(),_normalized_dom_text(),_standalone_emphasis_text()}.
 def extract_recipe_dom_metadata(html: str) -> ExtractedRecipeDomMetadata:
@@ -1206,26 +1243,7 @@ def extract_recipe_dom_metadata(html: str) -> ExtractedRecipeDomMetadata:
 
     notes = None
     if len(note_headings) == 1:
-        heading = note_headings[0]
-        heading_level = (
-            int(heading.name[1]) if heading.name in _HEADING_TAGS else None
-        )
-        lines: list[str] = []
-        sibling = heading.find_next_sibling()
-        while isinstance(sibling, Tag):
-            if (
-                heading_level is not None
-                and sibling.name in _HEADING_TAGS
-                and int(sibling.name[1]) <= heading_level
-            ):
-                break
-            text = _normalized_dom_text(sibling)
-            if text:
-                lines.append(text)
-            sibling = sibling.find_next_sibling()
-        candidate = "\n".join(lines).strip()
-        if candidate and len(candidate) <= 20_000:
-            notes = candidate
+        notes = _bounded_notes_text(root, note_headings[0])
 
     passive_times: list[tuple[str, str]] = []
     for tag in root.find_all(["span", "p", "div", "dt"]):
