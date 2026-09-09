@@ -22,7 +22,10 @@ import type {
   RecipeSourceType,
 } from "@/shared/types";
 
-import { nutritionFields } from "./recipe-calculations";
+import {
+  formatEditableIngredientAmount,
+  nutritionFields,
+} from "./recipe-calculations";
 import {
   formatDuration,
   RecipeDurationPicker,
@@ -85,10 +88,14 @@ function cloneDraft(draft: RecipeDraft): RecipeDraft {
   };
 }
 
-function formatScaledAmount(snapshot: AmountSnapshot, servings: number) {
+function formatScaledAmount(
+  snapshot: AmountSnapshot,
+  servings: number,
+  unit: string,
+) {
   if (servings === snapshot.baseServings) return snapshot.baseRaw;
   const scaled = (snapshot.baseAmount * servings) / snapshot.baseServings;
-  return Number(scaled.toFixed(4)).toString();
+  return formatEditableIngredientAmount(scaled, unit);
 }
 
 function positiveServingCount(value: string) {
@@ -124,6 +131,7 @@ function FormInput({
   error,
   multiline,
   keyboardType,
+  maxLength,
   onBlur,
   onChangeText,
   placeholder,
@@ -134,6 +142,7 @@ function FormInput({
   error?: string | null;
   multiline?: boolean;
   keyboardType?: KeyboardTypeOptions;
+  maxLength?: number;
   onBlur?: () => void;
   onChangeText: (value: string) => void;
   placeholder?: string;
@@ -153,6 +162,7 @@ function FormInput({
         accessibilityLabel={accessibilityLabel}
         className={`${multiline ? "min-h-[112px]" : "min-h-[52px]"} rounded-xl border-2 bg-surface px-4 py-3 text-base font-normal leading-6 text-text-primary ${border}`}
         keyboardType={keyboardType}
+        maxLength={maxLength}
         multiline={wraps}
         onBlur={() => {
           setFocused(false);
@@ -262,9 +272,9 @@ export function RecipeForm({
   const [nutritionTouched, setNutritionTouched] = useState<
     Partial<Record<keyof RecipeNutrition, boolean>>
   >({});
-  const [durationField, setDurationField] = useState<"prep" | "cook" | null>(
-    null,
-  );
+  const [durationField, setDurationField] = useState<
+    "prep" | "cook" | "total" | "additional" | null
+  >(null);
   const [unitIngredientId, setUnitIngredientId] = useState<string | null>(null);
   const [baseServingsInput, setBaseServingsInput] = useState("");
 
@@ -581,7 +591,11 @@ export function RecipeForm({
             }
             return {
               ...ingredient,
-              amount: formatScaledAmount(snapshot, nextServings),
+              amount: formatScaledAmount(
+                snapshot,
+                nextServings,
+                ingredient.unit,
+              ),
             };
           }),
         })),
@@ -709,6 +723,23 @@ export function RecipeForm({
       source: { type, name: "", url: "" },
     }));
   };
+
+  const durationPickerLabel =
+    durationField === "cook"
+      ? "Cook time"
+      : durationField === "total"
+        ? "Total time"
+        : durationField === "additional"
+          ? "Additional duration"
+          : "Prep time";
+  const durationPickerValue =
+    durationField === "cook"
+      ? draft.cookMinutes
+      : durationField === "total"
+        ? draft.totalMinutes
+        : durationField === "additional"
+          ? draft.additionalTimeMinutes
+          : draft.prepMinutes;
 
   return (
     <View className="flex-1 bg-background">
@@ -842,13 +873,25 @@ export function RecipeForm({
                 body="Choose structured times so recipes stay easy to scan."
                 title="Timing"
               />
-              <View className="flex-row gap-3">
-                {(["prep", "cook"] as const).map((field) => {
+              <View className="flex-row flex-wrap gap-3">
+                {(["prep", "cook", "total"] as const).map((field) => {
                   const value =
-                    field === "prep" ? draft.prepMinutes : draft.cookMinutes;
-                  const label = field === "prep" ? "Prep time" : "Cook time";
+                    field === "prep"
+                      ? draft.prepMinutes
+                      : field === "cook"
+                        ? draft.cookMinutes
+                        : draft.totalMinutes;
+                  const label =
+                    field === "prep"
+                      ? "Prep time"
+                      : field === "cook"
+                        ? "Cook time"
+                        : "Total time";
                   return (
-                    <View className="flex-1" key={field}>
+                    <View
+                      className={field === "total" ? "w-full" : "flex-1"}
+                      key={field}
+                    >
                       <Text className="mb-2 text-sm font-bold text-text-primary">
                         {label}
                       </Text>
@@ -875,6 +918,51 @@ export function RecipeForm({
                     </View>
                   );
                 })}
+              </View>
+              <View className="gap-3">
+                <View>
+                  <Text className="mb-2 text-sm font-bold text-text-primary">
+                    Additional time label
+                  </Text>
+                  <FormInput
+                    accessibilityLabel="Additional time label"
+                    error={validationErrors.timing}
+                    maxLength={40}
+                    onChangeText={(additionalTimeLabel) =>
+                      setDraft((current) => ({
+                        ...current,
+                        additionalTimeLabel,
+                      }))
+                    }
+                    placeholder="e.g. Chill"
+                    value={draft.additionalTimeLabel}
+                  />
+                </View>
+                <View>
+                  <Text className="mb-2 text-sm font-bold text-text-primary">
+                    Additional duration
+                  </Text>
+                  <Pressable
+                    accessibilityHint="Opens additional duration choices."
+                    accessibilityRole="button"
+                    className="min-h-[52px] flex-row items-center justify-between gap-2 rounded-xl border-2 border-border bg-surface px-3 py-3 focus:border-primary-strong active:bg-surface-subtle"
+                    onPress={() => setDurationField("additional")}
+                  >
+                    <Text className="shrink text-base font-medium text-text-primary">
+                      {formatDuration(draft.additionalTimeMinutes)}
+                    </Text>
+                    <SymbolView
+                      accessible={false}
+                      name={{
+                        ios: "chevron.down",
+                        android: "keyboard_arrow_down",
+                        web: "keyboard_arrow_down",
+                      }}
+                      size={18}
+                      tintColor={colorTokens.textSecondary}
+                    />
+                  </Pressable>
+                </View>
               </View>
             </View>
 
@@ -1468,16 +1556,23 @@ export function RecipeForm({
 
       <RecipeDurationPicker
         isOpen={durationField !== null}
-        label={durationField === "cook" ? "Cook time" : "Prep time"}
+        label={durationPickerLabel}
         onDismiss={() => setDurationField(null)}
         onSelect={(minutes) => {
-          setDraft((current) =>
-            durationField === "cook"
-              ? { ...current, cookMinutes: minutes }
-              : { ...current, prepMinutes: minutes },
-          );
+          setDraft((current) => {
+            if (durationField === "cook") {
+              return { ...current, cookMinutes: minutes };
+            }
+            if (durationField === "total") {
+              return { ...current, totalMinutes: minutes };
+            }
+            if (durationField === "additional") {
+              return { ...current, additionalTimeMinutes: minutes };
+            }
+            return { ...current, prepMinutes: minutes };
+          });
         }}
-        value={durationField === "cook" ? draft.cookMinutes : draft.prepMinutes}
+        value={durationPickerValue}
       />
 
       <RecipeUnitPicker

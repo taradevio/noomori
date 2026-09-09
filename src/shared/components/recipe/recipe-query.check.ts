@@ -27,6 +27,9 @@ function recipe(id: string, title = id): ApiRecipe {
     servings: 1,
     prep_time_minutes: null,
     cook_time_minutes: null,
+    total_time_minutes: null,
+    additional_time_label: null,
+    additional_time_minutes: null,
     nutrition_per_serving: null,
     source_type: "my_recipe",
     source_person_name: null,
@@ -43,12 +46,23 @@ const first = recipe("first");
 const second = recipe("second");
 const shared = { ...recipe("shared"), is_shared: true };
 const peerShared = { ...recipe("peer-shared"), is_shared: true };
+const timed = {
+  ...recipe("timed"),
+  prep_time_minutes: 10,
+  cook_time_minutes: 20,
+  total_time_minutes: 45,
+};
 
 assert(
   toRecipeCard(shared).isShared &&
     toRecipeCard(shared).servings === 1 &&
     toRecipeDetail(shared).isShared,
   "Shared and servings state should map to the card model.",
+);
+assert(
+  toRecipeCard(timed).cookingTimeMinutes === 45 &&
+    toRecipeCard({ ...timed, total_time_minutes: 0 }).cookingTimeMinutes === 30,
+  "Cards should prefer a positive extractor total and fall back to prep plus cook.",
 );
 
 queryClient.setQueryData(recipeKeys.list, [first, second]);

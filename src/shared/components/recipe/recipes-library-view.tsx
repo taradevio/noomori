@@ -448,6 +448,7 @@ function LibraryPage({
               item={item.item}
               onImageError={onRecipeImageError}
               onPress={onRecipePress}
+              showSharedBadge={!isHousehold}
               width={cardWidth}
             />
           );

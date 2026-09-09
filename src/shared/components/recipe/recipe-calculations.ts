@@ -103,6 +103,7 @@ const convertibleUnits: Record<string, ConvertibleUnit> = {
 const cookingFractions = [
   { value: 0, label: "" },
   { value: 1 / 8, label: "1/8" },
+  { value: 1 / 6, label: "1/6" },
   { value: 1 / 4, label: "1/4" },
   { value: 1 / 3, label: "1/3" },
   { value: 1 / 2, label: "1/2" },
@@ -182,6 +183,13 @@ function cookingAmount(value: number) {
   return decimal(value, 3);
 }
 
+export function formatEditableIngredientAmount(value: number, unit: string) {
+  const source = convertibleUnits[unit.trim().toLowerCase()];
+  return source && ["tsp", "tbsp", "cup"].includes(source.unit)
+    ? cookingAmount(value)
+    : decimal(value, 4);
+}
+
 function baseAmountForMode(
   value: number,
   source: ConvertibleUnit,
@@ -238,9 +246,8 @@ export function formatIngredientMeasurement(
   }
 
   if (mode === "original") {
-    const usesCookingFractions = ["tsp", "tbsp", "cup"].includes(source.unit);
     return {
-      amount: usesCookingFractions ? cookingAmount(scaled) : decimal(scaled, 4),
+      amount: formatEditableIngredientAmount(scaled, unit),
       unit: displayUnit(unit, scaled),
     };
   }

@@ -116,6 +116,9 @@ export type RecipeDraft = {
   photo: RecipePhotoDraft | null;
   prepMinutes: number | null;
   cookMinutes: number | null;
+  totalMinutes: number | null;
+  additionalTimeLabel: string;
+  additionalTimeMinutes: number | null;
   servings: number | null;
   ingredientGroups: RecipeIngredientGroup[];
   instructionGroups: RecipeInstructionGroup[];

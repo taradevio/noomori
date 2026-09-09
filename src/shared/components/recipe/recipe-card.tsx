@@ -12,6 +12,7 @@ type RecipeCardProps = {
   item: RecipeCardModel;
   onImageError?: (imagePath: string) => void;
   onPress?: (recipeId: string) => void;
+  showSharedBadge?: boolean;
   width: number;
 };
 
@@ -33,6 +34,7 @@ export function RecipeCard({
   item,
   onImageError,
   onPress,
+  showSharedBadge = true,
   width,
 }: RecipeCardProps) {
   const [focused, setFocused] = useState(false);
@@ -43,7 +45,7 @@ export function RecipeCard({
     item.servings === null
       ? null
       : `${item.servings} serving${item.servings === 1 ? "" : "s"}`;
-  const sharedLabel = getSharedLabel(item);
+  const sharedLabel = showSharedBadge ? getSharedLabel(item) : null;
   const cookbookName = item.cookbookName?.trim() || null;
   const imageUrl = item.imageUrl?.trim() || null;
   const accessibilityParts = [

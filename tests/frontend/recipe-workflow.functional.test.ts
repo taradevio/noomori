@@ -1,7 +1,10 @@
 // NOTE: Retrospective regression coverage for behavior implemented before TDD adoption.
 import { QueryClient } from "@tanstack/react-query";
 
-import { formatIngredientMeasurement } from "@/shared/components/recipe/recipe-calculations";
+import {
+  formatEditableIngredientAmount,
+  formatIngredientMeasurement,
+} from "@/shared/components/recipe/recipe-calculations";
 import {
   toRecipeCreatePayload,
   validateRecipeDraft,
@@ -25,6 +28,9 @@ const draft: RecipeDraft = {
   photo: null,
   prepMinutes: 10,
   cookMinutes: 20,
+  totalMinutes: 45,
+  additionalTimeLabel: "Rest",
+  additionalTimeMinutes: 15,
   servings: 2,
   ingredientGroups: [
     {
@@ -78,6 +84,9 @@ function apiRecipe(changes: Partial<ApiRecipe> = {}): ApiRecipe {
     servings: 2,
     prep_time_minutes: 10,
     cook_time_minutes: 20,
+    total_time_minutes: 45,
+    additional_time_label: "Rest",
+    additional_time_minutes: 15,
     nutrition_per_serving: { calories_kcal: 120, protein_g: 5 },
     source_type: "family",
     source_person_name: "Grandma",
@@ -94,6 +103,9 @@ describe("recipe functional workflow", () => {
       servings: 2,
       source_type: "family",
       source_person_name: "Grandma",
+      total_time_minutes: 45,
+      additional_time_label: "Rest",
+      additional_time_minutes: 15,
       ingredients: [{ items: [{ quantity: 1.5, unit: "cup" }] }],
       instructions: [{ steps: [{ text: "Simmer." }] }],
     });
@@ -105,6 +117,15 @@ describe("recipe functional workflow", () => {
     });
     expect(toRecipeCard(apiRecipe()).servings).toBe(2);
     expect(toRecipeDetail(apiRecipe()).prepMinutes).toBe(10);
+    expect(toRecipeDetail(apiRecipe())).toMatchObject({
+      totalMinutes: 45,
+      additionalTimeLabel: "Rest",
+      additionalTimeMinutes: 15,
+    });
+    expect(toRecipeCard(apiRecipe()).cookingTimeMinutes).toBe(45);
+    expect(
+      toRecipeCard(apiRecipe({ total_time_minutes: 0 })).cookingTimeMinutes,
+    ).toBe(30);
 
     expect(
       toRecipeCreatePayload({ ...draft, servings: null }).servings,
@@ -124,6 +145,29 @@ describe("recipe functional workflow", () => {
       amount: "240",
       unit: "ml",
     });
+    expect(formatEditableIngredientAmount(0.25, "cup")).toBe("1/4");
+    expect(formatEditableIngredientAmount(0.333333, "cup")).toBe("1/3");
+    expect(formatEditableIngredientAmount(1 / 6, "cup")).toBe("1/6");
+    expect(formatEditableIngredientAmount(0.29, "cup")).toBe("0.29");
+    expect(formatEditableIngredientAmount(0.25, "g")).toBe("0.25");
+
+    const importedCup = toRecipeDraft(
+      apiRecipe({
+        ingredients: [
+          {
+            title: null,
+            items: [{ name: "stock", quantity: 0.25, unit: "cup", note: null }],
+          },
+        ],
+      }),
+    );
+    expect(importedCup.ingredientGroups[0].ingredients[0]).toMatchObject({
+      amount: "1/4",
+      unit: "cup",
+    });
+    expect(
+      toRecipeCreatePayload(importedCup).ingredients[0].items[0],
+    ).toMatchObject({ quantity: 0.25, unit: "cup" });
   });
 
   it("keeps personal and household caches synchronized through create, share, edit, and delete", () => {
@@ -165,6 +209,12 @@ describe("recipe functional workflow", () => {
             ],
           },
         ],
+      }),
+    ).toThrow("Invalid recipe draft");
+    expect(() =>
+      toRecipeCreatePayload({
+        ...draft,
+        additionalTimeLabel: "",
       }),
     ).toThrow("Invalid recipe draft");
   });

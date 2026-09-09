@@ -138,6 +138,7 @@ describe("recipe and cookbook library workflow", () => {
       />,
     );
     expect(screen.getByText("2 items")).toBeTruthy();
+    expect(screen.queryByText("Shared")).toBeNull();
     await fireEvent.changeText(
       screen.getByTestId("library-recipes-search-input"),
       "tomato",

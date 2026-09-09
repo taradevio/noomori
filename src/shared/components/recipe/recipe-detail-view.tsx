@@ -105,6 +105,12 @@ export function RecipeDetailView({
   );
   const prep = formatDuration(recipe.prepMinutes);
   const cook = formatDuration(recipe.cookMinutes);
+  const total =
+    recipe.totalMinutes === null ? null : formatDuration(recipe.totalMinutes);
+  const additional =
+    recipe.additionalTimeMinutes === null
+      ? null
+      : formatDuration(recipe.additionalTimeMinutes);
   const recipeSourceLabel = sourceLabel(recipe);
   const canManage = Boolean(onEdit && onDelete);
   const isBusy = isDeleting || isSharing;
@@ -329,6 +335,16 @@ export function RecipeDetailView({
               {cook ? (
                 <Text className="text-sm leading-5 text-text-secondary">
                   Cook {cook}
+                </Text>
+              ) : null}
+              {total ? (
+                <Text className="text-sm leading-5 text-text-secondary">
+                  Total {total}
+                </Text>
+              ) : null}
+              {additional && recipe.additionalTimeLabel.trim() ? (
+                <Text className="text-sm leading-5 text-text-secondary">
+                  {recipe.additionalTimeLabel.trim()} {additional}
                 </Text>
               ) : null}
               {hasBaseServings ? (

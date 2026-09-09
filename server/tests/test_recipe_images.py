@@ -184,9 +184,12 @@ class RecipeUpdateTest(unittest.TestCase):
             supabase=FakeUpdateSupabase(recipe),
         )
 
-    def payload(self):
-        values = {"title": "Updated recipe"}
-        return SimpleNamespace(model_dump=lambda mode: values)
+    def payload(self, values=None, fields_set=None):
+        values = values or {"title": "Updated recipe"}
+        payload = SimpleNamespace(model_dump=lambda mode: dict(values))
+        if fields_set is not None:
+            payload.model_fields_set = fields_set
+        return payload
 
     def test_updates_with_one_database_request(self):
         auth = self.auth(
@@ -211,6 +214,61 @@ class RecipeUpdateTest(unittest.TestCase):
 
         self.assertEqual(404, raised.exception.status_code)
         self.assertEqual(1, auth.supabase.table_calls)
+
+    def test_legacy_update_omits_unset_new_time_fields(self):
+        auth = self.auth(
+            {
+                "id": str(self.recipe_id),
+                "owner_user_id": self.owner_id,
+                "image_path": None,
+                "total_time_minutes": 75,
+                "additional_time_label": "Rest",
+                "additional_time_minutes": 15,
+            }
+        )
+        values = {
+            "title": "Updated recipe",
+            "total_time_minutes": None,
+            "additional_time_label": None,
+            "additional_time_minutes": None,
+        }
+
+        recipe = update_recipe(
+            self.recipe_id,
+            self.payload(values, {"title"}),
+            auth,
+        )
+
+        self.assertEqual(75, recipe["total_time_minutes"])
+        self.assertNotIn("total_time_minutes", auth.supabase.recipes.values)
+
+    def test_explicit_null_clears_new_time_fields(self):
+        auth = self.auth(
+            {
+                "id": str(self.recipe_id),
+                "owner_user_id": self.owner_id,
+                "image_path": None,
+                "total_time_minutes": 75,
+                "additional_time_label": "Rest",
+                "additional_time_minutes": 15,
+            }
+        )
+        values = {
+            "title": "Updated recipe",
+            "total_time_minutes": None,
+            "additional_time_label": None,
+            "additional_time_minutes": None,
+        }
+
+        recipe = update_recipe(
+            self.recipe_id,
+            self.payload(values, set(values)),
+            auth,
+        )
+
+        self.assertIsNone(recipe["total_time_minutes"])
+        self.assertIsNone(recipe["additional_time_label"])
+        self.assertIsNone(recipe["additional_time_minutes"])
 
     def test_shared_update_queues_an_edited_notification(self):
         auth = self.auth(

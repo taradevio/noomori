@@ -16,19 +16,22 @@ from server.modules.recipes.imports.website import (
     import_recipe_url,
     normalize_imported_website_recipe,
 )
-from server.modules.recipes.schemas import ImportRecipeUrlRequest
+from server.modules.recipes.schemas import CreateRecipe, ImportRecipeUrlRequest
 from server.modules.recipes.router import router as recipe_router
 from server.recipe_url_import import (
     MAX_HTML_BYTES,
     MAX_IMAGE_BYTES,
+    HTML_USER_AGENT,
     ExtractedIngredientGroup,
     ExtractedRecipe,
+    ExtractedRecipeDomMetadata,
     FetchedRecipeImage,
     FetchedRecipePage,
     WebsiteImportError,
     _validated_target,
     extract_recipe,
     extract_recipe_container_text,
+    extract_recipe_dom_metadata,
     fetch_public_html,
     fetch_public_image,
 )
@@ -120,6 +123,33 @@ class RecipeUrlRequestTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ImportRecipeUrlRequest(url="https://example.com/" + "x" * 2048)
 
+    def test_recipe_timing_schema_requires_a_complete_additional_pair(self):
+        values = {
+            "title": "Soup",
+            "ingredients": [],
+            "instructions": [],
+            "source_type": "my_recipe",
+        }
+        recipe = CreateRecipe(
+            **values,
+            total_time_minutes=0,
+            additional_time_label="  Rest  ",
+            additional_time_minutes=15,
+        )
+        self.assertEqual("Rest", recipe.additional_time_label)
+
+        for timing in (
+            {"additional_time_label": "Rest"},
+            {"additional_time_minutes": 15},
+            {"total_time_minutes": -1},
+            {
+                "additional_time_label": "x" * 41,
+                "additional_time_minutes": 15,
+            },
+        ):
+            with self.subTest(timing=timing), self.assertRaises(ValidationError):
+                CreateRecipe(**values, **timing)
+
 
 class RecipeExtractionTest(unittest.TestCase):
     def test_extracts_and_normalizes_json_ld_fixture(self):
@@ -133,6 +163,7 @@ class RecipeExtractionTest(unittest.TestCase):
         self.assertEqual("Crisp-edged cookies with a soft center.", draft.description)
         self.assertEqual(15, draft.prep_time_minutes)
         self.assertEqual(12, draft.cook_time_minutes)
+        self.assertEqual(99, draft.total_time_minutes)
         self.assertEqual(8, draft.servings)
         self.assertEqual(1.5, draft.ingredients[0].items[0].quantity)
         self.assertEqual(0.5, draft.ingredients[0].items[1].quantity)
@@ -203,6 +234,18 @@ class RecipeExtractionTest(unittest.TestCase):
         self.assertIsNone(draft.servings)
         self.assertEqual("Simple and warm.\nYield: 1 large loaf", draft.description)
 
+    def test_explicit_notes_override_description_and_keep_non_serving_yield(self):
+        draft = normalize_imported_website_recipe(
+            extracted_recipe(yield_text="1 large loaf"),
+            notes="Keep refrigerated.",
+            additional_time_label="Chill",
+            additional_time_minutes=90,
+        )
+
+        self.assertEqual("Keep refrigerated.\nYield: 1 large loaf", draft.description)
+        self.assertEqual("Chill", draft.additional_time_label)
+        self.assertEqual(90, draft.additional_time_minutes)
+
     def test_rejects_insufficient_recipe_data(self):
         with self.assertRaises(ValueError):
             normalize_imported_website_recipe(
@@ -217,6 +260,7 @@ class RecipeExtractionTest(unittest.TestCase):
         draft = normalize_imported_website_recipe(
             extracted_recipe(
                 nutrients={
+                    "servingSize": "1 bowl",
                     "calories": "120 kcal",
                     "proteinContent": "7 grams protein",
                     "fatContent": "many grams fat",
@@ -245,6 +289,12 @@ class RecipeExtractionTest(unittest.TestCase):
                     "transFatContent": "3 grams trans fat",
                 }
             )
+        )
+        self.assertIsNone(draft.nutrition_per_serving)
+
+    def test_requires_structured_nutrition_serving_size(self):
+        draft = normalize_imported_website_recipe(
+            extracted_recipe(nutrients={"calories": "120 kcal"})
         )
         self.assertIsNone(draft.nutrition_per_serving)
 
@@ -286,6 +336,66 @@ class RecipeExtractionTest(unittest.TestCase):
 
 
 class RecipeDomFallbackTest(unittest.TestCase):
+    def test_extracts_one_exact_notes_block_and_passive_duration(self):
+        html = """
+        <article>
+          <h1>Cold Soup</h1>
+          <h2>Ingredients</h2><ul><li>1 cup water</li></ul>
+          <h2>Method</h2><ol><li>Stir.</li></ol>
+          <div><span>Chill:</span><span>1 hr 30 min</span></div>
+          <h2>Tips &amp; Notes</h2><p>Keep refrigerated.</p>
+        </article>
+        """
+
+        metadata = extract_recipe_dom_metadata(html)
+
+        self.assertEqual("Keep refrigerated.", metadata.notes)
+        self.assertEqual("Chill", metadata.additional_time_label)
+        self.assertEqual("1 hr 30 min", metadata.additional_time_text)
+
+    def test_rejects_ambiguous_notes_and_passive_times_and_ignores_active(self):
+        html = """
+        <article>
+          <h1>Bread</h1>
+          <h2>Ingredients</h2><ul><li>1 cup flour</li></ul>
+          <h2>Method</h2><ol><li>Mix.</li></ol>
+          <div><span>Rest:</span><span>30 min</span></div>
+          <div><span>Proof:</span><span>1 hr</span></div>
+          <div><span>Active:</span><span>10 min</span></div>
+          <h2>Notes</h2><p>First.</p>
+          <h2>Recipe Notes</h2><p>Second.</p>
+        </article>
+        """
+
+        metadata = extract_recipe_dom_metadata(html)
+
+        self.assertIsNone(metadata.notes)
+        self.assertIsNone(metadata.additional_time_label)
+        self.assertIsNone(metadata.additional_time_text)
+
+    def test_recognizes_only_supported_passive_time_aliases(self):
+        template = """
+        <article>
+          <h1>Bread</h1>
+          <h2>Ingredients</h2><ul><li>1 cup flour</li></ul>
+          <h2>Method</h2><ol><li>Mix.</li></ol>
+          <div><span>{label}:</span><span>20 min</span></div>
+        </article>
+        """
+        for source, expected in (
+            ("Rest", "Rest"),
+            ("Cooling time", "Cooling"),
+            ("Marinate", "Marinate"),
+            ("Proof time", "Proof"),
+            ("Additional time", "Additional"),
+        ):
+            with self.subTest(label=source):
+                metadata = extract_recipe_dom_metadata(
+                    template.format(label=source)
+                )
+                self.assertEqual(expected, metadata.additional_time_label)
+                self.assertEqual("20 min", metadata.additional_time_text)
+
     def test_extracts_simply_recipes_nested_instruction_labels_and_paragraphs(self):
         text = extract_recipe_container_text(
             SIMPLY_RECIPES_FIXTURE_PATH.read_text(),
@@ -667,6 +777,20 @@ class RecipeDomFallbackTest(unittest.TestCase):
 
 
 class UrlSafetyTest(unittest.TestCase):
+    def test_transport_diagnostics_reject_unallowlisted_text(self):
+        error = WebsiteImportError(
+            "page_unavailable",
+            hostname="example.com\nsecret",
+            fetch_phase="raw exception",
+            content_type="text/html\nsecret",
+            transport_error_kind="socket exploded",
+        )
+
+        self.assertIsNone(error.hostname)
+        self.assertIsNone(error.fetch_phase)
+        self.assertIsNone(error.content_type)
+        self.assertIsNone(error.transport_error_kind)
+
     def assert_unsafe(self, url, answers=None):
         answers = answers if answers is not None else PUBLIC_ANSWER
         with patch("server.recipe_url_import.socket.getaddrinfo", return_value=answers):
@@ -735,6 +859,10 @@ class SafeFetchTest(unittest.TestCase):
         self.assertEqual("example.com", pool.calls[0][1]["headers"]["Host"])
         self.assertEqual("/recipe", pool.calls[0][0][1])
         self.assertEqual("<html>ok</html>", page.html)
+        self.assertEqual(
+            HTML_USER_AGENT,
+            pool.calls[0][1]["headers"]["User-Agent"],
+        )
 
     def test_follows_safe_redirect_and_revalidates_hostname(self):
         first = FakePool(FakeResponse(302, {"Location": "https://next.example/food"}))
@@ -784,6 +912,70 @@ class SafeFetchTest(unittest.TestCase):
                 with self.assertRaises(WebsiteImportError) as caught:
                     self.fetch_with_pool(pool)
                 self.assertEqual(expected, caught.exception.detail)
+                self.assertEqual("example.com", caught.exception.hostname)
+                self.assertEqual(
+                    "timeout" if expected == "fetch_timeout" else "http_error",
+                    caught.exception.transport_error_kind,
+                )
+
+    def test_reports_upstream_status_and_stops_after_first_http_response(self):
+        answers = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.35", 443)),
+        ]
+        for status in (403, 429, 500, 503):
+            first = FakePool(FakeResponse(status=status))
+            second = FakePool()
+            with self.subTest(status=status), patch(
+                "server.recipe_url_import.socket.getaddrinfo",
+                return_value=answers,
+            ), patch(
+                "server.recipe_url_import.urllib3.HTTPSConnectionPool",
+                side_effect=[first, second],
+            ) as factory:
+                with self.assertRaises(WebsiteImportError) as caught:
+                    fetch_public_html("https://example.com/recipe")
+            self.assertEqual(status, caught.exception.upstream_status)
+            self.assertEqual("response", caught.exception.fetch_phase)
+            self.assertEqual("http_error", caught.exception.transport_error_kind)
+            self.assertEqual(1, factory.call_count)
+
+    def test_tries_another_address_only_after_connection_failure(self):
+        answers = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.35", 443)),
+        ]
+        failed_connection = FakePool(
+            error=urllib3.exceptions.NewConnectionError(None, "refused")
+        )
+        success = FakePool(FakeResponse(chunks=[b"ok"]))
+        with patch(
+            "server.recipe_url_import.socket.getaddrinfo",
+            return_value=answers,
+        ), patch(
+            "server.recipe_url_import.urllib3.HTTPSConnectionPool",
+            side_effect=[failed_connection, success],
+        ) as factory:
+            page = fetch_public_html("https://example.com/recipe")
+
+        self.assertEqual("ok", page.html)
+        self.assertEqual(2, factory.call_count)
+
+        read_timeout = FakePool(
+            error=urllib3.exceptions.ReadTimeoutError(None, "/", "timed out")
+        )
+        with patch(
+            "server.recipe_url_import.socket.getaddrinfo",
+            return_value=answers,
+        ), patch(
+            "server.recipe_url_import.urllib3.HTTPSConnectionPool",
+            side_effect=[read_timeout, success],
+        ) as factory, self.assertRaises(WebsiteImportError) as caught:
+            fetch_public_html("https://example.com/recipe")
+
+        self.assertEqual("fetch_timeout", caught.exception.detail)
+        self.assertEqual("request", caught.exception.fetch_phase)
+        self.assertEqual(1, factory.call_count)
 
     def test_rejects_missing_or_incompatible_content_type(self):
         for headers in ({}, {"Content-Type": "application/pdf"}):
@@ -830,6 +1022,10 @@ class SafeFetchTest(unittest.TestCase):
             "image/jpeg, image/png, image/webp",
             pool.calls[0][1]["headers"]["Accept"],
         )
+        self.assertEqual(
+            "NoomoriRecipeImport/1.0",
+            pool.calls[0][1]["headers"]["User-Agent"],
+        )
 
     def test_rejects_unsupported_and_oversize_images(self):
         cases = (
@@ -874,6 +1070,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                 "server.modules.recipes.imports.website.extract_recipe",
                 return_value=extracted_recipe(
                     nutrients={
+                        "servingSize": "1 bowl",
                         "calories": "120 kcal",
                         "proteinContent": "7 g",
                     }
@@ -897,7 +1094,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
             ("recipe_scrapers", "none", "none", 0),
             log.call_args.args[-4:],
         )
-        self.assertFalse(log.call_args.kwargs["exc_info"])
+        self.assertNotIn("exc_info", log.call_args.kwargs)
         fallback.assert_not_called()
 
     def test_falls_back_for_primary_exception_and_each_missing_core_field(self):
@@ -972,8 +1169,13 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
             instructions=[],
             prep_time_minutes=10,
             cook_time_minutes=30,
+            total_time_minutes=75,
             yield_text="4 servings",
-            nutrients={"calories": "120 kcal", "proteinContent": "7 g"},
+            nutrients={
+                "servingSize": "1 bowl",
+                "calories": "120 kcal",
+                "proteinContent": "7 g",
+            },
             image_url="https://example.com/soup.webp",
         )
         fallback_text = """Fallback Soup
@@ -988,6 +1190,14 @@ Instructions
 
         with (
             patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch(
+                "server.modules.recipes.imports.website.extract_recipe_dom_metadata",
+                return_value=ExtractedRecipeDomMetadata(
+                    notes="Primary notes",
+                    additional_time_label="Rest",
+                    additional_time_text="35 min",
+                ),
+            ),
             patch("server.modules.recipes.imports.website.extract_recipe", return_value=primary),
             patch(
                 "server.modules.recipes.imports.website.extract_recipe_container_text",
@@ -1007,10 +1217,13 @@ Instructions
             "Boil the water.",
             response.instructions[0].steps[0].text,
         )
-        self.assertEqual("Primary description", response.description)
+        self.assertEqual("Primary notes", response.description)
         self.assertEqual(4, response.servings)
         self.assertEqual(10, response.prep_time_minutes)
         self.assertEqual(30, response.cook_time_minutes)
+        self.assertEqual(75, response.total_time_minutes)
+        self.assertEqual("Rest", response.additional_time_label)
+        self.assertEqual(35, response.additional_time_minutes)
         self.assertEqual(120, response.nutrition_per_serving.calories_kcal)
         self.assertEqual(7, response.nutrition_per_serving.protein_g)
         self.assertEqual(
@@ -1018,6 +1231,41 @@ Instructions
             str(response.image_url),
         )
         dom_nutrition.assert_not_called()
+
+    def test_fallback_preserves_total_when_primary_has_too_few_core_signals(self):
+        page = FetchedRecipePage(
+            html="html",
+            url="https://example.com/recipe",
+            hostname="example.com",
+            response_size=4,
+        )
+        primary = extracted_recipe(
+            description=None,
+            ingredient_groups=[],
+            instructions=[],
+            total_time_minutes=88,
+        )
+        fallback_text = (
+            "Fallback Soup\nIngredients\n- 2 cups water\n"
+            "Instructions\n1. Boil the water."
+        )
+        with patch(
+            "server.modules.recipes.imports.website.fetch_public_html",
+            return_value=page,
+        ), patch(
+            "server.modules.recipes.imports.website.extract_recipe",
+            return_value=primary,
+        ), patch(
+            "server.modules.recipes.imports.website.extract_recipe_container_text",
+            return_value=fallback_text,
+        ), patch("server.modules.recipes.imports.website.logger.log"):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual("Fallback Soup", response.title)
+        self.assertEqual(88, response.total_time_minutes)
 
     def test_realistic_unlisted_page_uses_dom_fallback_end_to_end(self):
         page = FetchedRecipePage(
@@ -1044,7 +1292,7 @@ Instructions
             log.call_args.args[-4:],
         )
 
-    def test_dapur_primary_removes_markers_without_merging_dom_groups(self):
+    def test_dapur_primary_applies_only_verified_ingredient_groups(self):
         page = FetchedRecipePage(
             html=DAPUR_FIXTURE_PATH.read_text(),
             url="https://www.dapurumami.com/resep/spring-roll-sayur-ala-saori",
@@ -1063,8 +1311,12 @@ Instructions
         self.assertEqual("Spring Roll Sayur ala SAORI", response.title)
         self.assertEqual(6, response.servings)
         self.assertEqual(40, response.cook_time_minutes)
-        self.assertEqual(1, len(response.ingredients))
-        self.assertIsNone(response.ingredients[0].title)
+        self.assertEqual(
+            [("Bahan Utama", 2), ("Bahan Isi", 2)],
+            [(group.title, len(group.items)) for group in response.ingredients],
+        )
+        self.assertEqual(1, len(response.instructions))
+        self.assertIsNone(response.instructions[0].title)
         self.assertEqual(5, len(response.instructions[0].steps))
         self.assertIsNone(response.nutrition_per_serving)
         self.assertEqual(
@@ -1216,7 +1468,7 @@ Instructions
             log.call_args.args[-4:],
         )
 
-    def test_group_enrichment_is_atomic_and_exact(self):
+    def test_group_enrichment_verifies_each_dimension_independently(self):
         html = SERIOUS_EATS_FIXTURE_PATH.read_text()
         url = "https://www.seriouseats.com/chicken-pot-pie-biscuit-topping-recipe"
         extracted = extract_recipe(html, url)
@@ -1244,17 +1496,26 @@ Instructions
             ),
         )
 
-        for candidate in mismatches:
-            with self.subTest():
+        for index, candidate in enumerate(mismatches):
+            with self.subTest(index=index):
                 result, enriched = _enrich_primary_groups(
                     draft,
                     extracted,
                     candidate,
                 )
-                self.assertFalse(enriched)
-                self.assertIs(result, draft)
-                self.assertEqual([None], [group.title for group in result.ingredients])
-                self.assertEqual([None], [group.title for group in result.instructions])
+                self.assertTrue(enriched)
+                if index < 3:
+                    self.assertEqual(
+                        [None],
+                        [group.title for group in result.ingredients],
+                    )
+                    self.assertGreater(len(result.instructions), 1)
+                else:
+                    self.assertGreater(len(result.ingredients), 1)
+                    self.assertEqual(
+                        [None],
+                        [group.title for group in result.instructions],
+                    )
 
     def test_group_enrichment_never_overwrites_native_groups(self):
         html = SERIOUS_EATS_FIXTURE_PATH.read_text()
@@ -1280,9 +1541,9 @@ Instructions
 
         result, enriched = _enrich_primary_groups(draft, native, html)
 
-        self.assertFalse(enriched)
-        self.assertIs(result, draft)
+        self.assertTrue(enriched)
         self.assertEqual("Native Group", result.ingredients[0].title)
+        self.assertGreater(len(result.instructions), 1)
 
     def test_group_enrichment_failure_keeps_complete_primary_import(self):
         page = FetchedRecipePage(
@@ -1475,8 +1736,37 @@ Instructions
                 self.assertEqual(status, caught.exception.status_code)
                 self.assertEqual(detail, caught.exception.detail)
                 self.assertEqual(logging.WARNING, log.call_args.args[0])
-                self.assertTrue(log.call_args.kwargs["exc_info"])
+                self.assertNotIn("exc_info", log.call_args.kwargs)
                 fallback.assert_not_called()
+
+    def test_logs_only_sanitized_transport_diagnostics(self):
+        error = WebsiteImportError(
+            "page_unavailable",
+            hostname="example.com",
+            upstream_status=503,
+            redirect_count=2,
+            fetch_phase="response",
+            transport_error_kind="http_error",
+        )
+        with patch(
+            "server.modules.recipes.imports.website.fetch_public_html",
+            side_effect=error,
+        ), patch(
+            "server.modules.recipes.imports.website.logger.log"
+        ) as log, self.assertRaises(HTTPException):
+            import_recipe_url(
+                ImportRecipeUrlRequest(
+                    url="https://example.com/recipe?token=do-not-log"
+                ),
+                _auth=Mock(),
+            )
+
+        logged = " ".join(str(value) for value in log.call_args.args)
+        self.assertIn("example.com", logged)
+        self.assertIn("503", logged)
+        self.assertIn("http_error", logged)
+        self.assertNotIn("do-not-log", logged)
+        self.assertNotIn("exc_info", log.call_args.kwargs)
 
 
 class ImportRecipeImageEndpointTest(unittest.TestCase):

@@ -337,7 +337,16 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
             html="<html></html>",
             url="https://example.com/soup",
         )
-        extracted = SimpleNamespace(ingredient_groups=[], instructions=[])
+        extracted = SimpleNamespace(
+            description=None,
+            ingredient_groups=[],
+            instructions=[],
+            prep_time_minutes=None,
+            cook_time_minutes=None,
+            total_time_minutes=None,
+            yield_text=None,
+            image_url=None,
+        )
         fetched_image = SimpleNamespace(
             body=b"image",
             content_type="image/webp",
@@ -419,6 +428,44 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
                     json=recipe_payload(servings=invalid_servings),
                 )
                 self.assertEqual(422, response.status_code)
+
+    async def test_recipe_time_metadata_supports_legacy_update_and_explicit_clear(self):
+        self.database.recipe_rows[RECIPE_ID] = recipe()
+        self.database.recipe_rows[RECIPE_ID].update(
+            {
+                "total_time_minutes": 75,
+                "additional_time_label": "Rest",
+                "additional_time_minutes": 15,
+            }
+        )
+
+        legacy_update = await self.client.put(
+            f"/recipes/{RECIPE_ID}",
+            json=recipe_payload(title="Legacy client update"),
+        )
+        self.assertEqual(200, legacy_update.status_code)
+        legacy_values = self.database.calls[-1][2]
+        self.assertNotIn("total_time_minutes", legacy_values)
+        self.assertNotIn("additional_time_label", legacy_values)
+        self.assertNotIn("additional_time_minutes", legacy_values)
+
+        cleared = await self.client.put(
+            f"/recipes/{RECIPE_ID}",
+            json=recipe_payload(
+                total_time_minutes=None,
+                additional_time_label=None,
+                additional_time_minutes=None,
+            ),
+        )
+        self.assertIsNone(cleared.json()["total_time_minutes"])
+        self.assertIsNone(cleared.json()["additional_time_label"])
+        self.assertIsNone(cleared.json()["additional_time_minutes"])
+
+        invalid_pair = await self.client.put(
+            f"/recipes/{RECIPE_ID}",
+            json=recipe_payload(additional_time_label="Rest"),
+        )
+        self.assertEqual(422, invalid_pair.status_code)
 
     async def test_recipe_creation_is_idempotent_and_last_write_wins(self):
         first = await self.client.post(

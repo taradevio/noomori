@@ -13,6 +13,9 @@ const draft: RecipeDraft = {
   },
   prepMinutes: 15,
   cookMinutes: 45,
+  totalMinutes: 75,
+  additionalTimeLabel: "Rest",
+  additionalTimeMinutes: 15,
   servings: 1,
   ingredientGroups: [
     {
@@ -63,6 +66,9 @@ if (
   payload.servings !== 1 ||
   payload.prep_time_minutes !== 15 ||
   payload.cook_time_minutes !== 45 ||
+  payload.total_time_minutes !== 75 ||
+  payload.additional_time_label !== "Rest" ||
+  payload.additional_time_minutes !== 15 ||
   payload.nutrition_per_serving?.calories_kcal !== 120 ||
   payload.nutrition_per_serving?.saturated_fat_g !== 9 ||
   payload.nutrition_per_serving?.cholesterol_mg !== 30 ||

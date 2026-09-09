@@ -5,6 +5,7 @@ import re
 import socket
 from dataclasses import dataclass
 from email.message import Message
+from importlib.metadata import version
 from time import monotonic
 from urllib.parse import SplitResult, urljoin, urlsplit
 
@@ -18,6 +19,12 @@ MAX_HTML_BYTES = 3 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_REDIRECTS = 3
 USER_AGENT = "NoomoriRecipeImport/1.0"
+RECIPE_SCRAPERS_VERSION = version("recipe-scrapers")
+HTML_USER_AGENT = (
+    "Mozilla/5.0 (compatible; Windows NT 10.0; Win64; "
+    f"x64; rv:{RECIPE_SCRAPERS_VERSION}) "
+    f"recipe-scrapers/{RECIPE_SCRAPERS_VERSION}"
+)
 _HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
 _IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
@@ -65,14 +72,86 @@ _REMOVED_TAGS = {
     "textarea",
     "svg",
 }
+_TRANSPORT_ERROR_KINDS = {
+    "connection_error",
+    "dns_error",
+    "http_error",
+    "timeout",
+    "tls_error",
+}
+_FETCH_PHASES = {
+    "body",
+    "connect",
+    "content_type",
+    "deadline",
+    "dns",
+    "headers",
+    "redirect",
+    "request",
+    "response",
+    "validation",
+}
+_NOTES_HEADINGS = {"notes", "recipe notes", "tips & notes"}
+_PASSIVE_TIME_LABELS = {
+    "additional": "Additional",
+    "additional time": "Additional",
+    "chill": "Chill",
+    "chill time": "Chill",
+    "cooling": "Cooling",
+    "cooling time": "Cooling",
+    "marinate": "Marinate",
+    "marinate time": "Marinate",
+    "proof": "Proof",
+    "proof time": "Proof",
+    "rest": "Rest",
+    "rest time": "Rest",
+}
 
 
 class WebsiteImportError(Exception):
     # Purpose: Store a stable import failure code alongside the exception message.
     # Connects to: Instantiated by server/src/server/recipe_url_import.py::{_validated_target(),_remaining(),_fetch_public_resource(),_lowest_common_ancestor(),_direct_branch(),_recipe_dom_candidate(),extract_recipe_container_text(),extract_recipe_group_structure(),extract_recipe()}; caught by server/src/server/modules/recipes/imports/website.py::{import_recipe_url(),import_recipe_image()}.
-    def __init__(self, detail: str):
+    def __init__(
+        self,
+        detail: str,
+        *,
+        hostname: str | None = None,
+        upstream_status: int | None = None,
+        redirect_count: int = 0,
+        fetch_phase: str | None = None,
+        content_type: str | None = None,
+        response_size: int = 0,
+        transport_error_kind: str | None = None,
+    ):
         super().__init__(detail)
         self.detail = detail
+        self.hostname = (
+            hostname
+            if hostname
+            and len(hostname) <= 253
+            and re.fullmatch(r"[A-Za-z0-9.:-]+", hostname)
+            else None
+        )
+        self.upstream_status = (
+            upstream_status
+            if isinstance(upstream_status, int) and 100 <= upstream_status <= 599
+            else None
+        )
+        self.redirect_count = max(0, min(int(redirect_count), MAX_REDIRECTS))
+        self.fetch_phase = fetch_phase if fetch_phase in _FETCH_PHASES else None
+        self.content_type = (
+            content_type
+            if content_type
+            and len(content_type) <= 100
+            and re.fullmatch(r"[A-Za-z0-9!#$&^_.+/-]+", content_type)
+            else None
+        )
+        self.response_size = max(0, int(response_size))
+        self.transport_error_kind = (
+            transport_error_kind
+            if transport_error_kind in _TRANSPORT_ERROR_KINDS
+            else None
+        )
 
 
 @dataclass(frozen=True)
@@ -122,6 +201,13 @@ class ExtractedRecipeGroupStructure:
 
 
 @dataclass(frozen=True)
+class ExtractedRecipeDomMetadata:
+    notes: str | None
+    additional_time_label: str | None
+    additional_time_text: str | None
+
+
+@dataclass(frozen=True)
 class ExtractedRecipe:
     title: str | None
     description: str | None
@@ -132,6 +218,7 @@ class ExtractedRecipe:
     yield_text: str | None
     nutrients: dict[str, str]
     image_url: str | None
+    total_time_minutes: int | None = None
 
 
 # Purpose: Validate a URL and resolve only globally routable addresses on safe ports.
@@ -149,7 +236,11 @@ def _validated_target(url: str) -> tuple[SplitResult, list[str], int]:
         or parsed.username is not None
         or parsed.password is not None
     ):
-        raise WebsiteImportError("unsafe_url")
+        raise WebsiteImportError(
+            "unsafe_url",
+            hostname=parsed.hostname,
+            fetch_phase="validation",
+        )
 
     port = port or (443 if parsed.scheme.lower() == "https" else 80)
     if port not in {80, 443}:
@@ -166,11 +257,20 @@ def _validated_target(url: str) -> tuple[SplitResult, list[str], int]:
         if not addresses or any(
             not ipaddress.ip_address(address).is_global for address in addresses
         ):
-            raise WebsiteImportError("unsafe_url")
+            raise WebsiteImportError(
+                "unsafe_url",
+                hostname=hostname,
+                fetch_phase="validation",
+            )
     except WebsiteImportError:
         raise
     except (OSError, UnicodeError, ValueError) as exc:
-        raise WebsiteImportError("page_unavailable") from exc
+        raise WebsiteImportError(
+            "page_unavailable",
+            hostname=parsed.hostname,
+            fetch_phase="dns",
+            transport_error_kind="dns_error",
+        ) from exc
 
     return parsed, addresses, port
 
@@ -195,7 +295,11 @@ def _request_path(parsed: SplitResult) -> str:
 def _remaining(deadline: float) -> float:
     remaining = deadline - monotonic()
     if remaining <= 0:
-        raise WebsiteImportError("fetch_timeout")
+        raise WebsiteImportError(
+            "fetch_timeout",
+            fetch_phase="deadline",
+            transport_error_kind="timeout",
+        )
     return remaining
 
 
@@ -219,6 +323,7 @@ def _fetch_from_address(
     port: int,
     deadline: float,
     accept: str,
+    user_agent: str,
 ):
     hostname = parsed.hostname.encode("idna").decode("ascii")  # type: ignore[union-attr]
     timeout = urllib3.Timeout(
@@ -250,7 +355,7 @@ def _fetch_from_address(
             headers={
                 "Accept": accept,
                 "Host": _host_header(hostname, parsed, port),
-                "User-Agent": USER_AGENT,
+                "User-Agent": user_agent,
             },
             redirect=False,
             retries=False,
@@ -273,6 +378,7 @@ def _fetch_public_resource(
     accepted_content_types: set[str],
     max_bytes: int,
     accept: str,
+    user_agent: str,
 ) -> _FetchedPublicResource:
     # NOTE: HTML and image downloads deliberately share one verified-IP path so
     # redirects cannot bypass the importer's DNS and SSRF checks.
@@ -281,7 +387,15 @@ def _fetch_public_resource(
 
     for redirect_count in range(MAX_REDIRECTS + 1):
         _remaining(deadline)
-        parsed, addresses, port = _validated_target(current_url)
+        response_size = 0
+        content_type = None
+        try:
+            parsed, addresses, port = _validated_target(current_url)
+        except WebsiteImportError as exc:
+            if exc.redirect_count == 0:
+                exc.redirect_count = redirect_count
+            raise
+        hostname = parsed.hostname.encode("idna").decode("ascii")  # type: ignore[union-attr]
         last_error: Exception | None = None
         pool = None
         response = None
@@ -294,40 +408,114 @@ def _fetch_public_resource(
                     port,
                     deadline,
                     accept,
+                    user_agent,
                 )
                 break
-            except WebsiteImportError:
+            except WebsiteImportError as exc:
+                exc.hostname = exc.hostname or hostname
+                exc.redirect_count = redirect_count
                 raise
-            except (urllib3.exceptions.TimeoutError, TimeoutError, socket.timeout) as exc:
+            except (
+                urllib3.exceptions.NewConnectionError,
+                urllib3.exceptions.ConnectTimeoutError,
+                ConnectionError,
+            ) as exc:
                 last_error = exc
+            except (
+                urllib3.exceptions.ReadTimeoutError,
+                TimeoutError,
+                socket.timeout,
+            ) as exc:
+                raise WebsiteImportError(
+                    "fetch_timeout",
+                    hostname=hostname,
+                    redirect_count=redirect_count,
+                    fetch_phase="request",
+                    transport_error_kind="timeout",
+                ) from exc
             except (OSError, urllib3.exceptions.HTTPError) as exc:
-                last_error = exc
+                raise WebsiteImportError(
+                    "page_unavailable",
+                    hostname=hostname,
+                    redirect_count=redirect_count,
+                    fetch_phase="request",
+                    transport_error_kind=(
+                        "tls_error"
+                        if isinstance(exc, urllib3.exceptions.SSLError)
+                        else "connection_error"
+                    ),
+                ) from exc
 
         if response is None or pool is None:
-            if isinstance(
+            connection_timed_out = isinstance(
                 last_error,
                 (urllib3.exceptions.TimeoutError, TimeoutError, socket.timeout),
-            ) or monotonic() >= deadline:
-                raise WebsiteImportError("fetch_timeout") from last_error
-            raise WebsiteImportError("page_unavailable") from last_error
+            ) and not isinstance(last_error, urllib3.exceptions.NewConnectionError)
+            if connection_timed_out or monotonic() >= deadline:
+                raise WebsiteImportError(
+                    "fetch_timeout",
+                    hostname=hostname,
+                    redirect_count=redirect_count,
+                    fetch_phase="connect",
+                    transport_error_kind="timeout",
+                ) from last_error
+            transport_kind = (
+                "tls_error"
+                if isinstance(last_error, urllib3.exceptions.SSLError)
+                else "connection_error"
+            )
+            raise WebsiteImportError(
+                "page_unavailable",
+                hostname=hostname,
+                redirect_count=redirect_count,
+                fetch_phase="connect",
+                transport_error_kind=transport_kind,
+            ) from last_error
 
         try:
             if response.status in _REDIRECT_STATUSES:
                 location = response.headers.get("Location")
                 if not location or redirect_count == MAX_REDIRECTS:
-                    raise WebsiteImportError("page_unavailable")
+                    raise WebsiteImportError(
+                        "page_unavailable",
+                        hostname=hostname,
+                        upstream_status=response.status,
+                        redirect_count=redirect_count,
+                        fetch_phase="redirect",
+                        transport_error_kind="http_error",
+                    )
                 current_url = urljoin(current_url, location)
                 continue
 
             if response.status != 200:
-                raise WebsiteImportError("page_unavailable")
+                raise WebsiteImportError(
+                    "page_unavailable",
+                    hostname=hostname,
+                    upstream_status=response.status,
+                    redirect_count=redirect_count,
+                    fetch_phase="response",
+                    transport_error_kind="http_error",
+                )
 
             content_type_header = response.headers.get("Content-Type")
             if not content_type_header:
-                raise WebsiteImportError("unsupported_content_type")
+                raise WebsiteImportError(
+                    "unsupported_content_type",
+                    hostname=hostname,
+                    upstream_status=response.status,
+                    redirect_count=redirect_count,
+                    fetch_phase="content_type",
+                )
             content_type = content_type_header.split(";", 1)[0].strip().lower()
             if content_type not in accepted_content_types:
-                raise WebsiteImportError("unsupported_content_type")
+                raise WebsiteImportError(
+                    "unsupported_content_type",
+                    hostname=hostname,
+                    upstream_status=response.status,
+                    redirect_count=redirect_count,
+                    fetch_phase="content_type",
+                    content_type=content_type,
+                )
 
             content_length = response.headers.get("Content-Length")
             try:
@@ -335,18 +523,32 @@ def _fetch_public_resource(
             except ValueError:
                 declared_size = None
             if declared_size is not None and declared_size > max_bytes:
-                raise WebsiteImportError("page_too_large")
+                raise WebsiteImportError(
+                    "page_too_large",
+                    hostname=hostname,
+                    upstream_status=response.status,
+                    redirect_count=redirect_count,
+                    fetch_phase="headers",
+                    content_type=content_type,
+                    response_size=declared_size,
+                )
 
             chunks: list[bytes] = []
-            response_size = 0
             for chunk in response.stream(amt=64 * 1024, decode_content=True):
                 _remaining(deadline)
                 response_size += len(chunk)
                 if response_size > max_bytes:
-                    raise WebsiteImportError("page_too_large")
+                    raise WebsiteImportError(
+                        "page_too_large",
+                        hostname=hostname,
+                        upstream_status=response.status,
+                        redirect_count=redirect_count,
+                        fetch_phase="body",
+                        content_type=content_type,
+                        response_size=response_size,
+                    )
                 chunks.append(chunk)
 
-            hostname = parsed.hostname.encode("idna").decode("ascii")  # type: ignore[union-attr]
             return _FetchedPublicResource(
                 body=b"".join(chunks),
                 url=current_url,
@@ -356,11 +558,43 @@ def _fetch_public_resource(
                 content_type_header=content_type_header,
             )
         except (urllib3.exceptions.TimeoutError, TimeoutError, socket.timeout) as exc:
-            raise WebsiteImportError("fetch_timeout") from exc
-        except WebsiteImportError:
+            raise WebsiteImportError(
+                "fetch_timeout",
+                hostname=hostname,
+                upstream_status=getattr(response, "status", None),
+                redirect_count=redirect_count,
+                fetch_phase="body",
+                content_type=content_type,
+                response_size=response_size,
+                transport_error_kind="timeout",
+            ) from exc
+        except WebsiteImportError as exc:
+            exc.hostname = exc.hostname or hostname
+            exc.upstream_status = exc.upstream_status or getattr(
+                response,
+                "status",
+                None,
+            )
+            exc.redirect_count = redirect_count
+            if exc.content_type is None and content_type in accepted_content_types:
+                exc.content_type = content_type
+            exc.response_size = max(exc.response_size, response_size)
             raise
         except (OSError, urllib3.exceptions.HTTPError) as exc:
-            raise WebsiteImportError("page_unavailable") from exc
+            raise WebsiteImportError(
+                "page_unavailable",
+                hostname=hostname,
+                upstream_status=getattr(response, "status", None),
+                redirect_count=redirect_count,
+                fetch_phase="body",
+                content_type=content_type,
+                response_size=response_size,
+                transport_error_kind=(
+                    "tls_error"
+                    if isinstance(exc, urllib3.exceptions.SSLError)
+                    else "connection_error"
+                ),
+            ) from exc
         finally:
             response.close()
             pool.close()
@@ -376,6 +610,7 @@ def fetch_public_html(url: str) -> FetchedRecipePage:
         accepted_content_types=_HTML_CONTENT_TYPES,
         max_bytes=MAX_HTML_BYTES,
         accept="text/html, application/xhtml+xml",
+        user_agent=HTML_USER_AGENT,
     )
     return FetchedRecipePage(
         html=_decode_html(resource.body, resource.content_type_header),
@@ -393,6 +628,7 @@ def fetch_public_image(url: str) -> FetchedRecipeImage:
         accepted_content_types=_IMAGE_CONTENT_TYPES,
         max_bytes=MAX_IMAGE_BYTES,
         accept="image/jpeg, image/png, image/webp",
+        user_agent=USER_AGENT,
     )
     return FetchedRecipeImage(
         body=resource.body,
@@ -832,6 +1068,20 @@ def _plain_list_label(tag: Tag) -> str | None:
     return text if sibling is not None and sibling.name in {"ul", "ol"} else None
 
 
+# Purpose: Recognize a bounded label-only ingredient row followed by ingredients.
+# Connects to: Called by server/src/server/recipe_url_import.py::extract_recipe_group_structure(); calls server/src/server/recipe_url_import.py::_normalized_dom_text().
+def _ingredient_item_label(item: Tag, has_following_item: bool) -> str | None:
+    text = _normalized_dom_text(item)
+    if (
+        not has_following_item
+        or not text.endswith(":")
+        or len(text) > 80
+        or re.match(r"^[\d.,/\s¼½¾⅓⅔⅛]+", text)
+    ):
+        return None
+    return text.removesuffix(":").strip() or None
+
+
 # Purpose: Extract verified ingredient and instruction group boundaries from HTML.
 # Connects to: Called by server/src/server/modules/recipes/imports/website.py::_enrich_primary_groups(); calls server/src/server/recipe_url_import.py::{_clean_dom(),_recipe_dom_candidate(),_lowest_common_ancestor(),_section_tags(),_standalone_emphasis_text(),_normalized_dom_text(),_plain_list_label(),recipe_section_name(),_instruction_item_parts()}.
 def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
@@ -855,14 +1105,30 @@ def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
             continue
         if tag.name not in {"ul", "ol"} or tag.find_parent(["ul", "ol"]):
             continue
-        items = [
-            _normalized_dom_text(item)
+        list_items = [
+            item
             for item in tag.find_all("li", recursive=False)
             if _normalized_dom_text(item)
         ]
-        if pending_title and items:
+        current_title = pending_title
+        current_items: list[str] = []
+        for index, item in enumerate(list_items):
+            item_label = _ingredient_item_label(
+                item,
+                has_following_item=index + 1 < len(list_items),
+            )
+            if item_label is not None:
+                if current_items:
+                    ingredient_groups.append(
+                        ExtractedIngredientGroup(current_title, current_items)
+                    )
+                current_title = item_label
+                current_items = []
+                continue
+            current_items.append(_normalized_dom_text(item))
+        if current_items:
             ingredient_groups.append(
-                ExtractedIngredientGroup(pending_title, items)
+                ExtractedIngredientGroup(current_title, current_items)
             )
         pending_title = None
 
@@ -915,9 +1181,71 @@ def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
             )
         )
 
-    if len(ingredient_groups) < 2 or len(instruction_groups) < 2:
-        raise WebsiteImportError("recipe_not_found")
-    return ExtractedRecipeGroupStructure(ingredient_groups, instruction_groups)
+    return ExtractedRecipeGroupStructure(
+        ingredient_groups if len(ingredient_groups) >= 2 else [],
+        instruction_groups if len(instruction_groups) >= 2 else [],
+    )
+
+
+# Purpose: Extract one exact Notes block and one recognized passive time label/value.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_clean_dom(),_recipe_dom_candidate(),_normalized_dom_text(),_standalone_emphasis_text()}.
+def extract_recipe_dom_metadata(html: str) -> ExtractedRecipeDomMetadata:
+    soup = BeautifulSoup(html, "html.parser")
+    _clean_dom(soup)
+    root, _title, _ingredient_heading, _instruction_heading = (
+        _recipe_dom_candidate(soup)
+    )
+
+    note_headings = []
+    for tag in root.find_all(_HEADING_TAGS | {"p", "div"}):
+        text = _normalized_dom_text(tag)
+        if tag.name in {"p", "div"} and _standalone_emphasis_text(tag) != text:
+            continue
+        if text.removesuffix(":").strip().casefold() in _NOTES_HEADINGS:
+            note_headings.append(tag)
+
+    notes = None
+    if len(note_headings) == 1:
+        heading = note_headings[0]
+        heading_level = (
+            int(heading.name[1]) if heading.name in _HEADING_TAGS else None
+        )
+        lines: list[str] = []
+        sibling = heading.find_next_sibling()
+        while isinstance(sibling, Tag):
+            if (
+                heading_level is not None
+                and sibling.name in _HEADING_TAGS
+                and int(sibling.name[1]) <= heading_level
+            ):
+                break
+            text = _normalized_dom_text(sibling)
+            if text:
+                lines.append(text)
+            sibling = sibling.find_next_sibling()
+        candidate = "\n".join(lines).strip()
+        if candidate and len(candidate) <= 20_000:
+            notes = candidate
+
+    passive_times: list[tuple[str, str]] = []
+    for tag in root.find_all(["span", "p", "div", "dt"]):
+        label_text = _normalized_dom_text(tag).removesuffix(":").strip()
+        label = _PASSIVE_TIME_LABELS.get(label_text.casefold())
+        if label is None:
+            continue
+        parent = tag.parent if isinstance(tag.parent, Tag) else None
+        if parent is None:
+            continue
+        parent_text = _normalized_dom_text(parent)
+        value_text = parent_text[len(_normalized_dom_text(tag)):].strip(" :–—-")
+        if value_text:
+            passive_times.append((label, value_text))
+
+    # Nested label wrappers can yield the same rendered candidate more than once.
+    passive_times = list(dict.fromkeys(passive_times))
+    additional_label = passive_times[0][0] if len(passive_times) == 1 else None
+    additional_text = passive_times[0][1] if len(passive_times) == 1 else None
+    return ExtractedRecipeDomMetadata(notes, additional_label, additional_text)
 
 
 # Purpose: Call an optional recipe-scrapers method without failing the full import.
@@ -972,7 +1300,7 @@ def extract_recipe(html: str, url: str) -> ExtractedRecipe:
         return value.strip() if isinstance(value, str) and value.strip() else None
 
     # Purpose: Retain only non-negative integer durations from scraper output.
-    # Connects to: Defined and called by server/src/server/recipe_url_import.py::extract_recipe() for prep_time and cook_time fields; has no downstream local function calls.
+    # Connects to: Defined and called by server/src/server/recipe_url_import.py::extract_recipe() for prep_time, cook_time, and total_time fields; has no downstream local function calls.
     def clean_minutes(value) -> int | None:
         return value if isinstance(value, int) and value >= 0 else None
 
@@ -1014,6 +1342,7 @@ def extract_recipe(html: str, url: str) -> ExtractedRecipe:
         instructions=instructions,
         prep_time_minutes=clean_minutes(_optional_value(scraper, "prep_time")),
         cook_time_minutes=clean_minutes(_optional_value(scraper, "cook_time")),
+        total_time_minutes=clean_minutes(_optional_value(scraper, "total_time")),
         yield_text=clean_string(_optional_value(scraper, "yields")),
         nutrients=nutrients,
         image_url=image_url,

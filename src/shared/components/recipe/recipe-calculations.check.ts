@@ -260,6 +260,12 @@ const cases: Case[] = [
     unit: "tsp",
   },
   {
+    amount: "0.16666666666666666",
+    expected: { amount: "1/6", unit: "cup" },
+    mode: "original",
+    unit: "cup",
+  },
+  {
     amount: "0.25",
     expected: { amount: "1/4", unit: "cup" },
     mode: "original",

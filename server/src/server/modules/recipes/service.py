@@ -235,11 +235,20 @@ def update_recipe(
 ):
     started_at = perf_counter()
     logger.info("Updating recipe recipe_id=%s", recipe_id)
+    values = payload.model_dump(mode="json")
+    fields_set = getattr(payload, "model_fields_set", set(values))
+    for field in (
+        "total_time_minutes",
+        "additional_time_label",
+        "additional_time_minutes",
+    ):
+        if field not in fields_set:
+            values.pop(field, None)
     try:
         response = (
             auth.supabase
             .table("recipes")
-            .update(payload.model_dump(mode="json"))
+            .update(values)
             .eq("id", str(recipe_id))
             .eq("owner_user_id", auth.user.id)
             .select(RECIPE_SELECT)

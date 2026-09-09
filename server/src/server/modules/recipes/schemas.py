@@ -49,6 +49,13 @@ class CreateRecipe(BaseModel):
     servings: int | None = Field(default=None, gt=0)
     prep_time_minutes: int | None = Field(default=None, ge=0)
     cook_time_minutes: int | None = Field(default=None, ge=0)
+    total_time_minutes: int | None = Field(default=None, ge=0)
+    additional_time_label: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=40,
+    )
+    additional_time_minutes: int | None = Field(default=None, gt=0)
     nutrition_per_serving: RecipeNutrition | None = None
     source_type: Literal["my_recipe", "family", "website"]
     source_person_name: str | None = Field(default=None, max_length=200)
@@ -56,10 +63,21 @@ class CreateRecipe(BaseModel):
     # 2,048-character website-import request limit above.
     source_url: HttpUrl | None = None
 
+    @field_validator("additional_time_label", mode="before")
+    @classmethod
+    def trim_additional_time_label(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
     # Purpose: Enforce the source-specific metadata required by a recipe payload.
     # Connects to: Called by Pydantic when server/src/server/modules/recipes/service.py::{create_recipe(),update_recipe()} validates CreateRecipe; has no downstream local function calls.
     @model_validator(mode="after")
     def validate_source(self):
+        if (self.additional_time_label is None) != (
+            self.additional_time_minutes is None
+        ):
+            raise ValueError(
+                "additional_time_label and additional_time_minutes must be set together"
+            )
         if self.source_type == "family" and not self.source_person_name:
             raise ValueError("source_person_name is required for family recipes")
         if self.source_type == "website" and self.source_url is None:
@@ -101,7 +119,29 @@ class ImportedRecipeTextDraft(BaseModel):
     servings: int | None = Field(default=None, gt=0)
     prep_time_minutes: int | None = Field(default=None, ge=0)
     cook_time_minutes: int | None = Field(default=None, ge=0)
+    total_time_minutes: int | None = Field(default=None, ge=0)
+    additional_time_label: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=40,
+    )
+    additional_time_minutes: int | None = Field(default=None, gt=0)
     nutrition_per_serving: RecipeNutrition | None = None
     # NOTE: Text imports keep the default null; website imports may provide a
     # transient source URL that the client must fetch through the image proxy.
     image_url: HttpUrl | None = None
+
+    @field_validator("additional_time_label", mode="before")
+    @classmethod
+    def trim_additional_time_label(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_additional_time(self):
+        if (self.additional_time_label is None) != (
+            self.additional_time_minutes is None
+        ):
+            raise ValueError(
+                "additional_time_label and additional_time_minutes must be set together"
+            )
+        return self

@@ -35,6 +35,9 @@ export type RecipeCreatePayload = {
   servings: number | null;
   prep_time_minutes: number | null;
   cook_time_minutes: number | null;
+  total_time_minutes: number | null;
+  additional_time_label: string | null;
+  additional_time_minutes: number | null;
   nutrition_per_serving: RecipeCreateNutrition | null;
   source_type: "my_recipe" | "family" | "website";
   source_person_name: string | null;
@@ -48,6 +51,7 @@ const RECIPE_INGREDIENT_UNIT_MAX_CHARS = 100;
 const RECIPE_INGREDIENT_NOTE_MAX_CHARS = 500;
 const RECIPE_INSTRUCTION_TEXT_MAX_CHARS = 2_000;
 const RECIPE_SOURCE_NAME_MAX_CHARS = 200;
+const RECIPE_ADDITIONAL_TIME_LABEL_MAX_CHARS = 40;
 // CreateRecipe.source_url mirrors Pydantic HttpUrl's 2,083-character limit.
 // The website-import request has a separate 2,048-character fetch limit.
 const RECIPE_SOURCE_URL_MAX_CHARS = 2_083;
@@ -113,6 +117,7 @@ function nutritionValue(value: string, field: string) {
 
 export type RecipeDraftErrors = {
   title?: string;
+  timing?: string;
   source?: string;
   sourceName?: string;
   sourceUrl?: string;
@@ -161,6 +166,21 @@ export function validateRecipeDraft(draft: RecipeDraft): RecipeDraftErrors {
     } else if (sourceUrl.length > RECIPE_SOURCE_URL_MAX_CHARS) {
       errors.sourceUrl = "Use 2,083 characters or fewer.";
     }
+  }
+
+  const additionalLabel = normalizedText(draft.additionalTimeLabel);
+  if (additionalLabel.length > RECIPE_ADDITIONAL_TIME_LABEL_MAX_CHARS) {
+    errors.timing = "Use 40 characters or fewer for the additional time label.";
+  } else if (
+    Boolean(additionalLabel) !==
+    (draft.additionalTimeMinutes !== null)
+  ) {
+    errors.timing = "Add both a label and duration for additional time.";
+  } else if (
+    (draft.totalMinutes !== null && draft.totalMinutes < 0) ||
+    (draft.additionalTimeMinutes !== null && draft.additionalTimeMinutes <= 0)
+  ) {
+    errors.timing = "Choose a valid duration.";
   }
 
   for (const group of draft.ingredientGroups) {
@@ -233,6 +253,7 @@ export function validateRecipeDraft(draft: RecipeDraft): RecipeDraftErrors {
 export function hasRecipeDraftErrors(errors: RecipeDraftErrors) {
   return Boolean(
     errors.title ||
+    errors.timing ||
     errors.source ||
     errors.sourceName ||
     errors.sourceUrl ||
@@ -311,6 +332,9 @@ export function toRecipeCreatePayload(draft: RecipeDraft): RecipeCreatePayload {
     servings: draft.servings,
     prep_time_minutes: draft.prepMinutes,
     cook_time_minutes: draft.cookMinutes,
+    total_time_minutes: draft.totalMinutes,
+    additional_time_label: nullableText(draft.additionalTimeLabel),
+    additional_time_minutes: draft.additionalTimeMinutes,
     nutrition_per_serving: Object.values(nutrition).every(
       (value) => value === null,
     )

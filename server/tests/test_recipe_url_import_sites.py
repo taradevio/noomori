@@ -29,6 +29,19 @@ def import_fixture(filename: str, url: str):
 
 
 class ImportRecipeUrlSiteTest(unittest.TestCase):
+    def test_imports_cookpad_style_ingredient_label_with_initial_untitled_group(self):
+        draft = import_fixture(
+            "recipe_url_import_cookpad_groups.html",
+            "https://cookpad.com/example/recipes/weeknight-noodles",
+        )
+
+        self.assertEqual(
+            [(None, 2), ("Spice Mix", 2)],
+            [(group.title, len(group.items)) for group in draft.ingredients],
+        )
+        self.assertEqual(4, sum(len(group.items) for group in draft.ingredients))
+        self.assertEqual(2, sum(len(group.steps) for group in draft.instructions))
+
     def test_imports_recipe_microdata(self):
         draft = import_fixture(
             "recipe_url_import_microdata.html",

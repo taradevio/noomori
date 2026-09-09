@@ -3,7 +3,7 @@ import { deleteItemAsync, getItemAsync, setItemAsync } from "expo-secure-store";
 
 const ExpoSecureStoreAdapter = {
   getItem: (key: string) => {
-    console.debug("getItem", { key, getItemAsync });
+    // console.debug("getItem", { key, getItemAsync });
     return getItemAsync(key);
   },
   setItem: (key: string, value: string) => {

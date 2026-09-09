@@ -12,8 +12,8 @@ const imported: ImportedRecipeTextDraft = {
       items: [
         {
           name: "soy sauce",
-          quantity: 2,
-          unit: "tbsp",
+          quantity: 0.25,
+          unit: "cup",
           note: null,
         },
       ],
@@ -23,6 +23,9 @@ const imported: ImportedRecipeTextDraft = {
   servings: null,
   prep_time_minutes: 10,
   cook_time_minutes: null,
+  total_time_minutes: 25,
+  additional_time_label: "Rest",
+  additional_time_minutes: 15,
   nutrition_per_serving: {
     calories_kcal: 480,
     protein_g: 36,
@@ -53,7 +56,8 @@ if (
   draft.nutrition.sodiumMilligrams !== "420" ||
   withoutNutrition.nutrition.calories !== "" ||
   draft.ingredientGroups[0]?.id !== "import-ingredient-group-0" ||
-  draft.ingredientGroups[0]?.ingredients[0]?.amount !== "2" ||
+  draft.ingredientGroups[0]?.ingredients[0]?.amount !== "1/4" ||
+  draft.ingredientGroups[0]?.ingredients[0]?.unit !== "cup" ||
   draft.instructionGroups[0]?.steps[0]?.id !== "import-instruction-0-0"
 ) {
   throw new Error("Recipe text import adapter check failed.");

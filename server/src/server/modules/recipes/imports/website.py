@@ -7,10 +7,12 @@ from fastapi import Depends, HTTPException, Response
 
 from server.core.auth import AuthContext, get_current_user
 from server.modules.recipes.imports.text import (
+    _duration_minutes,
     _dom_nutrition,
     _ingredient,
     _is_instruction_marker,
     _nutrition_value,
+    _UNITS_BY_LOWER,
     parse_recipe_text,
 )
 from server.modules.recipes.schemas import (
@@ -28,6 +30,7 @@ from server.recipe_url_import import (
     WebsiteImportError,
     extract_recipe,
     extract_recipe_container_text,
+    extract_recipe_dom_metadata,
     extract_recipe_group_structure,
     fetch_public_html,
     fetch_public_image,
@@ -68,10 +71,33 @@ def _website_nutrition_value(value: str, unit_kind: str) -> float | None:
     return _nutrition_value(amount.group(), unit_kind) if amount else None
 
 
+# Purpose: Apply Notes/description precedence and interpret only a serving Yield.
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::{normalize_imported_website_recipe(),import_recipe_url()}; has no downstream local function calls.
+def _website_description_and_servings(
+    extracted: ExtractedRecipe,
+    notes: str | None,
+) -> tuple[str | None, int | None]:
+    description_parts = (
+        [notes or extracted.description] if (notes or extracted.description) else []
+    )
+    servings = None
+    if extracted.yield_text:
+        serving_yield = _SERVING_YIELD.fullmatch(extracted.yield_text)
+        if serving_yield:
+            servings = int(serving_yield.group("count"))
+        else:
+            description_parts.append(f"Yield: {extracted.yield_text}")
+    return "\n".join(description_parts) or None, servings
+
+
 # Purpose: Convert extractor output into the app's validated editable recipe schema.
 # Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/modules/recipes/imports/text.py::{_ingredient(),_is_instruction_marker()} and server/src/server/modules/recipes/imports/website.py::_website_nutrition_value().
 def normalize_imported_website_recipe(
     extracted: ExtractedRecipe,
+    *,
+    notes: str | None = None,
+    additional_time_label: str | None = None,
+    additional_time_minutes: int | None = None,
 ) -> ImportedRecipeTextDraft:
     ingredients = []
     for group in extracted.ingredient_groups:
@@ -100,38 +126,38 @@ def normalize_imported_website_recipe(
         else []
     )
 
-    description_parts = [extracted.description] if extracted.description else []
-    servings = None
-    if extracted.yield_text:
-        serving_yield = _SERVING_YIELD.fullmatch(extracted.yield_text)
-        if serving_yield:
-            servings = int(serving_yield.group("count"))
-        else:
-            description_parts.append(f"Yield: {extracted.yield_text}")
+    description, servings = _website_description_and_servings(extracted, notes)
 
     signals = sum((bool(extracted.title), bool(ingredients), bool(instructions)))
     if signals < 2:
         raise ValueError("Could not identify enough recipe information")
 
     nutrition_values = {}
-    for source_key, (target_key, unit_kind) in _WEBSITE_NUTRITION_FIELDS.items():
-        raw_value = extracted.nutrients.get(source_key)
-        value = (
-            _website_nutrition_value(raw_value, unit_kind)
-            if raw_value is not None
-            else None
-        )
-        if value is not None:
-            nutrition_values[target_key] = value
+    serving_size = extracted.nutrients.get("servingSize")
+    if isinstance(serving_size, str) and serving_size.strip():
+        for source_key, (target_key, unit_kind) in (
+            _WEBSITE_NUTRITION_FIELDS.items()
+        ):
+            raw_value = extracted.nutrients.get(source_key)
+            value = (
+                _website_nutrition_value(raw_value, unit_kind)
+                if raw_value is not None
+                else None
+            )
+            if value is not None:
+                nutrition_values[target_key] = value
 
     return ImportedRecipeTextDraft(
         title=extracted.title,
-        description="\n".join(description_parts) or None,
+        description=description,
         ingredients=ingredients,
         instructions=instructions,
         servings=servings,
         prep_time_minutes=extracted.prep_time_minutes,
         cook_time_minutes=extracted.cook_time_minutes,
+        total_time_minutes=extracted.total_time_minutes,
+        additional_time_label=additional_time_label,
+        additional_time_minutes=additional_time_minutes,
         nutrition_per_serving=(
             RecipeNutrition(**nutrition_values) if nutrition_values else None
         ),
@@ -207,97 +233,103 @@ def _enrich_primary_groups(
     extracted: ExtractedRecipe,
     html: str,
 ) -> tuple[ImportedRecipeTextDraft, bool]:
-    if (
-        len(draft.ingredients) != 1
-        or draft.ingredients[0].title is not None
-        or len(draft.instructions) != 1
-        or draft.instructions[0].title is not None
-        or len(extracted.ingredient_groups) != 1
-        or extracted.ingredient_groups[0].title is not None
-    ):
-        return draft, False
-
     try:
         structure = extract_recipe_group_structure(html)
     except WebsiteImportError:
         return draft, False
 
-    ingredient_lines = extracted.ingredient_groups[0].ingredients
-    dom_ingredient_lines = [
-        item
-        for group in structure.ingredient_groups
-        for item in group.ingredients
-    ]
-    dom_instruction_lines = [
-        step
-        for group in structure.instruction_groups
-        for step in group.instructions
-    ]
+    updates = {}
+
     if (
-        len(ingredient_lines) != len(draft.ingredients[0].items)
-        or len(extracted.instructions) != len(draft.instructions[0].steps)
-        or [_dom_structure_match(line) for line in ingredient_lines]
-        != [_dom_structure_match(line) for line in dom_ingredient_lines]
-        or [_dom_structure_match(line) for line in extracted.instructions]
-        != [_dom_structure_match(line) for line in dom_instruction_lines]
-        or any(
-            not group.title or len(group.title) > 200
-            for group in (
-                *structure.ingredient_groups,
-                *structure.instruction_groups,
+        len(draft.ingredients) == 1
+        and draft.ingredients[0].title is None
+        and len(extracted.ingredient_groups) == 1
+        and extracted.ingredient_groups[0].title is None
+        and len(structure.ingredient_groups) >= 2
+    ):
+        ingredient_lines = extracted.ingredient_groups[0].ingredients
+        dom_ingredient_lines = [
+            item
+            for group in structure.ingredient_groups
+            for item in group.ingredients
+        ]
+        ingredient_titles_valid = all(
+            (index == 0 and group.title is None)
+            or (
+                bool(group.title)
+                and len(group.title or "") <= 200
+                and not any(
+                    word.rstrip(".").casefold() in _UNITS_BY_LOWER
+                    for word in (group.title or "").split()
+                )
             )
+            for index, group in enumerate(structure.ingredient_groups)
         )
-        or any(
-            not group.label_prefix
+        if (
+            ingredient_titles_valid
+            and len(ingredient_lines) == len(draft.ingredients[0].items)
+            and [_dom_structure_match(line) for line in ingredient_lines]
+            == [_dom_structure_match(line) for line in dom_ingredient_lines]
+        ):
+            ingredient_groups = []
+            offset = 0
+            for group in structure.ingredient_groups:
+                next_offset = offset + len(group.ingredients)
+                ingredient_groups.append(
+                    RecipeIngredientGroup(
+                        title=group.title,
+                        items=draft.ingredients[0].items[offset:next_offset],
+                    )
+                )
+                offset = next_offset
+            if offset == len(draft.ingredients[0].items):
+                updates["ingredients"] = ingredient_groups
+
+    if (
+        len(draft.instructions) == 1
+        and draft.instructions[0].title is None
+        and len(structure.instruction_groups) >= 2
+    ):
+        dom_instruction_lines = [
+            step
+            for group in structure.instruction_groups
+            for step in group.instructions
+        ]
+        instruction_groups_valid = all(
+            bool(group.title)
+            and len(group.title or "") <= 200
+            and bool(group.label_prefix)
             for group in structure.instruction_groups
         )
-    ):
-        return draft, False
-
-    ingredient_groups = []
-    offset = 0
-    for group in structure.ingredient_groups:
-        next_offset = offset + len(group.ingredients)
-        ingredient_groups.append(
-            RecipeIngredientGroup(
-                title=group.title,
-                items=draft.ingredients[0].items[offset:next_offset],
-            )
-        )
-        offset = next_offset
-
-    instruction_groups = []
-    offset = 0
-    for group in structure.instruction_groups:
-        next_offset = offset + len(group.instructions)
-        steps = list(draft.instructions[0].steps[offset:next_offset])
-        first_step = _strip_verified_group_label(
-            steps[0].text,
-            group.label_prefix or "",
-        )
-        if first_step is None:
-            return draft, False
-        steps[0] = RecipeInstruction(text=first_step[:2000])
-        instruction_groups.append(
-            RecipeInstructionGroup(title=group.title, steps=steps)
-        )
-        offset = next_offset
-
-    if (
-        offset != len(draft.instructions[0].steps)
-        or sum(len(group.items) for group in ingredient_groups)
-        != len(draft.ingredients[0].items)
-    ):
-        return draft, False
+        if (
+            instruction_groups_valid
+            and len(extracted.instructions) == len(draft.instructions[0].steps)
+            and [_dom_structure_match(line) for line in extracted.instructions]
+            == [_dom_structure_match(line) for line in dom_instruction_lines]
+        ):
+            instruction_groups = []
+            offset = 0
+            for group in structure.instruction_groups:
+                next_offset = offset + len(group.instructions)
+                steps = list(draft.instructions[0].steps[offset:next_offset])
+                first_step = _strip_verified_group_label(
+                    steps[0].text,
+                    group.label_prefix or "",
+                )
+                if first_step is None:
+                    instruction_groups = []
+                    break
+                steps[0] = RecipeInstruction(text=first_step[:2000])
+                instruction_groups.append(
+                    RecipeInstructionGroup(title=group.title, steps=steps)
+                )
+                offset = next_offset
+            if offset == len(draft.instructions[0].steps) and instruction_groups:
+                updates["instructions"] = instruction_groups
 
     # NOTE: DOM contributes only verified presentation boundaries and labels;
     # primary parsed values remain authoritative, so core fields are not blended.
-    return draft.model_copy(
-        update={
-            "ingredients": ingredient_groups,
-            "instructions": instruction_groups,
-        }
-    ), True
+    return (draft.model_copy(update=updates), True) if updates else (draft, False)
 
 
 # Purpose: Import a recipe URL using structured extraction with a guarded DOM fallback.
@@ -317,6 +349,11 @@ def import_recipe_url(
     group_enrichment = "none"
     nutrition_enrichment = "none"
     nutrition_field_count = 0
+    upstream_status = None
+    redirect_count = 0
+    fetch_phase = "none"
+    content_type = "none"
+    transport_error_kind = "none"
 
     try:
         page = fetch_public_html(str(payload.url))
@@ -324,10 +361,51 @@ def import_recipe_url(
         response_size = page.response_size
 
         primary_draft = None
+        primary_metadata = {}
+        extracted = None
+        dom_notes = None
+        additional_time_label = None
+        additional_time_minutes = None
+        try:
+            dom_metadata = extract_recipe_dom_metadata(page.html)
+        except WebsiteImportError:
+            pass
+        else:
+            dom_notes = dom_metadata.notes
+            parsed_additional_time = (
+                _duration_minutes(dom_metadata.additional_time_text)
+                if dom_metadata.additional_time_text
+                else None
+            )
+            if parsed_additional_time is not None and parsed_additional_time > 0:
+                additional_time_label = dom_metadata.additional_time_label
+                additional_time_minutes = parsed_additional_time
         try:
             extracted = extract_recipe(page.html, page.url)
+            extracted_description, extracted_servings = (
+                _website_description_and_servings(extracted, dom_notes)
+            )
+            primary_metadata = {
+                field: value
+                for field, value in {
+                    "description": extracted_description,
+                    "servings": extracted_servings,
+                    "prep_time_minutes": extracted.prep_time_minutes,
+                    "cook_time_minutes": extracted.cook_time_minutes,
+                    "total_time_minutes": extracted.total_time_minutes,
+                    "additional_time_label": additional_time_label,
+                    "additional_time_minutes": additional_time_minutes,
+                    "image_url": extracted.image_url,
+                }.items()
+                if value is not None
+            }
             try:
-                primary_draft = normalize_imported_website_recipe(extracted)
+                primary_draft = normalize_imported_website_recipe(
+                    extracted,
+                    notes=dom_notes,
+                    additional_time_label=additional_time_label,
+                    additional_time_minutes=additional_time_minutes,
+                )
             except ValueError:
                 fallback_reason = _missing_primary_reason(
                     sum(
@@ -419,10 +497,29 @@ def import_recipe_url(
                         "servings",
                         "prep_time_minutes",
                         "cook_time_minutes",
+                        "total_time_minutes",
+                        "additional_time_label",
+                        "additional_time_minutes",
                         "nutrition_per_serving",
                         "image_url",
                     )
                     if (value := getattr(primary_draft, field)) is not None
+                }
+            )
+        elif primary_metadata:
+            draft = draft.model_copy(update=primary_metadata)
+        elif dom_notes or additional_time_minutes is not None:
+            draft = draft.model_copy(
+                update={
+                    **({"description": dom_notes} if dom_notes else {}),
+                    **(
+                        {
+                            "additional_time_label": additional_time_label,
+                            "additional_time_minutes": additional_time_minutes,
+                        }
+                        if additional_time_minutes is not None
+                        else {}
+                    ),
                 }
             )
 
@@ -431,6 +528,13 @@ def import_recipe_url(
         return draft
     except WebsiteImportError as exc:
         result = exc.detail
+        hostname = exc.hostname or hostname
+        upstream_status = exc.upstream_status
+        redirect_count = exc.redirect_count
+        fetch_phase = exc.fetch_phase or "none"
+        content_type = exc.content_type or "none"
+        response_size = max(response_size, exc.response_size)
+        transport_error_kind = exc.transport_error_kind or "none"
         raise HTTPException(
             status_code=_WEBSITE_IMPORT_STATUS_CODES[exc.detail],
             detail=exc.detail,
@@ -440,28 +544,36 @@ def import_recipe_url(
         raise HTTPException(status_code=422, detail=result) from exc
     except Exception as exc:
         result = "recipe_not_found"
+        logger.exception(
+            "Unexpected website recipe import failure hostname=%s",
+            hostname,
+        )
         raise HTTPException(status_code=422, detail=result) from exc
     finally:
         logger.log(
             logging.INFO if result == "success" else logging.WARNING,
-            "Website recipe import url=%s hostname=%s result=%s duration_ms=%.1f "
+            "Website recipe import hostname=%s result=%s duration_ms=%.1f "
             "response_size=%s ingredient_count=%s instruction_count=%s "
-            "group_enrichment=%s "
-            "extraction_strategy=%s fallback_reason=%s "
+            "upstream_status=%s redirect_count=%s fetch_phase=%s "
+            "content_type=%s transport_error_kind=%s "
+            "group_enrichment=%s extraction_strategy=%s fallback_reason=%s "
             "nutrition_enrichment=%s nutrition_field_count=%s",
-            payload.url,
             hostname,
             result,
             (perf_counter() - started_at) * 1000,
             response_size,
             ingredient_count,
             instruction_count,
+            upstream_status,
+            redirect_count,
+            fetch_phase,
+            content_type,
+            transport_error_kind,
             group_enrichment,
             extraction_strategy,
             fallback_reason,
             nutrition_enrichment,
             nutrition_field_count,
-            exc_info=result != "success",
         )
 
 
@@ -475,6 +587,11 @@ def import_recipe_image(
     hostname = payload.url.host or "unknown"
     result = "page_unavailable"
     response_size = 0
+    upstream_status = None
+    redirect_count = 0
+    fetch_phase = "none"
+    content_type = "none"
+    transport_error_kind = "none"
 
     try:
         # NOTE: This endpoint is a byte proxy only. Recipe creation and Storage
@@ -493,6 +610,13 @@ def import_recipe_image(
         )
     except WebsiteImportError as exc:
         result = exc.detail
+        hostname = exc.hostname or hostname
+        upstream_status = exc.upstream_status
+        redirect_count = exc.redirect_count
+        fetch_phase = exc.fetch_phase or "none"
+        content_type = exc.content_type or "none"
+        response_size = max(response_size, exc.response_size)
+        transport_error_kind = exc.transport_error_kind or "none"
         raise HTTPException(
             status_code=_WEBSITE_IMPORT_STATUS_CODES[exc.detail],
             detail=exc.detail,
@@ -500,9 +624,15 @@ def import_recipe_image(
     finally:
         logger.info(
             "Website recipe image import hostname=%s result=%s duration_ms=%.1f "
-            "response_size=%s",
+            "response_size=%s upstream_status=%s redirect_count=%s "
+            "fetch_phase=%s content_type=%s transport_error_kind=%s",
             hostname,
             result,
             (perf_counter() - started_at) * 1000,
             response_size,
+            upstream_status,
+            redirect_count,
+            fetch_phase,
+            content_type,
+            transport_error_kind,
         )

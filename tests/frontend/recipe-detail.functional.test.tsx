@@ -40,6 +40,9 @@ const recipe: RecipeDetailModel = {
   isShared: false,
   prepMinutes: null,
   cookMinutes: null,
+  totalMinutes: null,
+  additionalTimeLabel: "",
+  additionalTimeMinutes: null,
   servings: 2,
   ingredientGroups: [],
   instructionGroups: [],
@@ -76,6 +79,23 @@ afterAll(() => {
 });
 
 describe("recipe source details", () => {
+  it("shows extractor total and one labeled additional duration", async () => {
+    await render(
+      <RecipeDetailView
+        onBack={jest.fn()}
+        recipe={{
+          ...recipe,
+          totalMinutes: 75,
+          additionalTimeLabel: "Rest",
+          additionalTimeMinutes: 15,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Total 1 hr 15 min")).toBeTruthy();
+    expect(screen.getByText("Rest 15 min")).toBeTruthy();
+  });
+
   it("keeps unit conversion available when base servings are unknown", async () => {
     await render(
       <RecipeDetailView

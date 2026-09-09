@@ -6,6 +6,8 @@ import type {
   RecipeSource,
 } from "@/shared/types";
 
+import { formatEditableIngredientAmount } from "./recipe-calculations";
+
 type ApiRecipe = {
   id: string;
   is_shared: boolean;
@@ -30,6 +32,9 @@ type ApiRecipe = {
   servings: number | null;
   prep_time_minutes: number | null;
   cook_time_minutes: number | null;
+  total_time_minutes: number | null;
+  additional_time_label: string | null;
+  additional_time_minutes: number | null;
   nutrition_per_serving: Partial<
     Record<
       | "calories_kcal"
@@ -90,7 +95,10 @@ export function toRecipeCard(recipe: ApiRecipe): RecipeCardModel {
     title: recipe.title,
     imagePath: recipe.image_path,
     imageUrl: recipe.image_url,
-    cookingTimeMinutes: prep + cook || null,
+    cookingTimeMinutes:
+      recipe.total_time_minutes && recipe.total_time_minutes > 0
+        ? recipe.total_time_minutes
+        : prep + cook || null,
     servings: recipe.servings,
     isShared: recipe.is_shared,
   };
@@ -105,6 +113,9 @@ export function toRecipeDetail(recipe: ApiRecipe): RecipeDetailModel {
     isShared: recipe.is_shared,
     prepMinutes: recipe.prep_time_minutes,
     cookMinutes: recipe.cook_time_minutes,
+    totalMinutes: recipe.total_time_minutes,
+    additionalTimeLabel: recipe.additional_time_label ?? "",
+    additionalTimeMinutes: recipe.additional_time_minutes,
     servings: recipe.servings,
     notes: recipe.description ?? "",
     nutrition: nutritionFromApi(recipe),
@@ -114,7 +125,13 @@ export function toRecipeDetail(recipe: ApiRecipe): RecipeDetailModel {
       title: group.title,
       ingredients: group.items.map((ingredient, ingredientIndex) => ({
         id: `ingredient-${groupIndex}-${ingredientIndex}`,
-        amount: textNumber(ingredient.quantity),
+        amount:
+          ingredient.quantity == null
+            ? ""
+            : formatEditableIngredientAmount(
+                ingredient.quantity,
+                ingredient.unit ?? "",
+              ),
         unit: ingredient.unit ?? "",
         name: ingredient.name,
         note: ingredient.note ?? "",

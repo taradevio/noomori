@@ -115,6 +115,47 @@ describe("keyboard layout", () => {
     );
   });
 
+  it("scales cooking fractions from the stable canonical amount", async () => {
+    const draft = createBlankRecipeDraft();
+    draft.servings = 2;
+    draft.ingredientGroups = [
+      {
+        id: "group",
+        title: null,
+        ingredients: [
+          {
+            id: "ingredient",
+            amount: "1/3",
+            unit: "cup",
+            name: "stock",
+            note: "",
+          },
+        ],
+      },
+    ];
+
+    await render(
+      <RecipeForm
+        initialDraft={draft}
+        mode="edit"
+        onClose={jest.fn()}
+        onSubmit={jest.fn()}
+      />,
+    );
+
+    const amount = screen.getByLabelText("Ingredient 1 amount");
+    await fireEvent.press(screen.getByLabelText("Decrease servings"));
+    expect(amount).toHaveProp("value", "1/6");
+    await fireEvent.press(screen.getByLabelText("Increase servings"));
+    expect(amount).toHaveProp("value", "1/3");
+    await fireEvent.press(screen.getByLabelText("Decrease servings"));
+    expect(amount).toHaveProp("value", "1/6");
+    expect(screen.getByLabelText("Ingredient 1 unit")).toHaveProp(
+      "value",
+      "cup",
+    );
+  });
+
   it("establishes an unknown serving baseline before scaling", async () => {
     const draft = createBlankRecipeDraft();
     draft.servings = null;

@@ -58,6 +58,9 @@ function importedRecipe() {
     servings: null,
     prep_time_minutes: 5,
     cook_time_minutes: null,
+    total_time_minutes: null,
+    additional_time_label: null,
+    additional_time_minutes: null,
     nutrition_per_serving: null,
     image_url: null,
   };

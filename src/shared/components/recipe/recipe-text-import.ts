@@ -1,6 +1,7 @@
 import type { RecipeDraft } from "@/shared/types";
 
 import { createBlankRecipeDraft } from "./recipe-draft";
+import { formatEditableIngredientAmount } from "./recipe-calculations";
 
 export type ImportedRecipeTextDraft = {
   title: string | null;
@@ -21,6 +22,9 @@ export type ImportedRecipeTextDraft = {
   servings: number | null;
   prep_time_minutes: number | null;
   cook_time_minutes: number | null;
+  total_time_minutes: number | null;
+  additional_time_label: string | null;
+  additional_time_minutes: number | null;
   nutrition_per_serving: {
     calories_kcal: number | null;
     protein_g: number | null;
@@ -49,6 +53,9 @@ export function toImportedRecipeDraft(
     title: imported.title ?? "",
     prepMinutes: imported.prep_time_minutes,
     cookMinutes: imported.cook_time_minutes,
+    totalMinutes: imported.total_time_minutes,
+    additionalTimeLabel: imported.additional_time_label ?? "",
+    additionalTimeMinutes: imported.additional_time_minutes,
     servings: imported.servings,
     notes: imported.description ?? "",
     // NOTE: Imported nutrition uses the existing editable fields; missing or
@@ -73,7 +80,13 @@ export function toImportedRecipeDraft(
       title: group.title,
       ingredients: group.items.map((ingredient, ingredientIndex) => ({
         id: `import-ingredient-${groupIndex}-${ingredientIndex}`,
-        amount: textNumber(ingredient.quantity),
+        amount:
+          ingredient.quantity == null
+            ? ""
+            : formatEditableIngredientAmount(
+                ingredient.quantity,
+                ingredient.unit ?? "",
+              ),
         unit: ingredient.unit ?? "",
         name: ingredient.name,
         note: ingredient.note ?? "",
