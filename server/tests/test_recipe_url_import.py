@@ -1,11 +1,21 @@
+import gzip
 import logging
 import socket
+import threading
 import unittest
+import warnings
 from dataclasses import replace
+from datetime import datetime, timezone
+from email.utils import format_datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import Mock, patch
+from time import monotonic
+from unittest.mock import MagicMock, Mock, patch
+from urllib.parse import urlsplit
 
 import urllib3
+from curl_cffi import Curl, CurlECode, CurlOpt
+from curl_cffi import requests as curl_requests
 from fastapi import HTTPException
 from pydantic import ValidationError
 
@@ -22,6 +32,7 @@ from server.modules.recipes.router import router as recipe_router
 from server.recipe_url_import import (
     MAX_HTML_BYTES,
     MAX_IMAGE_BYTES,
+    HTML_BROWSER_PROFILE,
     HTML_USER_AGENT,
     ExtractedIngredientGroup,
     ExtractedRecipe,
@@ -29,7 +40,11 @@ from server.recipe_url_import import (
     FetchedRecipeImage,
     FetchedRecipePage,
     WebsiteImportError,
+    _curl_resolve_rule,
+    _fetch_html_from_address,
+    _retry_delay,
     _validated_target,
+    assert_html_browser_profile_supported,
     extract_recipe,
     extract_recipe_container_text,
     extract_recipe_dom_metadata,
@@ -102,6 +117,12 @@ class FakePool:
 
     def close(self):
         self.closed = True
+
+
+class PartialReadResponse(FakeResponse):
+    def stream(self, amt=64 * 1024, decode_content=True):
+        yield b"x" * MAX_HTML_BYTES
+        raise urllib3.exceptions.ReadTimeoutError(None, "/", "timed out")
 
 
 def extracted_recipe(**changes):
@@ -910,7 +931,7 @@ class SafeFetchTest(unittest.TestCase):
             patch("server.recipe_url_import.socket.getaddrinfo", return_value=PUBLIC_ANSWER),
             patch("server.recipe_url_import.urllib3.HTTPSConnectionPool", return_value=pool) as factory,
         ):
-            page = fetch_public_html(url)
+            page = fetch_public_html(url, transport="urllib3")
         return page, factory
 
     def fetch_image_with_pool(self, pool, url="https://example.com/photo.jpg"):
@@ -944,7 +965,10 @@ class SafeFetchTest(unittest.TestCase):
             patch("server.recipe_url_import.socket.getaddrinfo", side_effect=answers) as resolve,
             patch("server.recipe_url_import.urllib3.HTTPSConnectionPool", side_effect=[first, second]),
         ):
-            page = fetch_public_html("https://example.com/recipe")
+            page = fetch_public_html(
+                "https://example.com/recipe",
+                transport="urllib3",
+            )
 
         self.assertEqual(2, resolve.call_count)
         self.assertEqual("https://next.example/food", page.url)
@@ -958,7 +982,10 @@ class SafeFetchTest(unittest.TestCase):
             patch("server.recipe_url_import.urllib3.HTTPSConnectionPool", return_value=first),
         ):
             with self.assertRaises(WebsiteImportError) as caught:
-                fetch_public_html("https://example.com/recipe")
+                fetch_public_html(
+                    "https://example.com/recipe",
+                    transport="urllib3",
+                )
         self.assertEqual("unsafe_url", caught.exception.detail)
 
     def test_rejects_redirect_limit(self):
@@ -971,7 +998,10 @@ class SafeFetchTest(unittest.TestCase):
             patch("server.recipe_url_import.urllib3.HTTPSConnectionPool", side_effect=pools),
         ):
             with self.assertRaises(WebsiteImportError) as caught:
-                fetch_public_html("https://example.com/recipe")
+                fetch_public_html(
+                    "https://example.com/recipe",
+                    transport="urllib3",
+                )
         self.assertEqual("page_unavailable", caught.exception.detail)
 
     def test_maps_timeout_and_remote_error(self):
@@ -990,27 +1020,58 @@ class SafeFetchTest(unittest.TestCase):
                     caught.exception.transport_error_kind,
                 )
 
-    def test_reports_upstream_status_and_stops_after_first_http_response(self):
+    def test_non_retryable_http_response_stops_address_traversal(self):
         answers = [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.35", 443)),
         ]
-        for status in (403, 429, 500, 503):
+        first = FakePool(FakeResponse(status=403))
+        second = FakePool()
+        with patch(
+            "server.recipe_url_import.socket.getaddrinfo",
+            return_value=answers,
+        ), patch(
+            "server.recipe_url_import.urllib3.HTTPSConnectionPool",
+            side_effect=[first, second],
+        ) as factory, self.assertRaises(WebsiteImportError) as caught:
+            fetch_public_html(
+                "https://example.com/recipe",
+                transport="urllib3",
+            )
+
+        self.assertEqual(403, caught.exception.upstream_status)
+        self.assertEqual("response", caught.exception.fetch_phase)
+        self.assertEqual("http_error", caught.exception.transport_error_kind)
+        self.assertEqual(1, factory.call_count)
+
+    def test_retryable_http_response_stops_current_round_then_retries(self):
+        answers = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.35", 443)),
+        ]
+        for status in (429, 500, 502, 503, 504):
             first = FakePool(FakeResponse(status=status))
-            second = FakePool()
+            success = FakePool(FakeResponse(chunks=[b"ok"]))
             with self.subTest(status=status), patch(
                 "server.recipe_url_import.socket.getaddrinfo",
                 return_value=answers,
-            ), patch(
+            ) as resolve, patch(
                 "server.recipe_url_import.urllib3.HTTPSConnectionPool",
-                side_effect=[first, second],
-            ) as factory:
-                with self.assertRaises(WebsiteImportError) as caught:
-                    fetch_public_html("https://example.com/recipe")
-            self.assertEqual(status, caught.exception.upstream_status)
-            self.assertEqual("response", caught.exception.fetch_phase)
-            self.assertEqual("http_error", caught.exception.transport_error_kind)
-            self.assertEqual(1, factory.call_count)
+                side_effect=[first, success],
+            ) as factory, patch(
+                "server.recipe_url_import.sleep"
+            ):
+                page = fetch_public_html(
+                    "https://example.com/recipe",
+                    transport="urllib3",
+                )
+
+            self.assertEqual("ok", page.html)
+            self.assertEqual(2, resolve.call_count)
+            self.assertEqual(2, factory.call_count)
+            self.assertEqual(2, page.request_round_count)
+            self.assertEqual(2, page.address_attempt_count)
+            self.assertEqual(f"http_{status}", page.retry_reason)
 
     def test_tries_another_address_only_after_connection_failure(self):
         answers = [
@@ -1028,26 +1089,228 @@ class SafeFetchTest(unittest.TestCase):
             "server.recipe_url_import.urllib3.HTTPSConnectionPool",
             side_effect=[failed_connection, success],
         ) as factory:
-            page = fetch_public_html("https://example.com/recipe")
+            page = fetch_public_html(
+                "https://example.com/recipe",
+                transport="urllib3",
+            )
 
         self.assertEqual("ok", page.html)
         self.assertEqual(2, factory.call_count)
 
-        read_timeout = FakePool(
-            error=urllib3.exceptions.ReadTimeoutError(None, "/", "timed out")
-        )
+        partial_read = FakePool(PartialReadResponse())
         with patch(
             "server.recipe_url_import.socket.getaddrinfo",
             return_value=answers,
-        ), patch(
+        ) as resolve, patch(
             "server.recipe_url_import.urllib3.HTTPSConnectionPool",
-            side_effect=[read_timeout, success],
-        ) as factory, self.assertRaises(WebsiteImportError) as caught:
-            fetch_public_html("https://example.com/recipe")
+            side_effect=[partial_read, success],
+        ) as factory, patch("server.recipe_url_import.sleep"):
+            page = fetch_public_html(
+                "https://example.com/recipe",
+                transport="urllib3",
+            )
 
-        self.assertEqual("fetch_timeout", caught.exception.detail)
-        self.assertEqual("request", caught.exception.fetch_phase)
-        self.assertEqual(1, factory.call_count)
+        self.assertEqual("ok", page.html)
+        self.assertEqual(2, page.response_size)
+        self.assertEqual(2, page.request_round_count)
+        self.assertEqual(2, page.address_attempt_count)
+        self.assertEqual("read_failure", page.retry_reason)
+        self.assertEqual(2, resolve.call_count)
+        self.assertEqual(2, factory.call_count)
+
+    def test_curl_profile_resolve_and_request_safety_options(self):
+        assert_html_browser_profile_supported()
+        self.assertEqual(
+            "example.com:443:[2001:4860:4860::8888]",
+            _curl_resolve_rule("example.com", 443, "2001:4860:4860::8888"),
+        )
+
+        session = MagicMock()
+        client = session.__enter__.return_value
+
+        def get(_url, **kwargs):
+            kwargs["content_callback"](b"<html>ok</html>")
+            return Mock(
+                status_code=200,
+                headers={"Content-Type": "text/html; charset=utf-8"},
+            )
+
+        client.get.side_effect = get
+        with patch(
+            "server.recipe_url_import.socket.getaddrinfo",
+            return_value=PUBLIC_ANSWER,
+        ), patch(
+            "server.recipe_url_import.curl_requests.Session",
+            return_value=session,
+        ) as session_factory:
+            page = fetch_public_html(
+                "https://example.com/recipe",
+                transport="curl_cffi",
+            )
+
+        options = session_factory.call_args.kwargs
+        self.assertFalse(options["trust_env"])
+        self.assertFalse(options["allow_redirects"])
+        self.assertEqual(0, options["retry"])
+        self.assertEqual(HTML_BROWSER_PROFILE, options["impersonate"])
+        self.assertTrue(options["default_headers"])
+        self.assertEqual(
+            ["example.com:443:93.184.216.34"],
+            options["curl_options"][CurlOpt.RESOLVE],
+        )
+        self.assertEqual(
+            MAX_HTML_BYTES,
+            options["curl_options"][CurlOpt.MAXFILESIZE_LARGE],
+        )
+        request = client.get.call_args
+        self.assertEqual("https://example.com/recipe", request.args[0])
+        self.assertFalse(request.kwargs["allow_redirects"])
+        self.assertTrue(request.kwargs["discard_cookies"])
+        self.assertNotIn("Host", request.kwargs["headers"])
+        self.assertEqual("curl_cffi", page.transport)
+        self.assertEqual(HTML_BROWSER_PROFILE, page.browser_profile)
+
+    def test_browser_profile_validation_is_strictly_local(self):
+        with patch.object(Curl, "perform") as perform, patch(
+            "server.recipe_url_import.socket.getaddrinfo"
+        ) as resolve, patch(
+            "server.recipe_url_import.curl_requests.Session"
+        ) as session:
+            assert_html_browser_profile_supported()
+
+        perform.assert_not_called()
+        resolve.assert_not_called()
+        session.assert_not_called()
+
+    def test_curl_retry_discards_partial_response_body(self):
+        first_session = MagicMock()
+        first_client = first_session.__enter__.return_value
+
+        def fail_during_body(_url, **kwargs):
+            kwargs["content_callback"](b"discard me")
+            response = Mock(status_code=200, headers={"Content-Type": "text/html"})
+            raise curl_requests.exceptions.Timeout(
+                "timed out",
+                CurlECode.OPERATION_TIMEDOUT,
+                response,
+            )
+
+        first_client.get.side_effect = fail_during_body
+        second_session = MagicMock()
+        second_client = second_session.__enter__.return_value
+
+        def succeed(_url, **kwargs):
+            kwargs["content_callback"](b"kept")
+            return Mock(
+                status_code=200,
+                headers={"Content-Type": "text/html; charset=utf-8"},
+            )
+
+        second_client.get.side_effect = succeed
+        with patch(
+            "server.recipe_url_import.settings.recipe_html_transport",
+            "curl_cffi",
+        ), patch(
+            "server.recipe_url_import.socket.getaddrinfo",
+            return_value=PUBLIC_ANSWER,
+        ) as resolve, patch(
+            "server.recipe_url_import.curl_requests.Session",
+            side_effect=[first_session, second_session],
+        ), patch("server.recipe_url_import.sleep"):
+            page = fetch_public_html("https://example.com/recipe")
+
+        self.assertEqual("kept", page.html)
+        self.assertEqual(4, page.response_size)
+        self.assertEqual(2, page.request_round_count)
+        self.assertEqual(2, page.address_attempt_count)
+        self.assertEqual("read_failure", page.retry_reason)
+        self.assertEqual(2, resolve.call_count)
+
+    def test_retryable_second_http_response_is_final(self):
+        first = FakePool(FakeResponse(status=503))
+        second = FakePool(FakeResponse(status=503))
+        unused = FakePool()
+        with patch(
+            "server.recipe_url_import.socket.getaddrinfo",
+            return_value=PUBLIC_ANSWER,
+        ) as resolve, patch(
+            "server.recipe_url_import.urllib3.HTTPSConnectionPool",
+            side_effect=[first, second, unused],
+        ) as factory, patch(
+            "server.recipe_url_import.sleep"
+        ), self.assertRaises(WebsiteImportError) as caught:
+            fetch_public_html(
+                "https://example.com/recipe",
+                transport="urllib3",
+            )
+
+        self.assertEqual(503, caught.exception.upstream_status)
+        self.assertEqual(2, caught.exception.request_round_count)
+        self.assertEqual(2, caught.exception.address_attempt_count)
+        self.assertEqual("http_503", caught.exception.retry_reason)
+        self.assertEqual(2, resolve.call_count)
+        self.assertEqual(2, factory.call_count)
+
+    def test_retry_after_is_bounded_and_supports_http_dates(self):
+        with patch("server.recipe_url_import.uniform", return_value=0.2):
+            self.assertEqual(0.2, _retry_delay(429, {}))
+            self.assertEqual(0.2, _retry_delay(429, {"Retry-After": "invalid"}))
+            self.assertEqual(0.2, _retry_delay(429, {"Retry-After": "²"}))
+        self.assertEqual(0, _retry_delay(429, {"Retry-After": "0"}))
+        self.assertIsNone(_retry_delay(429, {"Retry-After": "2"}))
+        self.assertEqual(
+            0,
+            _retry_delay(
+                429,
+                {"Retry-After": format_datetime(datetime.now(timezone.utc))},
+            ),
+        )
+
+    def test_curl_rejects_compressed_decoded_body_over_limit(self):
+        decoded = b"x" * (MAX_HTML_BYTES + 1)
+        encoded_bodies = {
+            "gzip": gzip.compress(decoded),
+            "br": bytes.fromhex("9b000030f825f0e2b14040f7fe05"),
+        }
+
+        for encoding, body in encoded_bodies.items():
+            with self.subTest(encoding=encoding):
+                class Handler(BaseHTTPRequestHandler):
+                    def do_GET(self):
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html")
+                        self.send_header("Content-Encoding", encoding)
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+
+                    def log_message(self, *_args):
+                        pass
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    port = server.server_address[1]
+                    parsed = urlsplit(f"http://fixture.test:{port}/recipe")
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        with self.assertRaises(WebsiteImportError) as caught:
+                            _fetch_html_from_address(
+                                parsed,
+                                "127.0.0.1",
+                                port,
+                                monotonic() + 5,
+                                "text/html, application/xhtml+xml",
+                                MAX_HTML_BYTES,
+                            )
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join()
+
+                self.assertEqual("page_too_large", caught.exception.detail)
+                self.assertGreater(caught.exception.response_size, MAX_HTML_BYTES)
 
     def test_rejects_missing_or_incompatible_content_type(self):
         for headers in ({}, {"Content-Type": "application/pdf"}):
@@ -1137,7 +1400,10 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
             response_size=4,
         )
         with (
-            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch(
+                "server.modules.recipes.imports.website.fetch_public_html",
+                return_value=page,
+            ) as fetch_html,
             patch(
                 "server.modules.recipes.imports.website.extract_recipe",
                 return_value=extracted_recipe(
@@ -1160,6 +1426,7 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
         self.assertIn("ingredients", response.model_dump())
         self.assertEqual(120, response.nutrition_per_serving.calories_kcal)
         self.assertEqual(7, response.nutrition_per_serving.protein_g)
+        fetch_html.assert_called_once_with("https://example.com/recipe")
         self.assertEqual([], auth.supabase.mock_calls)
         self.assertEqual(logging.INFO, log.call_args.args[0])
         self.assertEqual(
@@ -1921,6 +2188,11 @@ Instructions
             redirect_count=2,
             fetch_phase="response",
             transport_error_kind="http_error",
+            transport="curl_cffi",
+            browser_profile=HTML_BROWSER_PROFILE,
+            request_round_count=2,
+            address_attempt_count=2,
+            retry_reason="http_503",
         )
         with patch(
             "server.modules.recipes.imports.website.fetch_public_html",
@@ -1939,8 +2211,47 @@ Instructions
         self.assertIn("example.com", logged)
         self.assertIn("503", logged)
         self.assertIn("http_error", logged)
+        self.assertIn("curl_cffi", logged)
+        self.assertIn(HTML_BROWSER_PROFILE, logged)
+        self.assertIn("http_503", logged)
         self.assertNotIn("do-not-log", logged)
         self.assertNotIn("exc_info", log.call_args.kwargs)
+
+    def test_parser_failure_keeps_successful_fetch_transport_diagnostics(self):
+        page = FetchedRecipePage(
+            html="html",
+            url="https://example.com/recipe",
+            hostname="example.com",
+            response_size=4,
+            transport="curl_cffi",
+            browser_profile=HTML_BROWSER_PROFILE,
+            request_round_count=2,
+            address_attempt_count=3,
+            retry_reason="read_failure",
+        )
+        with patch(
+            "server.modules.recipes.imports.website.fetch_public_html",
+            return_value=page,
+        ), patch(
+            "server.modules.recipes.imports.website.extract_recipe",
+            side_effect=WebsiteImportError("recipe_not_found"),
+        ), patch(
+            "server.modules.recipes.imports.website.extract_recipe_container_text",
+            side_effect=WebsiteImportError("recipe_not_found"),
+        ), patch(
+            "server.modules.recipes.imports.website.logger.log"
+        ) as log, self.assertRaises(HTTPException) as caught:
+            import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual(422, caught.exception.status_code)
+        logged = " ".join(str(value) for value in log.call_args.args)
+        self.assertIn("curl_cffi", logged)
+        self.assertIn(HTML_BROWSER_PROFILE, logged)
+        self.assertIn("read_failure", logged)
+        self.assertNotIn("urllib3", logged)
 
 
 class ImportRecipeImageEndpointTest(unittest.TestCase):

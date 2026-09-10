@@ -1,9 +1,12 @@
+from typing import Literal
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     app_env: str = "development"
+    recipe_html_transport: Literal["urllib3", "curl_cffi"] = "curl_cffi"
 
     supabase_url: str
     supabase_key: str

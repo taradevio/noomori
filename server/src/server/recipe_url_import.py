@@ -3,22 +3,33 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from email.message import Message
+from email.utils import parsedate_to_datetime
 from importlib.metadata import version
-from time import monotonic
+from random import uniform
+from time import monotonic, sleep
 from urllib.parse import SplitResult, urljoin, urlsplit
 
 import urllib3
 from bs4 import BeautifulSoup, Comment, NavigableString, Tag
+from curl_cffi import Curl, CurlECode, CurlOpt
+from curl_cffi import requests as curl_requests
 from recipe_scrapers import scrape_html
+
+from server.config import settings
 
 
 FETCH_DEADLINE_SECONDS = 8.0
 MAX_HTML_BYTES = 3 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_REDIRECTS = 3
+MAX_HTML_REQUEST_ROUNDS = 2
+MAX_RETRY_DELAY_SECONDS = 1.0
 USER_AGENT = "NoomoriRecipeImport/1.0"
+HTML_BROWSER_PROFILE = "chrome150"
 RECIPE_SCRAPERS_VERSION = version("recipe-scrapers")
 HTML_USER_AGENT = (
     "Mozilla/5.0 (compatible; Windows NT 10.0; Win64; "
@@ -28,6 +39,7 @@ HTML_USER_AGENT = (
 _HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
 _IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+_RETRYABLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
 # NOTE: Keep these aliases exact and intentionally small. Indonesian labels cover
 # the Sasa fallback case without turning section detection into fuzzy matching.
 _RECIPE_SECTION_NAMES = {
@@ -123,6 +135,11 @@ class WebsiteImportError(Exception):
         content_type: str | None = None,
         response_size: int = 0,
         transport_error_kind: str | None = None,
+        transport: str = "urllib3",
+        browser_profile: str | None = None,
+        request_round_count: int = 0,
+        address_attempt_count: int = 0,
+        retry_reason: str | None = None,
     ):
         super().__init__(detail)
         self.detail = detail
@@ -153,6 +170,13 @@ class WebsiteImportError(Exception):
             if transport_error_kind in _TRANSPORT_ERROR_KINDS
             else None
         )
+        self.transport = (
+            transport if transport in {"urllib3", "curl_cffi"} else "urllib3"
+        )
+        self.browser_profile = browser_profile
+        self.request_round_count = max(0, int(request_round_count))
+        self.address_attempt_count = max(0, int(address_attempt_count))
+        self.retry_reason = retry_reason
 
 
 @dataclass(frozen=True)
@@ -161,6 +185,11 @@ class FetchedRecipePage:
     url: str
     hostname: str
     response_size: int
+    transport: str = "urllib3"
+    browser_profile: str | None = None
+    request_round_count: int = 1
+    address_attempt_count: int = 1
+    retry_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -180,6 +209,19 @@ class _FetchedPublicResource:
     response_size: int
     content_type: str
     content_type_header: str
+    transport: str
+    browser_profile: str | None
+    request_round_count: int
+    address_attempt_count: int
+    retry_reason: str | None
+
+
+@dataclass(frozen=True)
+class _TransportResponse:
+    status: int
+    headers: Mapping[str, str]
+    chunks: Iterable[bytes]
+    close: Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -316,7 +358,7 @@ def _decode_html(body: bytes, content_type: str) -> str:
         return body.decode("utf-8", errors="replace")
 
 
-# Purpose: Open one HTTP request against a previously validated IP address.
+# Purpose: Open one urllib3 request against a previously validated IP address.
 # Connects to: Called by server/src/server/recipe_url_import.py::_fetch_public_resource(); calls server/src/server/recipe_url_import.py::{_remaining(),_request_path(),_host_header()} and urllib3 HTTP(S)ConnectionPool.urlopen().
 def _fetch_from_address(
     parsed: SplitResult,
@@ -365,14 +407,232 @@ def _fetch_from_address(
             assert_same_host=False,
             timeout=timeout,
         )
-        return pool, response
+        def close() -> None:
+            response.close()
+            pool.close()
+
+        return _TransportResponse(
+            status=response.status,
+            headers=response.headers,
+            chunks=response.stream(amt=64 * 1024, decode_content=True),
+            close=close,
+        )
     except Exception:
         pool.close()
         raise
 
 
+# Purpose: Fail fast when the pinned curl-cffi wheel lacks Noomori's fixed profile.
+# Connects to: Called by server/src/server/core/lifespan.py::app_lifespan() and server/src/server/characterize_recipe_transport.py::run_characterization(); invokes curl-cffi without making a network request.
+def assert_html_browser_profile_supported() -> None:
+    curl = Curl()
+    try:
+        if curl.impersonate(HTML_BROWSER_PROFILE) != 0:
+            raise RuntimeError(
+                f"curl-cffi does not support {HTML_BROWSER_PROFILE}"
+            )
+    finally:
+        curl.close()
+
+
+# Purpose: Format one libcurl resolve rule without replacing the URL hostname.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_html_from_address(); has no downstream local function calls.
+def _curl_resolve_rule(hostname: str, port: int, address: str) -> str:
+    rendered_address = f"[{address}]" if ":" in address else address
+    return f"{hostname}:{port}:{rendered_address}"
+
+
+# Purpose: Fetch one bounded, decoded HTML response through a validated address.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_public_resource(); uses a request-scoped curl-cffi Session.
+def _fetch_html_from_address(
+    parsed: SplitResult,
+    address: str,
+    port: int,
+    deadline: float,
+    accept: str,
+    max_bytes: int,
+) -> _TransportResponse:
+    hostname = parsed.hostname.encode("idna").decode("ascii")  # type: ignore[union-attr]
+    chunks: list[bytes] = []
+    response_size = 0
+
+    def receive(chunk: bytes) -> None:
+        nonlocal response_size
+        _remaining(deadline)
+        response_size += len(chunk)
+        if response_size > max_bytes:
+            raise WebsiteImportError(
+                "page_too_large",
+                hostname=hostname,
+                fetch_phase="body",
+                response_size=response_size,
+                transport="curl_cffi",
+                browser_profile=HTML_BROWSER_PROFILE,
+            )
+        chunks.append(chunk)
+
+    curl_options = {CurlOpt.MAXFILESIZE_LARGE: max_bytes}
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        curl_options[CurlOpt.RESOLVE] = [
+            _curl_resolve_rule(hostname, port, address)
+        ]
+
+    try:
+        with curl_requests.Session(
+            trust_env=False,
+            allow_redirects=False,
+            retry=0,
+            impersonate=HTML_BROWSER_PROFILE,
+            default_headers=True,
+            curl_options=curl_options,
+        ) as session:
+            response = session.get(
+                parsed.geturl(),
+                headers={"Accept": accept},
+                timeout=_remaining(deadline),
+                allow_redirects=False,
+                content_callback=receive,
+                discard_cookies=True,
+            )
+    except WebsiteImportError:
+        raise
+    except curl_requests.exceptions.RequestException as exc:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None) or None
+        if exc.code == CurlECode.FILESIZE_EXCEEDED:
+            raise WebsiteImportError(
+                "page_too_large",
+                hostname=hostname,
+                upstream_status=status,
+                fetch_phase="headers",
+                response_size=max_bytes + 1,
+                transport="curl_cffi",
+                browser_profile=HTML_BROWSER_PROFILE,
+            ) from exc
+
+        body_started = bool(response_size or status)
+        if isinstance(exc, curl_requests.exceptions.Timeout):
+            raise WebsiteImportError(
+                "fetch_timeout",
+                hostname=hostname,
+                upstream_status=status,
+                fetch_phase="body" if body_started else "request",
+                response_size=response_size,
+                transport_error_kind="timeout",
+                transport="curl_cffi",
+                browser_profile=HTML_BROWSER_PROFILE,
+            ) from exc
+
+        if (
+            isinstance(exc, curl_requests.exceptions.IncompleteRead)
+            or exc.code in {CurlECode.PARTIAL_FILE, CurlECode.RECV_ERROR}
+            or body_started
+        ):
+            raise WebsiteImportError(
+                "page_unavailable",
+                hostname=hostname,
+                upstream_status=status,
+                fetch_phase="body",
+                response_size=response_size,
+                transport_error_kind="connection_error",
+                transport="curl_cffi",
+                browser_profile=HTML_BROWSER_PROFILE,
+            ) from exc
+
+        raise WebsiteImportError(
+            "page_unavailable",
+            hostname=hostname,
+            fetch_phase="connect",
+            transport_error_kind=(
+                "tls_error"
+                if isinstance(exc, curl_requests.exceptions.SSLError)
+                else "connection_error"
+            ),
+            transport="curl_cffi",
+            browser_profile=HTML_BROWSER_PROFILE,
+        ) from exc
+
+    return _TransportResponse(
+        status=response.status_code,
+        headers=response.headers,
+        chunks=chunks,
+        close=lambda: None,
+    )
+
+
+# Purpose: Return a bounded delay for one permitted HTML retry.
+# Connects to: Called by server/src/server/recipe_url_import.py::_wait_before_retry(); uses only standard-library date parsing and jitter.
+def _retry_delay(status: int | None, headers: Mapping[str, str]) -> float | None:
+    if status != 429:
+        return uniform(0.1, 0.3)
+
+    value = headers.get("Retry-After")
+    if not value:
+        return uniform(0.1, 0.3)
+    stripped_value = value.strip()
+    if re.fullmatch(r"[0-9]+", stripped_value):
+        delay = float(int(stripped_value))
+    else:
+        try:
+            retry_at = parsedate_to_datetime(value)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return uniform(0.1, 0.3)
+
+    delay = max(0.0, delay)
+    return delay if delay <= MAX_RETRY_DELAY_SECONDS else None
+
+
+# Purpose: Wait only when the retry delay fits inside the shared deadline.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_public_resource(); calls server/src/server/recipe_url_import.py::_retry_delay().
+def _wait_before_retry(
+    status: int | None,
+    headers: Mapping[str, str],
+    deadline: float,
+) -> bool:
+    delay = _retry_delay(status, headers)
+    if delay is None or delay >= deadline - monotonic():
+        return False
+    sleep(delay)
+    return True
+
+
+# Purpose: Identify read-phase failures eligible for the one bounded retry.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_public_resource(); has no downstream local function calls.
+def _is_retryable_read_failure(error: WebsiteImportError) -> bool:
+    return (
+        error.fetch_phase in {"request", "body"}
+        and error.transport_error_kind in {"timeout", "connection_error"}
+        and error.detail in {"fetch_timeout", "page_unavailable"}
+    )
+
+
+# Purpose: Attach aggregate transport diagnostics without changing public errors.
+# Connects to: Called by server/src/server/recipe_url_import.py::_fetch_public_resource(); has no downstream local function calls.
+def _annotate_transport_error(
+    error: WebsiteImportError,
+    *,
+    transport: str,
+    request_round_count: int,
+    address_attempt_count: int,
+    retry_reason: str | None,
+) -> WebsiteImportError:
+    error.transport = transport
+    error.browser_profile = (
+        HTML_BROWSER_PROFILE if transport == "curl_cffi" else None
+    )
+    error.request_round_count = request_round_count
+    error.address_attempt_count = address_attempt_count
+    error.retry_reason = retry_reason or error.retry_reason
+    return error
+
+
 # Purpose: Safely fetch bounded public content across revalidated redirects.
-# Connects to: Called by server/src/server/recipe_url_import.py::{fetch_public_html(),fetch_public_image()}; calls server/src/server/recipe_url_import.py::{_remaining(),_validated_target(),_fetch_from_address()}.
+# Connects to: Called by server/src/server/recipe_url_import.py::{fetch_public_html(),fetch_public_image()}; calls server/src/server/recipe_url_import.py::{_remaining(),_validated_target(),_fetch_from_address(),_fetch_html_from_address()}.
 def _fetch_public_resource(
     url: str,
     *,
@@ -380,244 +640,380 @@ def _fetch_public_resource(
     max_bytes: int,
     accept: str,
     user_agent: str,
+    transport: str = "urllib3",
+    max_request_rounds: int = 1,
 ) -> _FetchedPublicResource:
-    # NOTE: HTML and image downloads deliberately share one verified-IP path so
-    # redirects cannot bypass the importer's DNS and SSRF checks.
     deadline = monotonic() + FETCH_DEADLINE_SECONDS
     current_url = url
+    request_round_count = 0
+    address_attempt_count = 0
+    retry_reason = None
 
     for redirect_count in range(MAX_REDIRECTS + 1):
         _remaining(deadline)
-        response_size = 0
-        content_type = None
-        try:
-            parsed, addresses, port = _validated_target(current_url)
-        except WebsiteImportError as exc:
-            if exc.redirect_count == 0:
-                exc.redirect_count = redirect_count
-            raise
-        hostname = parsed.hostname.encode("idna").decode("ascii")  # type: ignore[union-attr]
-        last_error: Exception | None = None
-        pool = None
-        response = None
-
-        for address in addresses:
+        followed_redirect = False
+        for request_round in range(max_request_rounds):
+            response_size = 0
+            content_type = None
+            response = None
             try:
-                pool, response = _fetch_from_address(
-                    parsed,
-                    address,
-                    port,
-                    deadline,
-                    accept,
-                    user_agent,
-                )
-                break
+                parsed, addresses, port = _validated_target(current_url)
             except WebsiteImportError as exc:
-                exc.hostname = exc.hostname or hostname
                 exc.redirect_count = redirect_count
-                raise
-            except (
-                urllib3.exceptions.NewConnectionError,
-                urllib3.exceptions.ConnectTimeoutError,
-                ConnectionError,
-            ) as exc:
-                last_error = exc
-            except (
-                urllib3.exceptions.ReadTimeoutError,
-                TimeoutError,
-                socket.timeout,
-            ) as exc:
-                raise WebsiteImportError(
-                    "fetch_timeout",
-                    hostname=hostname,
-                    redirect_count=redirect_count,
-                    fetch_phase="request",
-                    transport_error_kind="timeout",
-                ) from exc
-            except (OSError, urllib3.exceptions.HTTPError) as exc:
-                raise WebsiteImportError(
-                    "page_unavailable",
-                    hostname=hostname,
-                    redirect_count=redirect_count,
-                    fetch_phase="request",
-                    transport_error_kind=(
-                        "tls_error"
-                        if isinstance(exc, urllib3.exceptions.SSLError)
-                        else "connection_error"
-                    ),
-                ) from exc
+                raise _annotate_transport_error(
+                    exc,
+                    transport=transport,
+                    request_round_count=request_round_count,
+                    address_attempt_count=address_attempt_count,
+                    retry_reason=retry_reason,
+                )
 
-        if response is None or pool is None:
-            connection_timed_out = isinstance(
-                last_error,
-                (urllib3.exceptions.TimeoutError, TimeoutError, socket.timeout),
-            ) and not isinstance(last_error, urllib3.exceptions.NewConnectionError)
-            if connection_timed_out or monotonic() >= deadline:
-                raise WebsiteImportError(
-                    "fetch_timeout",
+            hostname = parsed.hostname.encode("idna").decode("ascii")  # type: ignore[union-attr]
+            request_round_count += 1
+            last_connection_error: Exception | None = None
+            retry_round = False
+
+            for address in addresses:
+                address_attempt_count += 1
+                try:
+                    response = (
+                        _fetch_html_from_address(
+                            parsed,
+                            address,
+                            port,
+                            deadline,
+                            accept,
+                            max_bytes,
+                        )
+                        if transport == "curl_cffi"
+                        else _fetch_from_address(
+                            parsed,
+                            address,
+                            port,
+                            deadline,
+                            accept,
+                            user_agent,
+                        )
+                    )
+                    break
+                except WebsiteImportError as exc:
+                    exc.hostname = exc.hostname or hostname
+                    exc.redirect_count = redirect_count
+                    if (
+                        exc.fetch_phase == "connect"
+                        and exc.transport_error_kind == "connection_error"
+                    ):
+                        last_connection_error = exc
+                        continue
+                    if (
+                        request_round + 1 < max_request_rounds
+                        and _is_retryable_read_failure(exc)
+                        and _wait_before_retry(None, {}, deadline)
+                    ):
+                        retry_reason = "read_failure"
+                        retry_round = True
+                        break
+                    raise _annotate_transport_error(
+                        exc,
+                        transport=transport,
+                        request_round_count=request_round_count,
+                        address_attempt_count=address_attempt_count,
+                        retry_reason=retry_reason,
+                    )
+                except (
+                    urllib3.exceptions.NewConnectionError,
+                    urllib3.exceptions.ConnectTimeoutError,
+                    ConnectionError,
+                ) as exc:
+                    last_connection_error = exc
+                except (
+                    urllib3.exceptions.ReadTimeoutError,
+                    TimeoutError,
+                    socket.timeout,
+                ) as exc:
+                    error = WebsiteImportError(
+                        "fetch_timeout",
+                        hostname=hostname,
+                        redirect_count=redirect_count,
+                        fetch_phase="request",
+                        transport_error_kind="timeout",
+                    )
+                    if (
+                        request_round + 1 < max_request_rounds
+                        and _wait_before_retry(None, {}, deadline)
+                    ):
+                        retry_reason = "read_failure"
+                        retry_round = True
+                        break
+                    raise _annotate_transport_error(
+                        error,
+                        transport=transport,
+                        request_round_count=request_round_count,
+                        address_attempt_count=address_attempt_count,
+                        retry_reason=retry_reason,
+                    ) from exc
+                except (OSError, urllib3.exceptions.HTTPError) as exc:
+                    error = WebsiteImportError(
+                        "page_unavailable",
+                        hostname=hostname,
+                        redirect_count=redirect_count,
+                        fetch_phase="request",
+                        transport_error_kind=(
+                            "tls_error"
+                            if isinstance(exc, urllib3.exceptions.SSLError)
+                            else "connection_error"
+                        ),
+                    )
+                    raise _annotate_transport_error(
+                        error,
+                        transport=transport,
+                        request_round_count=request_round_count,
+                        address_attempt_count=address_attempt_count,
+                        retry_reason=retry_reason,
+                    ) from exc
+
+            if retry_round:
+                continue
+
+            if response is None:
+                connection_timed_out = isinstance(
+                    last_connection_error,
+                    (urllib3.exceptions.TimeoutError, TimeoutError, socket.timeout),
+                ) and not isinstance(
+                    last_connection_error,
+                    urllib3.exceptions.NewConnectionError,
+                )
+                error = WebsiteImportError(
+                    "fetch_timeout" if connection_timed_out else "page_unavailable",
                     hostname=hostname,
                     redirect_count=redirect_count,
                     fetch_phase="connect",
-                    transport_error_kind="timeout",
-                ) from last_error
-            transport_kind = (
-                "tls_error"
-                if isinstance(last_error, urllib3.exceptions.SSLError)
-                else "connection_error"
-            )
-            raise WebsiteImportError(
-                "page_unavailable",
-                hostname=hostname,
-                redirect_count=redirect_count,
-                fetch_phase="connect",
-                transport_error_kind=transport_kind,
-            ) from last_error
+                    transport_error_kind=(
+                        "timeout" if connection_timed_out else "connection_error"
+                    ),
+                )
+                raise _annotate_transport_error(
+                    error,
+                    transport=transport,
+                    request_round_count=request_round_count,
+                    address_attempt_count=address_attempt_count,
+                    retry_reason=retry_reason,
+                ) from last_connection_error
 
-        try:
-            if response.status in _REDIRECT_STATUSES:
-                location = response.headers.get("Location")
-                if not location or redirect_count == MAX_REDIRECTS:
+            try:
+                if response.status in _REDIRECT_STATUSES:
+                    location = response.headers.get("Location")
+                    if not location or redirect_count == MAX_REDIRECTS:
+                        raise WebsiteImportError(
+                            "page_unavailable",
+                            hostname=hostname,
+                            upstream_status=response.status,
+                            redirect_count=redirect_count,
+                            fetch_phase="redirect",
+                            transport_error_kind="http_error",
+                        )
+                    current_url = urljoin(current_url, location)
+                    followed_redirect = True
+                    break
+
+                if response.status != 200:
+                    if (
+                        response.status in _RETRYABLE_HTTP_STATUSES
+                        and request_round + 1 < max_request_rounds
+                        and _wait_before_retry(
+                            response.status,
+                            response.headers,
+                            deadline,
+                        )
+                    ):
+                        retry_reason = f"http_{response.status}"
+                        continue
                     raise WebsiteImportError(
                         "page_unavailable",
                         hostname=hostname,
                         upstream_status=response.status,
                         redirect_count=redirect_count,
-                        fetch_phase="redirect",
+                        fetch_phase="response",
                         transport_error_kind="http_error",
                     )
-                current_url = urljoin(current_url, location)
-                continue
 
-            if response.status != 200:
-                raise WebsiteImportError(
-                    "page_unavailable",
-                    hostname=hostname,
-                    upstream_status=response.status,
-                    redirect_count=redirect_count,
-                    fetch_phase="response",
-                    transport_error_kind="http_error",
-                )
+                content_type_header = response.headers.get("Content-Type")
+                if not content_type_header:
+                    raise WebsiteImportError(
+                        "unsupported_content_type",
+                        hostname=hostname,
+                        upstream_status=response.status,
+                        redirect_count=redirect_count,
+                        fetch_phase="content_type",
+                    )
+                content_type = content_type_header.split(";", 1)[0].strip().lower()
+                if content_type not in accepted_content_types:
+                    raise WebsiteImportError(
+                        "unsupported_content_type",
+                        hostname=hostname,
+                        upstream_status=response.status,
+                        redirect_count=redirect_count,
+                        fetch_phase="content_type",
+                        content_type=content_type,
+                    )
 
-            content_type_header = response.headers.get("Content-Type")
-            if not content_type_header:
-                raise WebsiteImportError(
-                    "unsupported_content_type",
-                    hostname=hostname,
-                    upstream_status=response.status,
-                    redirect_count=redirect_count,
-                    fetch_phase="content_type",
-                )
-            content_type = content_type_header.split(";", 1)[0].strip().lower()
-            if content_type not in accepted_content_types:
-                raise WebsiteImportError(
-                    "unsupported_content_type",
-                    hostname=hostname,
-                    upstream_status=response.status,
-                    redirect_count=redirect_count,
-                    fetch_phase="content_type",
-                    content_type=content_type,
-                )
-
-            content_length = response.headers.get("Content-Length")
-            try:
-                declared_size = int(content_length) if content_length else None
-            except ValueError:
-                declared_size = None
-            if declared_size is not None and declared_size > max_bytes:
-                raise WebsiteImportError(
-                    "page_too_large",
-                    hostname=hostname,
-                    upstream_status=response.status,
-                    redirect_count=redirect_count,
-                    fetch_phase="headers",
-                    content_type=content_type,
-                    response_size=declared_size,
-                )
-
-            chunks: list[bytes] = []
-            for chunk in response.stream(amt=64 * 1024, decode_content=True):
-                _remaining(deadline)
-                response_size += len(chunk)
-                if response_size > max_bytes:
+                content_length = response.headers.get("Content-Length")
+                try:
+                    declared_size = int(content_length) if content_length else None
+                except ValueError:
+                    declared_size = None
+                if declared_size is not None and declared_size > max_bytes:
                     raise WebsiteImportError(
                         "page_too_large",
                         hostname=hostname,
                         upstream_status=response.status,
                         redirect_count=redirect_count,
-                        fetch_phase="body",
+                        fetch_phase="headers",
                         content_type=content_type,
-                        response_size=response_size,
+                        response_size=declared_size,
                     )
-                chunks.append(chunk)
 
-            return _FetchedPublicResource(
-                body=b"".join(chunks),
-                url=current_url,
-                hostname=hostname,
-                response_size=response_size,
-                content_type=content_type,
-                content_type_header=content_type_header,
-            )
-        except (urllib3.exceptions.TimeoutError, TimeoutError, socket.timeout) as exc:
-            raise WebsiteImportError(
-                "fetch_timeout",
-                hostname=hostname,
-                upstream_status=getattr(response, "status", None),
-                redirect_count=redirect_count,
-                fetch_phase="body",
-                content_type=content_type,
-                response_size=response_size,
-                transport_error_kind="timeout",
-            ) from exc
-        except WebsiteImportError as exc:
-            exc.hostname = exc.hostname or hostname
-            exc.upstream_status = exc.upstream_status or getattr(
-                response,
-                "status",
-                None,
-            )
-            exc.redirect_count = redirect_count
-            if exc.content_type is None and content_type in accepted_content_types:
-                exc.content_type = content_type
-            exc.response_size = max(exc.response_size, response_size)
-            raise
-        except (OSError, urllib3.exceptions.HTTPError) as exc:
-            raise WebsiteImportError(
-                "page_unavailable",
-                hostname=hostname,
-                upstream_status=getattr(response, "status", None),
-                redirect_count=redirect_count,
-                fetch_phase="body",
-                content_type=content_type,
-                response_size=response_size,
-                transport_error_kind=(
-                    "tls_error"
-                    if isinstance(exc, urllib3.exceptions.SSLError)
-                    else "connection_error"
-                ),
-            ) from exc
-        finally:
-            response.close()
-            pool.close()
+                chunks: list[bytes] = []
+                for chunk in response.chunks:
+                    _remaining(deadline)
+                    response_size += len(chunk)
+                    if response_size > max_bytes:
+                        raise WebsiteImportError(
+                            "page_too_large",
+                            hostname=hostname,
+                            upstream_status=response.status,
+                            redirect_count=redirect_count,
+                            fetch_phase="body",
+                            content_type=content_type,
+                            response_size=response_size,
+                        )
+                    chunks.append(chunk)
 
-    raise WebsiteImportError("page_unavailable")
+                return _FetchedPublicResource(
+                    body=b"".join(chunks),
+                    url=current_url,
+                    hostname=hostname,
+                    response_size=response_size,
+                    content_type=content_type,
+                    content_type_header=content_type_header,
+                    transport=transport,
+                    browser_profile=(
+                        HTML_BROWSER_PROFILE if transport == "curl_cffi" else None
+                    ),
+                    request_round_count=request_round_count,
+                    address_attempt_count=address_attempt_count,
+                    retry_reason=retry_reason,
+                )
+            except (urllib3.exceptions.TimeoutError, TimeoutError, socket.timeout) as exc:
+                error = WebsiteImportError(
+                    "fetch_timeout",
+                    hostname=hostname,
+                    upstream_status=response.status,
+                    redirect_count=redirect_count,
+                    fetch_phase="body",
+                    content_type=content_type,
+                    response_size=response_size,
+                    transport_error_kind="timeout",
+                )
+                if (
+                    request_round + 1 < max_request_rounds
+                    and _wait_before_retry(None, {}, deadline)
+                ):
+                    retry_reason = "read_failure"
+                    continue
+                raise _annotate_transport_error(
+                    error,
+                    transport=transport,
+                    request_round_count=request_round_count,
+                    address_attempt_count=address_attempt_count,
+                    retry_reason=retry_reason,
+                ) from exc
+            except WebsiteImportError as exc:
+                exc.hostname = exc.hostname or hostname
+                exc.upstream_status = exc.upstream_status or response.status
+                exc.redirect_count = redirect_count
+                if exc.content_type is None and content_type in accepted_content_types:
+                    exc.content_type = content_type
+                exc.response_size = max(exc.response_size, response_size)
+                raise _annotate_transport_error(
+                    exc,
+                    transport=transport,
+                    request_round_count=request_round_count,
+                    address_attempt_count=address_attempt_count,
+                    retry_reason=retry_reason,
+                )
+            except (OSError, urllib3.exceptions.HTTPError) as exc:
+                error = WebsiteImportError(
+                    "page_unavailable",
+                    hostname=hostname,
+                    upstream_status=response.status,
+                    redirect_count=redirect_count,
+                    fetch_phase="body",
+                    content_type=content_type,
+                    response_size=response_size,
+                    transport_error_kind=(
+                        "tls_error"
+                        if isinstance(exc, urllib3.exceptions.SSLError)
+                        else "connection_error"
+                    ),
+                )
+                if (
+                    request_round + 1 < max_request_rounds
+                    and _wait_before_retry(None, {}, deadline)
+                ):
+                    retry_reason = "read_failure"
+                    continue
+                raise _annotate_transport_error(
+                    error,
+                    transport=transport,
+                    request_round_count=request_round_count,
+                    address_attempt_count=address_attempt_count,
+                    retry_reason=retry_reason,
+                ) from exc
+            finally:
+                response.close()
+
+        if followed_redirect:
+            continue
+
+    raise _annotate_transport_error(
+        WebsiteImportError("page_unavailable"),
+        transport=transport,
+        request_round_count=request_round_count,
+        address_attempt_count=address_attempt_count,
+        retry_reason=retry_reason,
+    )
 
 
 # Purpose: Fetch and decode a size-limited public HTML recipe page.
 # Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_fetch_public_resource(),_decode_html()}.
-def fetch_public_html(url: str) -> FetchedRecipePage:
+def fetch_public_html(
+    url: str,
+    *,
+    transport: str | None = None,
+) -> FetchedRecipePage:
+    selected_transport = transport or settings.recipe_html_transport
+    if selected_transport not in {"urllib3", "curl_cffi"}:
+        raise ValueError("unsupported HTML transport")
     resource = _fetch_public_resource(
         url,
         accepted_content_types=_HTML_CONTENT_TYPES,
         max_bytes=MAX_HTML_BYTES,
         accept="text/html, application/xhtml+xml",
         user_agent=HTML_USER_AGENT,
+        transport=selected_transport,
+        max_request_rounds=MAX_HTML_REQUEST_ROUNDS,
     )
     return FetchedRecipePage(
         html=_decode_html(resource.body, resource.content_type_header),
         url=resource.url,
         hostname=resource.hostname,
         response_size=resource.response_size,
+        transport=resource.transport,
+        browser_profile=resource.browser_profile,
+        request_round_count=resource.request_round_count,
+        address_attempt_count=resource.address_attempt_count,
+        retry_reason=resource.retry_reason,
     )
 
 

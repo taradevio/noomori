@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from server.config import settings
 from server.core.database import get_admin_supabase
 from server.push_notifications import check_push_receipts
+from server.recipe_url_import import assert_html_browser_profile_supported
 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,12 @@ async def push_receipt_loop() -> None:
 
 # Purpose: Start and cleanly cancel application-wide background tasks.
 # Connects to: Registered by server/src/server/main.py::create_app() as FastAPI's lifespan callback; starts server/src/server/core/lifespan.py::push_receipt_loop().
+@asynccontextmanager
 async def app_lifespan(_app: FastAPI):
+    if settings.recipe_html_transport == "curl_cffi":
+        # This only verifies a capability compiled into the local curl-cffi
+        # wheel. It does not resolve a hostname or perform a request.
+        assert_html_browser_profile_supported()
     receipt_task = asyncio.create_task(push_receipt_loop())
     try:
         yield

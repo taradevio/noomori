@@ -394,11 +394,22 @@ def import_recipe_url(
     fetch_phase = "none"
     content_type = "none"
     transport_error_kind = "none"
+    transport = "unknown"
+    browser_profile = "none"
+    request_round_count = 0
+    address_attempt_count = 0
+    retry_reason = "none"
+    page = None
 
     try:
         page = fetch_public_html(str(payload.url))
         hostname = page.hostname
         response_size = page.response_size
+        transport = getattr(page, "transport", "urllib3")
+        browser_profile = getattr(page, "browser_profile", None) or "none"
+        request_round_count = getattr(page, "request_round_count", 1)
+        address_attempt_count = getattr(page, "address_attempt_count", 1)
+        retry_reason = getattr(page, "retry_reason", None) or "none"
 
         primary_draft = None
         primary_metadata = {}
@@ -573,6 +584,12 @@ def import_recipe_url(
         content_type = exc.content_type or "none"
         response_size = max(response_size, exc.response_size)
         transport_error_kind = exc.transport_error_kind or "none"
+        if page is None:
+            transport = exc.transport
+            browser_profile = exc.browser_profile or "none"
+            request_round_count = exc.request_round_count
+            address_attempt_count = exc.address_attempt_count
+            retry_reason = exc.retry_reason or "none"
         raise HTTPException(
             status_code=_WEBSITE_IMPORT_STATUS_CODES[exc.detail],
             detail=exc.detail,
@@ -594,6 +611,8 @@ def import_recipe_url(
             "response_size=%s ingredient_count=%s instruction_count=%s "
             "upstream_status=%s redirect_count=%s fetch_phase=%s "
             "content_type=%s transport_error_kind=%s "
+            "transport=%s browser_profile=%s request_round_count=%s "
+            "address_attempt_count=%s retry_reason=%s "
             "group_enrichment=%s extraction_strategy=%s fallback_reason=%s "
             "nutrition_enrichment=%s nutrition_field_count=%s",
             hostname,
@@ -607,6 +626,11 @@ def import_recipe_url(
             fetch_phase,
             content_type,
             transport_error_kind,
+            transport,
+            browser_profile,
+            request_round_count,
+            address_attempt_count,
+            retry_reason,
             group_enrichment,
             extraction_strategy,
             fallback_reason,
