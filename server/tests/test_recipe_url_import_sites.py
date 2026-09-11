@@ -2,6 +2,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from recipe_scrapers import scrape_html
+from recipe_scrapers.loveandlemons import LoveAndLemons
+
 from server.modules.recipes.imports.website import import_recipe_url
 from server.modules.recipes.schemas import ImportRecipeUrlRequest
 from server.recipe_url_import import FetchedRecipePage
@@ -29,6 +32,26 @@ def import_fixture(filename: str, url: str):
 
 
 class ImportRecipeUrlSiteTest(unittest.TestCase):
+    def test_love_and_lemons_preserves_ingredient_boundaries_through_primary_scraper(self):
+        filename = "recipe_url_import_love_and_lemons.html"
+        url = "https://www.loveandlemons.com/apple-crisp/"
+        html = (FIXTURE_DIR / filename).read_text()
+        self.assertIsInstance(scrape_html(html, url, supported_only=False), LoveAndLemons)
+        with self.assertLogs("server.modules.recipes.imports.website", level="INFO") as logs:
+            draft = import_fixture(filename, url)
+        self.assertIn("extraction_strategy=recipe_scrapers", str(logs.output))
+        self.assertEqual("Apple Crisp", draft.title)
+        self.assertEqual(
+            [(2, "tbsp", "all-purpose flour"), (2, "tsp", "fresh lemon juice"),
+             (0.5, "tsp", "nutmeg"), (0.75, "cup", "whole rolled oats"),
+             (6, None, "large apples")],
+            [(item.quantity, item.unit, item.name) for group in draft.ingredients for item in group.items],
+        )
+        self.assertEqual(
+            ["Combine the ingredients.", "Bake until the apples are tender."],
+            [step.text for group in draft.instructions for step in group.steps],
+        )
+
     def test_partial_recipe_preserves_metadata_and_unicode_ingredients(self):
         draft = import_fixture("recipe_url_import_partial_metadata.html", "https://example.com/oats")
         self.assertEqual("Cold Oats", draft.title)

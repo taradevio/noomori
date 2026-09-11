@@ -19,6 +19,12 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from curl_cffi import Curl, CurlECode, CurlOpt
 from curl_cffi import requests as curl_requests
 from recipe_scrapers import scrape_html
+from recipe_scrapers._exceptions import (
+    ElementNotFoundInHtml,
+    FieldNotProvidedByWebsiteException,
+    OpenGraphException,
+    SchemaOrgException,
+)
 
 from server.config import settings
 
@@ -1719,7 +1725,12 @@ def _optional_value(scraper, method_name: str):
     try:
         return getattr(scraper, method_name)()
     except Exception as exc:
-        logger.warning(
+        expected = isinstance(exc, (
+            SchemaOrgException, OpenGraphException, ElementNotFoundInHtml,
+            FieldNotProvidedByWebsiteException, NotImplementedError,
+        ))
+        logger.log(
+            logging.DEBUG if expected else logging.WARNING,
             "Recipe extractor method=%s exception_type=%s",
             method_name, type(exc).__name__,
         )

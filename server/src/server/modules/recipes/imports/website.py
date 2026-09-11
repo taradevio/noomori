@@ -522,10 +522,10 @@ def import_recipe_url(
             draft = parse_recipe_text(
                 fallback_text, warnings, recovered_metadata=fallback_metadata,
             )
-        except Exception as exc:
+        except (WebsiteImportError, RecipeTextImportError) as exc:
             if isinstance(exc, WebsiteImportError) and exc.detail != "recipe_not_found":
                 raise
-            if isinstance(exc, RecipeTextImportError) and exc.code in {"multiple_recipes", "ambiguous_structure"}:
+            if isinstance(exc, RecipeTextImportError) and exc.code != "insufficient_structure":
                 raise
             if primary_draft is None:
                 raise

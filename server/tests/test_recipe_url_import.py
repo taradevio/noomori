@@ -18,6 +18,12 @@ from curl_cffi import Curl, CurlECode, CurlOpt
 from curl_cffi import requests as curl_requests
 from fastapi import HTTPException
 from pydantic import ValidationError
+from recipe_scrapers._exceptions import (
+    ElementNotFoundInHtml,
+    FieldNotProvidedByWebsiteException,
+    OpenGraphException,
+    SchemaOrgException,
+)
 
 from server.core.auth import AuthContext, get_current_user
 from server.modules.recipes.imports.text import RecipeTextImportError, _dom_nutrition, parse_recipe_text
@@ -182,14 +188,34 @@ class RecipeUrlRequestTest(unittest.TestCase):
 class RecipeExtractionTest(unittest.TestCase):
     def test_optional_extractor_failure_logs_only_method_and_exception_class(self):
         scraper = Mock()
-        scraper.instructions_list.side_effect = ValueError("private recipe contents")
-        with self.assertLogs("server.recipe_url_import", level="WARNING") as logs:
-            self.assertIsNone(_optional_value(scraper, "instructions_list"))
-        self.assertIn("method=instructions_list exception_type=ValueError", logs.output[0])
-        self.assertNotIn("private recipe contents", str(logs.output))
+        for error, level in (
+            (SchemaOrgException("private recipe contents"), logging.DEBUG),
+            (OpenGraphException("private recipe contents"), logging.DEBUG),
+            (ElementNotFoundInHtml("private recipe contents"), logging.DEBUG),
+            (FieldNotProvidedByWebsiteException(return_value=None), logging.DEBUG),
+            (NotImplementedError("private recipe contents"), logging.DEBUG),
+            (ValueError("private recipe contents"), logging.WARNING),
+            (RuntimeError("private recipe contents"), logging.WARNING),
+            (TypeError("private recipe contents"), logging.WARNING),
+            (AttributeError("private recipe contents"), logging.WARNING),
+        ):
+            with self.subTest(error=type(error).__name__):
+                scraper.instructions_list.side_effect = error
+                with self.assertLogs("server.recipe_url_import", level="DEBUG") as logs:
+                    self.assertIsNone(_optional_value(scraper, "instructions_list"))
+                self.assertEqual(1, len(logs.records))
+                record = logs.records[0]
+                self.assertEqual(level, record.levelno)
+                self.assertEqual(
+                    f"Recipe extractor method=instructions_list exception_type={type(error).__name__}",
+                    record.getMessage(),
+                )
+                self.assertIsNone(record.exc_info)
+                self.assertIsNone(record.stack_info)
+                self.assertNotIn("private recipe contents", str(logs.output))
         scraper.instructions_list.side_effect = None
         scraper.instructions_list.return_value = None
-        with self.assertNoLogs("server.recipe_url_import"):
+        with self.assertNoLogs("server.recipe_url_import", level="DEBUG"):
             self.assertIsNone(_optional_value(scraper, "instructions_list"))
 
     def test_extracts_and_normalizes_json_ld_fixture(self):
@@ -1432,7 +1458,8 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
 
     def test_partial_primary_does_not_bypass_fallback_security_or_ambiguity_errors(self):
         page = FetchedRecipePage("html", "https://example.com/soup", "example.com", 4)
-        for error in (WebsiteImportError("unsafe_url"), RecipeTextImportError("multiple_recipes"),
+        for error in (WebsiteImportError("unsafe_url"), WebsiteImportError("page_unavailable"),
+                      WebsiteImportError("fetch_timeout"), RecipeTextImportError("multiple_recipes"),
                       RecipeTextImportError("ambiguous_structure")):
             with (
                 self.subTest(error=error),
@@ -1446,8 +1473,8 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
     def test_retains_useful_primary_when_fallback_fails_or_is_partial(self):
         page = FetchedRecipePage("html", "https://example.com/soup", "example.com", 4)
         for primary in (extracted_recipe(instructions=[]), extracted_recipe(ingredient_groups=[])):
-            for fallback in (WebsiteImportError("recipe_not_found"), ValueError("unusable"),
-                             RuntimeError("extractor failure"),
+            for fallback in (WebsiteImportError("recipe_not_found"),
+                             RecipeTextImportError("insufficient_structure"),
                              "Other Soup\nIngredients\n1 cup water"):
                 with self.subTest(primary=primary, fallback=fallback):
                     effect = ({"side_effect": fallback} if isinstance(fallback, Exception)
@@ -1459,6 +1486,28 @@ class ImportRecipeUrlEndpointTest(unittest.TestCase):
                     ):
                         draft = import_recipe_url(ImportRecipeUrlRequest(url=page.url), _auth=Mock())
                     self.assertEqual(normalize_imported_website_recipe(primary), draft)
+
+    def test_unexpected_fallback_errors_do_not_return_partial_primary(self):
+        page = FetchedRecipePage("html", "https://example.com/soup", "example.com", 4)
+        for primary in (extracted_recipe(instructions=[]), extracted_recipe(ingredient_groups=[])):
+            for error_type in (RuntimeError, ValueError, TypeError, AttributeError):
+                for failing_method in ("extract_recipe_container_text", "parse_recipe_text"):
+                    error = error_type("extractor failure")
+                    with (
+                        self.subTest(primary=primary, error=error_type.__name__, method=failing_method),
+                        patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+                        patch("server.modules.recipes.imports.website.extract_recipe", return_value=primary),
+                        patch("server.modules.recipes.imports.website.extract_recipe_container_text", return_value="Soup\nIngredients\n1 cup water"),
+                        patch(f"server.modules.recipes.imports.website.{failing_method}", side_effect=error),
+                        self.assertLogs("server.modules.recipes.imports.website", level="WARNING") as logs,
+                    ):
+                        with self.assertRaises(HTTPException) as caught:
+                            import_recipe_url(ImportRecipeUrlRequest(url=page.url), _auth=Mock())
+                        self.assertEqual((422, "recipe_not_found"), (caught.exception.status_code, caught.exception.detail))
+                        self.assertIs(error, caught.exception.__cause__)
+                        self.assertNotIn("result=success", str(logs.output))
+                        if error_type is not ValueError:
+                            self.assertIn("Unexpected website recipe import failure", str(logs.output))
 
     def test_accepts_partial_fallback_without_useful_primary(self):
         page = FetchedRecipePage("html", "https://example.com/soup", "example.com", 4)
