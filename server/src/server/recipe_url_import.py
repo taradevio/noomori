@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import re
 import socket
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.message import Message
 from email.utils import parsedate_to_datetime
@@ -20,6 +21,9 @@ from curl_cffi import requests as curl_requests
 from recipe_scrapers import scrape_html
 
 from server.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 FETCH_DEADLINE_SECONDS = 8.0
@@ -104,7 +108,25 @@ _FETCH_PHASES = {
     "response",
     "validation",
 }
-_NOTES_HEADINGS = {"notes", "recipe notes", "tips & notes"}
+_NOTES_HEADINGS = {
+    "note",
+    "notes",
+    "key notes",
+    "recipe notes",
+    "chef's notes",
+    "chef’s notes",
+    "cook's notes",
+    "cook’s notes",
+    "important notes",
+    "additional notes",
+    "helpful notes",
+    "tips & notes",
+    "tips and notes",
+    "notes & tips",
+    "notes and tips",
+    "chef's tips for success",
+    "chef’s tips for success",
+}
 _PASSIVE_TIME_LABELS = {
     "additional": "Additional",
     "additional time": "Additional",
@@ -248,6 +270,7 @@ class ExtractedRecipeDomMetadata:
     notes: str | None
     additional_time_label: str | None
     additional_time_text: str | None
+    passive_times: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -1076,6 +1099,10 @@ def _is_recipe_root(tag: Tag) -> bool:
     )
 
 
+def is_recipe_notes_heading(value: str) -> bool:
+    return " ".join(value.strip().removesuffix(":").split()).casefold() in _NOTES_HEADINGS
+
+
 # Purpose: Map an exact normalized heading label to its recipe section kind.
 # Connects to: Called by server/src/server/modules/recipes/imports/text.py::{parse_recipe_text(),_dom_nutrition()} and server/src/server/recipe_url_import.py::{_section_kind(),_leading_instruction_label(),_plain_list_label(),extract_recipe_group_structure()}; has no downstream local function calls.
 def recipe_section_name(value: str) -> str | None:
@@ -1620,21 +1647,45 @@ def _bounded_notes_text(root: Tag, heading: Tag) -> str | None:
     return candidate if candidate and len(candidate) <= 20_000 else None
 
 
-# Purpose: Extract one exact Notes block and one recognized passive time label/value.
-# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_clean_dom(),_recipe_dom_candidate(),_normalized_dom_text(),_standalone_emphasis_text()}.
-def extract_recipe_dom_metadata(html: str) -> ExtractedRecipeDomMetadata:
+def _recipe_metadata_scope(soup: BeautifulSoup, title: str | None) -> Tag:
+    """Use strict scope first, then an explicit container tied to the accepted title."""
+    try:
+        return _recipe_dom_candidate(soup)[0]
+    except WebsiteImportError:
+        if not title:
+            raise
+
+    normalized_title = " ".join(title.split()).casefold()
+    candidates = [
+        tag for tag in soup.find_all(True)
+        if _identifier_matches(tag, _RECIPE_IDENTIFIER)
+        and any(
+            _normalized_dom_text(heading).casefold() == normalized_title
+            for heading in tag.find_all(_HEADING_TAGS)
+        )
+    ]
+    candidates = [
+        tag for tag in candidates
+        if not any(other is not tag and _is_descendant(other, tag) for other in candidates)
+    ]
+    if len(candidates) != 1:
+        raise WebsiteImportError("recipe_not_found")
+    return candidates[0]
+
+
+def extract_recipe_dom_metadata(
+    html: str, *, title: str | None = None,
+) -> ExtractedRecipeDomMetadata:
     soup = BeautifulSoup(html, "html.parser")
     _clean_dom(soup)
-    root, _title, _ingredient_heading, _instruction_heading = (
-        _recipe_dom_candidate(soup)
-    )
+    root = _recipe_metadata_scope(soup, title)
 
     note_headings = []
     for tag in root.find_all(_HEADING_TAGS | {"p", "div"}):
         text = _normalized_dom_text(tag)
         if tag.name in {"p", "div"} and _standalone_emphasis_text(tag) != text:
             continue
-        if text.removesuffix(":").strip().casefold() in _NOTES_HEADINGS:
+        if is_recipe_notes_heading(text):
             note_headings.append(tag)
 
     notes = None
@@ -1651,7 +1702,7 @@ def extract_recipe_dom_metadata(html: str) -> ExtractedRecipeDomMetadata:
         if parent is None:
             continue
         parent_text = _normalized_dom_text(parent)
-        value_text = parent_text[len(_normalized_dom_text(tag)):].strip(" :–—-")
+        value_text = parent_text[len(_normalized_dom_text(tag)):].strip(" :")
         if value_text:
             passive_times.append((label, value_text))
 
@@ -1659,7 +1710,7 @@ def extract_recipe_dom_metadata(html: str) -> ExtractedRecipeDomMetadata:
     passive_times = list(dict.fromkeys(passive_times))
     additional_label = passive_times[0][0] if len(passive_times) == 1 else None
     additional_text = passive_times[0][1] if len(passive_times) == 1 else None
-    return ExtractedRecipeDomMetadata(notes, additional_label, additional_text)
+    return ExtractedRecipeDomMetadata(notes, additional_label, additional_text, passive_times)
 
 
 # Purpose: Call an optional recipe-scrapers method without failing the full import.
@@ -1667,7 +1718,11 @@ def extract_recipe_dom_metadata(html: str) -> ExtractedRecipeDomMetadata:
 def _optional_value(scraper, method_name: str):
     try:
         return getattr(scraper, method_name)()
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Recipe extractor method=%s exception_type=%s",
+            method_name, type(exc).__name__,
+        )
         return None
 
 

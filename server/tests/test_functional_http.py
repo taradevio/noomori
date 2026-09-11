@@ -338,6 +338,7 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
             url="https://example.com/soup",
         )
         extracted = SimpleNamespace(
+            title="Imported soup",
             description=None,
             ingredient_groups=[],
             instructions=[],

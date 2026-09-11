@@ -10,6 +10,7 @@ import {
   createBlankRecipeDraft,
   RecipeForm,
 } from "@/shared/components/recipe/recipe-form";
+import { toImportedRecipeDraft } from "@/shared/components/recipe/recipe-text-import";
 
 jest.mock("@/global.css", () => ({}));
 
@@ -34,6 +35,38 @@ jest.mock("@/shared/providers/session-providers", () => ({
 }));
 
 describe("keyboard layout", () => {
+  it.each(["ingredients", "instructions"] as const)(
+    "lets a partial imported recipe add its missing %s",
+    async (missing) => {
+      const draft = toImportedRecipeDraft({
+        title: "Soup",
+        description: "Serve cold.\nRest: 30 min\nProof: 1 hr",
+        ingredients: missing === "ingredients" ? [] : [{
+          title: null, items: [{ name: "stock", quantity: 1, unit: "cup", note: null }],
+        }],
+        instructions: missing === "instructions" ? [] : [{
+          title: null, steps: [{ text: "Stir." }],
+        }],
+        servings: null,
+        prep_time_minutes: 5,
+        cook_time_minutes: null,
+        total_time_minutes: 5,
+        additional_time_label: null,
+        additional_time_minutes: null,
+        nutrition_per_serving: null,
+        image_url: null,
+      });
+      await render(<RecipeForm initialDraft={draft} mode="edit" onClose={jest.fn()} onSubmit={jest.fn()} />);
+      const ingredient = missing === "ingredients";
+      await fireEvent.press(screen.getByRole("button", {
+        name: ingredient ? "Add ingredient" : "Add instruction",
+      }));
+      const field = screen.getByLabelText(ingredient ? "Ingredient 1 name" : "Instruction step 1");
+      await fireEvent.changeText(field, ingredient ? "water" : "Simmer.");
+      expect(field).toHaveProp("value", ingredient ? "water" : "Simmer.");
+    },
+  );
+
   it("configures the native app provider for the existing edge-to-edge layout", async () => {
     await render(<RootLayout />);
 
@@ -150,10 +183,7 @@ describe("keyboard layout", () => {
     expect(amount).toHaveProp("value", "1/3");
     await fireEvent.press(screen.getByLabelText("Decrease servings"));
     expect(amount).toHaveProp("value", "1/6");
-    expect(screen.getByLabelText("Ingredient 1 unit")).toHaveProp(
-      "value",
-      "cup",
-    );
+    expect(screen.getByLabelText("Ingredient 1 unit")).toHaveTextContent("cup");
   });
 
   it("establishes an unknown serving baseline before scaling", async () => {
@@ -206,12 +236,9 @@ describe("keyboard layout", () => {
     );
 
     const increase = screen.getByLabelText("Increase servings");
-    await Promise.all([
-      fireEvent.press(increase),
-      fireEvent.press(increase),
-      fireEvent.press(increase),
-      fireEvent.press(increase),
-    ]);
+    for (let press = 0; press < 4; press += 1) {
+      await fireEvent.press(increase);
+    }
     expect(screen.getByLabelText("8 servings")).toBeTruthy();
     expect(screen.getByLabelText("Ingredient 1 amount")).toHaveProp(
       "value",

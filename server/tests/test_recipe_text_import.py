@@ -34,6 +34,74 @@ class RecipeTextRequestTest(unittest.TestCase):
 
 
 class RecipeTextParserTest(unittest.TestCase):
+    def test_reliability_unicode_ingredient_whitespace(self):
+        for space in (" ", "\t", "\xa0", "\u202f", "   "):
+            with self.subTest(space=repr(space)):
+                draft = parse_recipe_text(
+                    "Soup\nIngredients\n"
+                    + f"•{space}1{space}½{space}tablespoons{space}flour\n"
+                    + f"½–¾{space}cup{space}milk\n1 cupcake\n6 large apples"
+                )
+                flour, milk, cake, apples = draft.ingredients[0].items
+                self.assertEqual((1.5, "tbsp", "flour"),
+                                 (flour.quantity, flour.unit, flour.name))
+                self.assertEqual((None, None, "½–¾ cup milk"),
+                                 (milk.quantity, milk.unit, milk.name))
+                self.assertEqual((1, None, "cupcake"),
+                                 (cake.quantity, cake.unit, cake.name))
+                self.assertEqual((6, None, "large apples"),
+                                 (apples.quantity, apples.unit, apples.name))
+
+    def test_reliability_times_across_metadata_layouts(self):
+        layouts = (
+            "Prep: 5 min\nChill: 8 hr\nTotal: 5 min",
+            "Prep\n5 min\nChill Time\n8 hr\nTotal\n5 min",
+            "Prep\nChill Time\nTotal\n5 min\n8 hr\n5 min",
+            "| Prep | Chill Time | Total |\n| 5 min | 8 hr | 5 min |",
+        )
+        for metadata in layouts:
+            with self.subTest(metadata=metadata):
+                warnings = set()
+                draft = parse_recipe_text(
+                    f"Oats\n{metadata}\nIngredients\n1 cup oats", warnings
+                )
+                self.assertEqual((5, 5, "Chill", 480),
+                                 (draft.prep_time_minutes, draft.total_time_minutes,
+                                  draft.additional_time_label, draft.additional_time_minutes))
+                self.assertIsNone(draft.description)
+                self.assertNotIn("conflicting_total_time", warnings)
+
+    def test_reliability_preserves_unresolved_times_after_notes(self):
+        cases = (
+            ("Rest: 30 min\nProof: 1 hr", ["Rest: 30 min", "Proof: 1 hr"]),
+            ("Rest: 30 min\nRest: 45 min", ["Rest: 30 min", "Rest: 45 min"]),
+            ("Chill: overnight", ["Chill: overnight"]),
+            ("Chill: 0 min", ["Chill: 0 min"]),
+            ("Chill: 1–2 hr", ["Chill: 1–2 hr"]),
+            ("Chill:\novernight", ["Chill: overnight"]),
+            ("| Prep | Chill |\n| 5 min | overnight |", ["Chill: overnight"]),
+            ("Chill: -30 min", ["Chill: -30 min"]),
+            ("Total: 5 min\nTotal: 10 min", ["Total: 5 min", "Total: 10 min"]),
+        )
+        for metadata, preserved in cases:
+            with self.subTest(metadata=metadata):
+                draft = parse_recipe_text(
+                    f"Oats\n{metadata}\nIngredients\n1 cup oats\nNotes\nServe cold."
+                )
+                self.assertIsNone(draft.additional_time_label)
+                self.assertIsNone(draft.additional_time_minutes)
+                self.assertEqual("Serve cold.\n" + "\n".join(preserved), draft.description)
+
+    def test_reliability_zero_totals_and_duplicate_passive_times(self):
+        draft = parse_recipe_text(
+            "Oats\nPrep: 0 min\nCook: 0 min\nTotal: 0 min\nTotal: 0 min\n"
+            "Chill: 1 hr\nChill time: 60 min\nActive: 20 min\nIngredients\n1 cup oats"
+        )
+        self.assertEqual((0, 0, 0),
+                         (draft.prep_time_minutes, draft.cook_time_minutes, draft.total_time_minutes))
+        self.assertEqual(("Chill", 60), (draft.additional_time_label, draft.additional_time_minutes))
+        self.assertEqual("Active: 20 min", draft.description)
+
     def test_imports_case_fixture(self):
         draft = parse_recipe_text(CASE_PATH.read_text())
         items = draft.ingredients[0].items
@@ -43,9 +111,12 @@ class RecipeTextParserTest(unittest.TestCase):
         self.assertEqual(40, draft.cook_time_minutes)
         self.assertEqual(8, draft.servings)
         self.assertEqual(
-            "Additional Time: 15 mins\nYield: 1 (9-inch) pie",
+            "Yield: 1 (9-inch) pie",
             draft.description,
         )
+        self.assertEqual(("Additional", 15, 85), (
+            draft.additional_time_label, draft.additional_time_minutes, draft.total_time_minutes,
+        ))
         self.assertEqual(10, len(items))
         self.assertEqual(9, len(draft.instructions[0].steps))
         self.assertEqual((1, "pack"), (items[0].quantity, items[0].unit))
@@ -612,7 +683,7 @@ Notes
 Freeze leftovers.
 """
         )
-        self.assertEqual("Yield: 1 pie\nFreeze leftovers.", draft.description)
+        self.assertEqual("Freeze leftovers.\nYield: 1 pie", draft.description)
 
     def test_supports_quantity_and_unit_edge_cases(self):
         cases = [
@@ -1078,8 +1149,9 @@ Italian Recipe • Chicken\r
         self.assertEqual("Chicken", draft.title)
         self.assertEqual((10, 20), (draft.prep_time_minutes, draft.cook_time_minutes))
         self.assertIn("A useful overview.", draft.description)
-        self.assertIn("Additional Time: 5 min", draft.description)
-        self.assertIn("Total: 45 min", draft.description)
+        self.assertEqual(("Additional", 5, 45), (
+            draft.additional_time_label, draft.additional_time_minutes, draft.total_time_minutes,
+        ))
         self.assertIn("Keep warm.", draft.description)
         self.assertNotIn("Line spacing", draft.description)
         self.assertNotIn("Italian Recipe", draft.description)

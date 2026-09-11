@@ -29,6 +29,43 @@ def import_fixture(filename: str, url: str):
 
 
 class ImportRecipeUrlSiteTest(unittest.TestCase):
+    def test_partial_recipe_preserves_metadata_and_unicode_ingredients(self):
+        draft = import_fixture("recipe_url_import_partial_metadata.html", "https://example.com/oats")
+        self.assertEqual("Cold Oats", draft.title)
+        self.assertEqual([], draft.instructions)
+        self.assertEqual((5, 5, "Chill", 480), (
+            draft.prep_time_minutes, draft.total_time_minutes,
+            draft.additional_time_label, draft.additional_time_minutes,
+        ))
+        self.assertEqual("Serve cold.\nYield: 1 jar", draft.description)
+        flour, milk, apples = draft.ingredients[0].items
+        self.assertEqual((1.5, "tbsp", "flour"), (flour.quantity, flour.unit, flour.name))
+        self.assertEqual((None, None, "½–¾ cup milk"), (milk.quantity, milk.unit, milk.name))
+        self.assertEqual((6, None, "large apples"), (apples.quantity, apples.unit, apples.name))
+
+    def test_unresolved_website_passive_times_survive_primary_and_fallback(self):
+        template = (FIXTURE_DIR / "recipe_url_import_partial_metadata.html").read_text()
+        for metadata, label, minutes, preserved in (
+            ('<div><span>Rest:</span><span>30 min</span></div>'
+             '<div><span>Proof:</span><span>1 hr</span></div>', None, None, ["Rest: 30 min", "Proof: 1 hr"]),
+            ('<div><span>Chill:</span><span>overnight</span></div>', None, None, ["Chill: overnight"]),
+            ('<div><span>Chill:</span><span>0 min</span></div>', None, None, ["Chill: 0 min"]),
+            ('<div><span>Chill:</span><span>1 hr</span></div>'
+             '<div><span>Chill time:</span><span>60 min</span></div>', "Chill", 60, []),
+        ):
+            for fallback in (False, True):
+                with self.subTest(metadata=metadata, fallback=fallback):
+                    html = template.replace('<div><span>Chill:</span><span>8 hr</span></div>', metadata)
+                    if fallback:
+                        html = html.replace('<ul>', '<h3>Ingredients</h3><ul>', 1)
+                        html = html.replace('</ul>', '</ul><h3>Instructions</h3><ol><li>Mix well.</li></ol>', 1)
+                    page = FetchedRecipePage(html, "https://example.com/oats", "example.com", len(html.encode()))
+                    with patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page):
+                        draft = import_recipe_url(ImportRecipeUrlRequest(url=page.url), _auth=Mock())
+                    self.assertEqual((label, minutes), (draft.additional_time_label, draft.additional_time_minutes))
+                    self.assertEqual("\n".join(["Serve cold.", *preserved, "Yield: 1 jar"]), draft.description)
+                    self.assertEqual(bool(draft.instructions), fallback)
+
     def test_imports_cookpad_style_ingredient_label_with_initial_untitled_group(self):
         draft = import_fixture(
             "recipe_url_import_cookpad_groups.html",

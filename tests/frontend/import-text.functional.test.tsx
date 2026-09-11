@@ -15,6 +15,7 @@ const mockRecipeCreateScreen = jest.fn();
 const fetchMock = jest.fn();
 
 jest.mock("expo-router", () => ({
+  DefaultTheme: { colors: {} },
   useRouter: () => ({
     back: mockBack,
     canGoBack: () => true,
@@ -76,7 +77,7 @@ function deferred<T>() {
 
 function renderRoute() {
   const client = new QueryClient({
-    defaultOptions: { mutations: { retry: false } },
+    defaultOptions: { mutations: { retry: false, gcTime: Infinity } },
   });
   return render(
     <QueryClientProvider client={client}>
@@ -95,23 +96,48 @@ beforeEach(() => {
 });
 
 describe("import from text route", () => {
+  it("preserves recovered Notes and independent times in a partial review draft", async () => {
+    fetchMock.mockResolvedValue(response({
+      ...importedRecipe(),
+      instructions: [],
+      description: "Serve cold.\nRest: 30 min\nProof: 1 hr",
+      total_time_minutes: 5,
+    }));
+    await renderRoute();
+    await fireEvent.changeText(screen.getByLabelText("Recipe text"), "Oats recipe");
+    await fireEvent.press(screen.getByRole("button", { name: "Import recipe" }));
+
+    await waitFor(() => expect(mockRecipeCreateScreen).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialDraft: expect.objectContaining({
+          notes: "Serve cold.\nRest: 30 min\nProof: 1 hr",
+          prepMinutes: 5,
+          totalMinutes: 5,
+          additionalTimeLabel: "",
+          additionalTimeMinutes: null,
+          instructionGroups: [],
+        }),
+      }),
+    ));
+  });
+
   it("disables blank and duplicate pending submissions", async () => {
     const pending = deferred<Response>();
     fetchMock.mockReturnValue(pending.promise);
-    renderRoute();
+    await renderRoute();
 
     const input = screen.getByLabelText("Recipe text");
     const submit = screen.getByRole("button", { name: "Import recipe" });
     expect(submit).toBeDisabled();
 
-    fireEvent.changeText(input, "Soup\nIngredients\n1 cup stock");
+    await fireEvent.changeText(input, "Soup\nIngredients\n1 cup stock");
     expect(submit).not.toBeDisabled();
-    fireEvent.press(submit);
+    await fireEvent.press(submit);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const pendingSubmit = screen.getByRole("button", { name: "Importing…" });
+    const pendingSubmit = await screen.findByRole("button", { name: "Importing…" });
     expect(pendingSubmit).toBeDisabled();
-    fireEvent.press(pendingSubmit);
+    await fireEvent.press(pendingSubmit);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     pending.resolve(response(importedRecipe()));
@@ -133,11 +159,11 @@ describe("import from text route", () => {
     ],
   ])("maps %s and preserves editable input", async (code, message) => {
     fetchMock.mockResolvedValue(response({ detail: code }, 422));
-    renderRoute();
+    await renderRoute();
 
     const input = screen.getByLabelText("Recipe text");
-    fireEvent.changeText(input, "Original pasted recipe");
-    fireEvent.press(screen.getByRole("button", { name: "Import recipe" }));
+    await fireEvent.changeText(input, "Original pasted recipe");
+    await fireEvent.press(screen.getByRole("button", { name: "Import recipe" }));
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(message),
@@ -147,7 +173,7 @@ describe("import from text route", () => {
     );
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 
-    fireEvent.changeText(input, "Edited pasted recipe");
+    await fireEvent.changeText(input, "Edited pasted recipe");
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -157,18 +183,18 @@ describe("import from text route", () => {
     fetchMock
       .mockRejectedValueOnce(timeout)
       .mockRejectedValueOnce(new Error("offline"));
-    renderRoute();
+    await renderRoute();
 
     const input = screen.getByLabelText("Recipe text");
-    fireEvent.changeText(input, "Soup recipe");
-    fireEvent.press(screen.getByRole("button", { name: "Import recipe" }));
+    await fireEvent.changeText(input, "Soup recipe");
+    await fireEvent.press(screen.getByRole("button", { name: "Import recipe" }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         "This import took too long. Try again.",
       ),
     );
 
-    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         "We couldn’t connect to Noomori. Check your connection and try again.",
@@ -178,13 +204,13 @@ describe("import from text route", () => {
 
   it("sends the authenticated request and opens review with adapted defaults", async () => {
     fetchMock.mockResolvedValue(response(importedRecipe()));
-    renderRoute();
+    await renderRoute();
 
-    fireEvent.changeText(
+    await fireEvent.changeText(
       screen.getByLabelText("Recipe text"),
       "Soup\nIngredients\n1 cup stock\nInstructions\nSimmer.",
     );
-    fireEvent.press(screen.getByRole("button", { name: "Import recipe" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Import recipe" }));
 
     await waitFor(() => expect(mockRecipeCreateScreen).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledWith(

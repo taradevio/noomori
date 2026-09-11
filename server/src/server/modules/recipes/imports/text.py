@@ -2,7 +2,11 @@ import re
 import unicodedata
 
 from server.modules.recipes.schemas import ImportedRecipeTextDraft, RecipeNutrition
-from server.recipe_url_import import recipe_section_name
+from server.recipe_url_import import (
+    _PASSIVE_TIME_LABELS,
+    is_recipe_notes_heading,
+    recipe_section_name,
+)
 
 
 RECIPE_UNITS = (
@@ -11,25 +15,6 @@ RECIPE_UNITS = (
 )
 
 
-_SECTION_NAMES = {
-    "note": "notes",
-    "notes": "notes",
-    "key notes": "notes",
-    "recipe notes": "notes",
-    "chef's notes": "notes",
-    "chef’s notes": "notes",
-    "cook's notes": "notes",
-    "cook’s notes": "notes",
-    "important notes": "notes",
-    "additional notes": "notes",
-    "helpful notes": "notes",
-    "tips & notes": "notes",
-    "tips and notes": "notes",
-    "notes & tips": "notes",
-    "notes and tips": "notes",
-    "chef's tips for success": "notes",
-    "chef’s tips for success": "notes",
-}
 _LIST_PREFIX = re.compile(r"^(?:[-*\u2022]\s+|\d+[.)]\s+)")
 _NUMBERED_LIST_PREFIX = re.compile(r"^\d+[.)]\s+\S")
 _MARKDOWN_EMPHASIS = re.compile(
@@ -51,8 +36,12 @@ _DURATION_PART = re.compile(
     r"(?P<value>\d+)\s*(?P<unit>hours?|hrs?|h|minutes?|mins?|m)\b",
     re.IGNORECASE,
 )
+_PASSIVE_TIME_PATTERN = "|".join(
+    re.escape(label).replace(r"\ ", r"\s+")
+    for label in sorted(_PASSIVE_TIME_LABELS, key=len, reverse=True)
+)
 _METADATA_LINE = re.compile(
-    r"^(?P<label>servings?|serves|porsi|yield|prep(?:aration)?(?:\s*time)?|cook(?:ing)?(?:\s*time)?|additional\s*time|total(?:\s*time)?)\b\s*:?\s*(?P<value>.*)$",
+    rf"^(?P<label>servings?|serves|porsi|yield|prep(?:aration)?(?:\s*time)?|cook(?:ing)?(?:\s*time)?|{_PASSIVE_TIME_PATTERN}|total(?:\s*time)?)\b\s*:?\s*(?P<value>.*)$",
     re.IGNORECASE,
 )
 _EMBEDDED_SERVINGS = re.compile(
@@ -228,7 +217,8 @@ def _is_instruction_marker(value: str) -> bool:
 # Connects to: Called by metadata parsing helpers; has no downstream local function calls.
 def _duration_minutes(value: str) -> int | None:
     parts = list(_DURATION_PART.finditer(value))
-    if parts:
+    remainder = _DURATION_PART.sub("", value)
+    if parts and re.fullmatch(r"[\s,]*(?:and[\s,]*)?", remainder, re.IGNORECASE):
         return sum(
             int(part.group("value"))
             * (60 if part.group("unit").lower().startswith("h") else 1)
@@ -301,7 +291,7 @@ def _without_alternate_measurement(name: str, primary_unit: str) -> str:
 # Purpose: Convert one ingredient line into name, quantity, unit, and note fields.
 # Connects to: Called by server/src/server/modules/recipes/imports/text.py::parse_recipe_text() and server/src/server/modules/recipes/imports/website.py::normalize_imported_website_recipe(); calls server/src/server/modules/recipes/imports/text.py::{_without_list_prefix(),_quantity(),_without_alternate_measurement()}.
 def _ingredient(line: str) -> dict:
-    name = _without_list_prefix(line)
+    name = _without_list_prefix(" ".join(line.split()))
     quantity = None
     unit = None
     note = None
@@ -414,6 +404,30 @@ def _warn(warnings: set[str] | None, code: str) -> None:
         warnings.add(code)
 
 
+def _resolve_passive_times(
+    entries: list[tuple[str, str]], warnings: set[str] | None = None,
+) -> tuple[str | None, int | None, list[str]]:
+    parsed = {
+        (_PASSIVE_TIME_LABELS[" ".join(label.casefold().split())], _duration_minutes(value))
+        for label, value in entries
+    }
+    if len(parsed) == 1:
+        label, minutes = next(iter(parsed))
+        if minutes is not None and minutes > 0:
+            return label, minutes, []
+    if parsed:
+        _warn(warnings, "multiple_passive_times" if len(parsed) > 1 else "explicit_time_parse_failed")
+    return None, None, list(dict.fromkeys(f"{label}: {value}" for label, value in entries))
+
+
+def _append_recovery_notes(notes: str | None, recovered: list[str]) -> str | None:
+    parts = notes.splitlines() if notes else []
+    for value in recovered:
+        if value not in parts:
+            parts.append(value)
+    return "\n".join(parts) or None
+
+
 def _normalized_lines(text: str) -> list[str | None]:
     text = (
         text.removeprefix("\ufeff")
@@ -508,7 +522,7 @@ def _metadata_key(label: str) -> str | None:
         return "prep_time_minutes"
     if normalized.startswith(("cook", "cooking")):
         return "cook_time_minutes"
-    if normalized == "additional time":
+    if normalized in _PASSIVE_TIME_LABELS:
         return "additional_time"
     if normalized in {"total", "total time"}:
         return "total_time"
@@ -526,6 +540,14 @@ def _metadata_value(key: str, value: str) -> int | str | None:
 
 
 def _plausible_metadata_value(key: str, value: str) -> bool:
+    if key == "additional_time":
+        # Keep explicit but unparseable values, such as "overnight", reviewable.
+        return bool(value.strip()) and not (
+            _METADATA_LINE.match(value)
+            or recipe_section_name(value)
+            or is_recipe_notes_heading(value)
+            or _NUTRITION_HEADING.fullmatch(value.rstrip(":").strip())
+        )
     if key == "servings":
         return bool(
             _SERVINGS_VALUE.fullmatch(value.strip())
@@ -659,7 +681,7 @@ def _inferred_unheaded_sections(
         and (
             recipe_section_name(line)
             or _NUTRITION_HEADING.fullmatch(line.rstrip(":").strip())
-            or line.rstrip(":").strip().casefold() in _SECTION_NAMES
+            or is_recipe_notes_heading(line)
             or line.rstrip(":").strip().casefold() in _HEADER_LABELS
         )
         for line in lines
@@ -710,10 +732,14 @@ def _inferred_unheaded_sections(
 def parse_recipe_text(
     text: str,
     warnings: set[str] | None = None,
+    *,
+    recovered_metadata: list[str] | None = None,
 ) -> ImportedRecipeTextDraft:
     title = None
     section = None
     description_entries: list[tuple[int, str]] = []
+    recovery_notes: list[str] = []
+    passive_times: list[tuple[str, str]] = []
     ingredients: list[dict] = []
     instructions: list[dict] = []
     current_group: dict | None = None
@@ -733,8 +759,11 @@ def parse_recipe_text(
 
     def record_metadata(label: str, key: str, raw_value: str, order: int) -> None:
         rendered = f"{label.rstrip(':')}: {raw_value.strip()}"
+        if key == "additional_time":
+            passive_times.append((label.rstrip(":"), raw_value.strip()))
+            return
         if key == "unsupported":
-            description_entries.append((order, rendered))
+            recovery_notes.append(rendered)
             _warn(warnings, "unsupported_metadata")
             return
         value = _metadata_value(key, raw_value)
@@ -756,7 +785,7 @@ def parse_recipe_text(
         seen: set[str] = set()
         for _value, rendered, order in entries:
             if rendered.casefold() not in seen:
-                description_entries.append((order, rendered))
+                recovery_notes.append(rendered)
                 seen.add(rendered.casefold())
         if len(entries) > 1:
             _warn(warnings, "conflicting_metadata")
@@ -783,10 +812,8 @@ def parse_recipe_text(
             previous_blank = False
             continue
 
-        # NOTE: Website fallback and pasted text share the same exact recipe
-        # section aliases; notes remain parser-only headings.
-        section_name = recipe_section_name(line) or _SECTION_NAMES.get(
-            normalized_heading.lower()
+        section_name = recipe_section_name(line) or (
+            "notes" if is_recipe_notes_heading(line) else None
         )
         if section_name:
             section = section_name
@@ -928,37 +955,33 @@ def parse_recipe_text(
     servings = resolve_metadata("servings")
     prep_time_minutes = resolve_metadata("prep_time_minutes")
     cook_time_minutes = resolve_metadata("cook_time_minutes")
+    total_time_minutes = resolve_metadata("total_time")
 
     for _value, rendered, order in metadata_entries.get("yield", []):
-        description_entries.append((order, rendered))
-    additional_values = metadata_entries.get("additional_time", [])
-    for _value, rendered, order in additional_values:
-        description_entries.append((order, rendered))
-    total_values = metadata_entries.get("total_time", [])
-    additional_minutes = {
-        value for value, _rendered, _order in additional_values if isinstance(value, int)
-    }
-    expected_total = None
-    if prep_time_minutes is not None and cook_time_minutes is not None:
-        expected_total = prep_time_minutes + cook_time_minutes
-        if len(additional_minutes) == 1:
-            expected_total += next(iter(additional_minutes))
-    for value, rendered, order in total_values:
-        if expected_total is None or value != expected_total:
-            description_entries.append((order, rendered))
-            if expected_total is not None:
-                _warn(warnings, "conflicting_total_time")
+        recovery_notes.append(rendered)
+    additional_time_label, additional_time_minutes, unresolved = _resolve_passive_times(
+        passive_times, warnings,
+    )
+    recovery_notes.extend(unresolved)
+    if recovered_metadata is not None:
+        recovered_metadata.extend(dict.fromkeys(recovery_notes))
 
     description_entries.sort(key=lambda entry: entry[0])
+    description = _append_recovery_notes(
+        "\n".join(text for _order, text in description_entries), recovery_notes,
+    )
 
     return ImportedRecipeTextDraft(
         title=title,
-        description="\n".join(text for _order, text in description_entries) or None,
+        description=description,
         ingredients=ingredients,
         instructions=instructions,
         servings=servings,
         prep_time_minutes=prep_time_minutes,
         cook_time_minutes=cook_time_minutes,
+        total_time_minutes=total_time_minutes,
+        additional_time_label=additional_time_label,
+        additional_time_minutes=additional_time_minutes,
         nutrition_per_serving=(
             RecipeNutrition(**nutrition_values) if nutrition_values else None
         ),

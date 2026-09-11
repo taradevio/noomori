@@ -7,11 +7,13 @@ from fastapi import Depends, HTTPException, Response
 
 from server.core.auth import AuthContext, get_current_user
 from server.modules.recipes.imports.text import (
-    _duration_minutes,
+    RecipeTextImportError,
+    _append_recovery_notes,
     _dom_nutrition,
     _ingredient,
     _is_instruction_marker,
     _nutrition_value,
+    _resolve_passive_times,
     _UNITS_BY_LOWER,
     parse_recipe_text,
 )
@@ -78,15 +80,15 @@ def _website_description_and_servings(
     extracted: ExtractedRecipe,
     notes: str | None,
 ) -> tuple[str | None, int | None]:
-    description_parts = [notes] if notes else []
+    recovery_notes = []
     servings = None
     if extracted.yield_text:
         serving_yield = _SERVING_YIELD.fullmatch(extracted.yield_text)
         if serving_yield:
             servings = int(serving_yield.group("count"))
-        elif description_parts:
-            description_parts.append(f"Yield: {extracted.yield_text}")
-    return "\n".join(description_parts) or None, servings
+        else:
+            recovery_notes.append(f"Yield: {extracted.yield_text}")
+    return _append_recovery_notes(notes, recovery_notes), servings
 
 
 # Purpose: Convert extractor output into the app's validated editable recipe schema.
@@ -400,6 +402,7 @@ def import_recipe_url(
     address_attempt_count = 0
     retry_reason = "none"
     page = None
+    warnings: set[str] = set()
 
     try:
         page = fetch_public_html(str(payload.url))
@@ -418,23 +421,31 @@ def import_recipe_url(
         website_description = None
         additional_time_label = None
         additional_time_minutes = None
+        passive_times = []
         try:
-            dom_metadata = extract_recipe_dom_metadata(page.html)
+            extracted = extract_recipe(page.html, page.url)
+        except WebsiteImportError as exc:
+            if exc.detail != "recipe_not_found":
+                raise
+            fallback_reason = "primary_exception"
+
+        try:
+            dom_metadata = extract_recipe_dom_metadata(
+                page.html, title=extracted.title if extracted else None,
+            )
         except WebsiteImportError:
             pass
         else:
-            dom_notes = dom_metadata.notes
-            website_description = dom_notes
-            parsed_additional_time = (
-                _duration_minutes(dom_metadata.additional_time_text)
-                if dom_metadata.additional_time_text
-                else None
+            passive_times = dom_metadata.passive_times
+            if not passive_times and dom_metadata.additional_time_label and dom_metadata.additional_time_text:
+                passive_times = [(dom_metadata.additional_time_label, dom_metadata.additional_time_text)]
+            additional_time_label, additional_time_minutes, unresolved = _resolve_passive_times(
+                passive_times, warnings,
             )
-            if parsed_additional_time is not None and parsed_additional_time > 0:
-                additional_time_label = dom_metadata.additional_time_label
-                additional_time_minutes = parsed_additional_time
-        try:
-            extracted = extract_recipe(page.html, page.url)
+            dom_notes = _append_recovery_notes(dom_metadata.notes, unresolved)
+            website_description = dom_notes
+
+        if extracted is not None:
             extracted_description, extracted_servings = (
                 _website_description_and_servings(extracted, dom_notes)
             )
@@ -461,16 +472,9 @@ def import_recipe_url(
                 )
             except ValueError:
                 fallback_reason = _missing_primary_reason(
-                    sum(
-                        len(group.ingredients)
-                        for group in extracted.ingredient_groups
-                    ),
+                    sum(len(group.ingredients) for group in extracted.ingredient_groups),
                     len(extracted.instructions),
                 )
-        except WebsiteImportError as exc:
-            if exc.detail != "recipe_not_found":
-                raise
-            fallback_reason = "primary_exception"
 
         if primary_draft is not None:
             ingredient_count, instruction_count = _draft_core_counts(primary_draft)
@@ -509,11 +513,36 @@ def import_recipe_url(
                 instruction_count,
             )
 
-        fallback_text = extract_recipe_container_text(
-            page.html,
-            max_chars=RECIPE_TEXT_MAX_CHARS,
-        )
-        draft = parse_recipe_text(fallback_text)
+        try:
+            fallback_metadata: list[str] = []
+            fallback_text = extract_recipe_container_text(
+                page.html,
+                max_chars=RECIPE_TEXT_MAX_CHARS,
+            )
+            draft = parse_recipe_text(
+                fallback_text, warnings, recovered_metadata=fallback_metadata,
+            )
+        except Exception as exc:
+            if isinstance(exc, WebsiteImportError) and exc.detail != "recipe_not_found":
+                raise
+            if isinstance(exc, RecipeTextImportError) and exc.code in {"multiple_recipes", "ambiguous_structure"}:
+                raise
+            if primary_draft is None:
+                raise
+            logger.warning("Recipe DOM fallback exception_type=%s", type(exc).__name__)
+            warnings.update({"primary_core_partial", "dom_fallback_failed"})
+            extraction_strategy = "recipe_scrapers"
+            result = "success"
+            return primary_draft
+
+        fallback_ingredients, fallback_instructions = _draft_core_counts(draft)
+        if not fallback_ingredients or not fallback_instructions:
+            if primary_draft is not None:
+                warnings.update({"primary_core_partial", "dom_fallback_partial"})
+                extraction_strategy = "recipe_scrapers"
+                result = "success"
+                return primary_draft
+            warnings.add("dom_fallback_partial")
         # NOTE: Text imports allow generic nutrition headings, but website DOM
         # nutrition must pass the stricter per-serving confidence gate above.
         draft = draft.model_copy(update={"nutrition_per_serving": None})
@@ -536,8 +565,6 @@ def import_recipe_url(
                 if nutrition_field_count:
                     nutrition_enrichment = "dom"
         ingredient_count, instruction_count = _draft_core_counts(draft)
-        if not ingredient_count or not instruction_count:
-            raise WebsiteImportError("recipe_not_found")
 
         if primary_draft is not None:
             # NOTE: Fallback owns title and core arrays. Restore only this
@@ -568,9 +595,16 @@ def import_recipe_url(
                 }
             )
 
-        # Website imports expose explicit recipe Notes only. Clear any prose the
-        # general text fallback interpreted as a description.
-        draft = draft.model_copy(update={"description": website_description})
+        # Keep explicit Notes and labeled recovery metadata, excluding publisher
+        # prose that the general text fallback interpreted as a description.
+        draft = draft.model_copy(update={
+            "description": _append_recovery_notes(website_description, fallback_metadata),
+        })
+        if passive_times:
+            draft = draft.model_copy(update={
+                "additional_time_label": additional_time_label,
+                "additional_time_minutes": additional_time_minutes,
+            })
 
         extraction_strategy = "dom_fallback"
         result = "success"
@@ -613,7 +647,7 @@ def import_recipe_url(
             "content_type=%s transport_error_kind=%s "
             "transport=%s browser_profile=%s request_round_count=%s "
             "address_attempt_count=%s retry_reason=%s "
-            "group_enrichment=%s extraction_strategy=%s fallback_reason=%s "
+            "warning_codes=%s group_enrichment=%s extraction_strategy=%s fallback_reason=%s "
             "nutrition_enrichment=%s nutrition_field_count=%s",
             hostname,
             result,
@@ -631,6 +665,7 @@ def import_recipe_url(
             request_round_count,
             address_attempt_count,
             retry_reason,
+            ",".join(sorted(warnings)) or "none",
             group_enrichment,
             extraction_strategy,
             fallback_reason,
