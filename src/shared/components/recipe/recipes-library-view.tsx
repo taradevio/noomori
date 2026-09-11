@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Keyboard,
@@ -36,6 +36,11 @@ type LibraryListItem =
 
 const GRID_GAP = 12;
 const LIBRARY_SECTIONS: readonly LibrarySection[] = ["recipes", "cookbooks"];
+const RECIPE_SORT_OPTIONS = [
+  { value: "newest", label: "Newest" },
+  { value: "alphabetical", label: "A–Z" },
+] as const;
+type RecipeSort = (typeof RECIPE_SORT_OPTIONS)[number]["value"];
 
 export function getLibraryColumnCount({
   fontScale,
@@ -284,8 +289,10 @@ type LibraryPageProps = Pick<
   columnCount: number;
   horizontalGutter: number;
   onQueryChange: (query: string) => void;
+  onSortChange: (sort: RecipeSort) => void;
   pageSection: LibrarySection;
   query: string;
+  sort: RecipeSort;
 };
 
 function LibraryPage({
@@ -304,16 +311,25 @@ function LibraryPage({
   onRetryCookbooks,
   onRetryRecipes,
   onShareRecipe,
+  onSortChange,
   pageSection,
   query,
   recipes,
+  sort,
 }: LibraryPageProps) {
+  const listRef = useRef<FlatList<LibraryListItem>>(null);
   const isHousehold = mode === "household";
   const resource: LibraryResource<RecipeCardModel | CookbookCardModel> =
     pageSection === "recipes" ? recipes : cookbooks;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const status = resource.status;
+  const hasSourceData = resource.status === "ready" && resource.data.length > 0;
   const message = resource.status === "error" ? resource.message : undefined;
+
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [normalizedQuery, pageSection, sort]);
+
   const listItems = useMemo<LibraryListItem[]>(() => {
     if (status === "loading") {
       return Array.from({ length: columnCount * 2 }, (_, index) => ({
@@ -322,13 +338,20 @@ function LibraryPage({
       }));
     }
     if (pageSection === "recipes" && recipes.status === "ready") {
-      return recipes.data
-        .filter(
-          (recipe) =>
-            !normalizedQuery ||
-            recipe.title.toLocaleLowerCase().includes(normalizedQuery),
-        )
-        .map((item) => ({ kind: "recipe" as const, item }));
+      const filteredRecipes = recipes.data.filter(
+        (recipe) =>
+          !normalizedQuery ||
+          recipe.title.toLocaleLowerCase().includes(normalizedQuery),
+      );
+      if (sort === "alphabetical") {
+        filteredRecipes.sort((a, b) =>
+          a.title.localeCompare(b.title, undefined, {
+            sensitivity: "base",
+            numeric: true,
+          }),
+        );
+      }
+      return filteredRecipes.map((item) => ({ kind: "recipe" as const, item }));
     }
     if (pageSection === "cookbooks" && cookbooks.status === "ready") {
       return cookbooks.data
@@ -340,7 +363,15 @@ function LibraryPage({
         .map((item) => ({ kind: "cookbook" as const, item }));
     }
     return [];
-  }, [columnCount, cookbooks, normalizedQuery, pageSection, recipes, status]);
+  }, [
+    columnCount,
+    cookbooks,
+    normalizedQuery,
+    pageSection,
+    recipes,
+    sort,
+    status,
+  ]);
   // NOTE: Count the rendered results so searches stay accurate in every library mode.
   const count = status === "ready" ? listItems.length : null;
 
@@ -352,7 +383,6 @@ function LibraryPage({
         : "cookbooks";
     const isRecipes = pageSection === "recipes";
     const stateKey = isHousehold ? "shared-recipes" : noun;
-    const hasSourceData = count != null && count > 0;
 
     if (status === "error") {
       return (
@@ -429,6 +459,7 @@ function LibraryPage({
 
   return (
     <FlatList
+      ref={listRef}
       key={`library-${pageSection}-${columnCount}`}
       data={listItems}
       keyExtractor={(entry) =>
@@ -509,6 +540,32 @@ function LibraryPage({
                 </Text>
               ) : null}
             </View>
+            {pageSection === "recipes" && hasSourceData ? (
+              <View
+                accessibilityLabel="Recipe sort order"
+                className="mt-3 flex-row flex-wrap gap-2"
+              >
+                {RECIPE_SORT_OPTIONS.map(({ value, label }) => {
+                  const selected = sort === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      accessibilityRole="button"
+                      accessibilityLabel={label}
+                      accessibilityState={{ selected }}
+                      className={`min-h-12 min-w-12 max-w-full items-center justify-center rounded-xl border-2 px-4 py-2 focus:border-text-primary active:opacity-80 ${selected ? "border-primary bg-primary" : "border-border bg-surface"}`}
+                      onPress={() => onSortChange(value)}
+                    >
+                      <Text
+                        className={`text-base font-semibold leading-6 ${selected ? "text-on-primary" : "text-text-primary"}`}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
           </View>
         </View>
       }
@@ -554,6 +611,7 @@ export function RecipesLibraryView({
     recipes: "",
     cookbooks: "",
   });
+  const [sort, setSort] = useState<RecipeSort>("newest");
   const isHousehold = mode === "household";
   const visibleSection = isHousehold ? "recipes" : activeSection;
   const isTablet = Math.min(width, height) >= 600;
@@ -586,9 +644,11 @@ export function RecipesLibraryView({
       onRetryCookbooks={onRetryCookbooks}
       onRetryRecipes={onRetryRecipes}
       onShareRecipe={onShareRecipe}
+      onSortChange={setSort}
       pageSection={visibleSection}
       query={queries[visibleSection]}
       recipes={recipes}
+      sort={sort}
     />
   );
 

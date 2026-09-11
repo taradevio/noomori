@@ -1,5 +1,6 @@
 // NOTE: Retrospective regression coverage for behavior implemented before TDD adoption.
 import { fireEvent, render, screen } from "@testing-library/react-native";
+import { FlatList } from "react-native";
 
 import {
   getLibraryColumnCount,
@@ -31,7 +32,316 @@ const cookbooks = {
   data: [{ id: "favorites", title: "Favorites", recipeCount: 2 }],
 };
 
+const libraryContexts = [
+  {
+    mode: "personal",
+    section: "recipes",
+    noun: "recipes",
+    stateKey: "recipes",
+    action: "Add your first recipe",
+  },
+  {
+    mode: "household",
+    section: "recipes",
+    noun: "shared recipes",
+    stateKey: "shared-recipes",
+    action: "Share a recipe",
+  },
+  {
+    mode: "personal",
+    section: "cookbooks",
+    noun: "cookbooks",
+    stateKey: "cookbooks",
+    action: "Create a cookbook",
+  },
+] as const;
+
+function recipeOrder() {
+  return screen
+    .getAllByTestId(/^recipe-card-(?!missing-image-)/)
+    .map((card) => card.props.testID.replace("recipe-card-", ""));
+}
+
 describe("recipe and cookbook library workflow", () => {
+  it.each(libraryContexts)(
+    "distinguishes no matches from an empty $noun collection",
+    async ({ mode, section, noun, stateKey, action }) => {
+      const onAction = jest.fn();
+      const props = {
+        mode,
+        section,
+        onAddRecipe: onAction,
+        onCreateCookbook: onAction,
+        onShareRecipe: onAction,
+      };
+      const view = await render(
+        <RecipesLibraryView
+          {...props}
+          cookbooks={cookbooks}
+          recipes={recipes}
+        />,
+      );
+      const sourceCount = section === "recipes" ? 2 : 1;
+
+      await fireEvent.changeText(
+        screen.getByTestId(`library-${section}-search-input`),
+        "   ",
+      );
+      expect(
+        screen.getByText(
+          `${sourceCount} ${sourceCount === 1 ? "item" : "items"}`,
+        ),
+      ).toBeTruthy();
+      await fireEvent.changeText(
+        screen.getByTestId(`library-${section}-search-input`),
+        "missing recipe",
+      );
+      expect(screen.getByTestId(`library-${stateKey}-no-results`)).toBeTruthy();
+      expect(screen.getByText(`No ${noun} found`)).toBeTruthy();
+      expect(screen.getByText("0 items")).toBeTruthy();
+      expect(screen.queryByTestId(`library-${stateKey}-empty`)).toBeNull();
+      expect(screen.queryByRole("button", { name: action })).toBeNull();
+      expect(Boolean(screen.queryByRole("button", { name: "Newest" }))).toBe(
+        section === "recipes",
+      );
+
+      await fireEvent.press(
+        screen.getByRole("button", { name: "Clear search" }),
+      );
+      expect(
+        screen.getByTestId(`library-${section}-search-input`).props.value,
+      ).toBe("");
+      expect(
+        screen.getByText(
+          `${sourceCount} ${sourceCount === 1 ? "item" : "items"}`,
+        ),
+      ).toBeTruthy();
+
+      await fireEvent.changeText(
+        screen.getByTestId(`library-${section}-search-input`),
+        "missing recipe",
+      );
+      await view.rerender(
+        <RecipesLibraryView
+          {...props}
+          cookbooks={{ status: "ready", data: [] }}
+          recipes={{ status: "ready", data: [] }}
+        />,
+      );
+      expect(screen.getByTestId(`library-${stateKey}-empty`)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+      await fireEvent.press(screen.getByRole("button", { name: action }));
+      expect(onAction).toHaveBeenCalledTimes(1);
+
+      await view.rerender(
+        <RecipesLibraryView
+          {...props}
+          cookbooks={{ status: "loading" }}
+          recipes={{ status: "loading" }}
+        />,
+      );
+      expect(screen.getByText("Loading…")).toBeTruthy();
+      expect(screen.queryByTestId(`library-${stateKey}-no-results`)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+      await view.rerender(
+        <RecipesLibraryView
+          {...props}
+          cookbooks={{ status: "error", message: "Offline" }}
+          recipes={{ status: "error", message: "Offline" }}
+          onRetryCookbooks={onAction}
+          onRetryRecipes={onAction}
+        />,
+      );
+      expect(screen.getByText("Offline")).toBeTruthy();
+      expect(screen.queryByTestId(`library-${stateKey}-no-results`)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+      await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+      expect(onAction).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["personal", "household"] as const)(
+    "sorts the %s library without mutating source data and preserves sorting through search and refresh",
+    async (mode) => {
+      const data = Object.freeze(
+        [
+          { ...recipes.data[0], id: "z", title: "Zucchini" },
+          { ...recipes.data[0], id: "ten", title: "Soup 10" },
+          { ...recipes.data[0], id: "accent", title: "Ápple" },
+          { ...recipes.data[0], id: "two", title: "Soup 2" },
+          { ...recipes.data[0], id: "plain", title: "apple" },
+        ].map((recipe) => Object.freeze(recipe)),
+      );
+      const source = { status: "ready" as const, data };
+      const view = await render(
+        <RecipesLibraryView
+          mode={mode}
+          cookbooks={cookbooks}
+          recipes={source}
+        />,
+      );
+      expect(recipeOrder()).toEqual(["z", "ten", "accent", "two", "plain"]);
+      expect(
+        screen.getByRole("button", { name: "Newest", selected: true }),
+      ).toBeTruthy();
+      await fireEvent.press(screen.getByRole("button", { name: "A–Z" }));
+      expect(recipeOrder()).toEqual(["accent", "plain", "two", "ten", "z"]);
+      expect(
+        screen.getByRole("button", { name: "A–Z", selected: true }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Newest", selected: false }),
+      ).toBeTruthy();
+
+      await fireEvent.changeText(
+        screen.getByTestId("library-recipes-search-input"),
+        "  SOUP  ",
+      );
+      expect(recipeOrder()).toEqual(["two", "ten"]);
+      await fireEvent.changeText(
+        screen.getByTestId("library-recipes-search-input"),
+        "missing",
+      );
+      await fireEvent.press(
+        screen.getByRole("button", { name: "Clear search" }),
+      );
+      expect(recipeOrder()).toEqual(["accent", "plain", "two", "ten", "z"]);
+
+      const refreshed = {
+        status: "ready" as const,
+        data: [{ ...data[0], id: "banana", title: "Banana" }, ...data],
+      };
+      await view.rerender(
+        <RecipesLibraryView
+          mode={mode}
+          cookbooks={cookbooks}
+          recipes={refreshed}
+        />,
+      );
+      expect(recipeOrder()).toEqual([
+        "accent",
+        "plain",
+        "banana",
+        "two",
+        "ten",
+        "z",
+      ]);
+      await fireEvent.press(screen.getByRole("button", { name: "Newest" }));
+      expect(recipeOrder()).toEqual([
+        "banana",
+        "z",
+        "ten",
+        "accent",
+        "two",
+        "plain",
+      ]);
+      expect(data.map((recipe) => recipe.id)).toEqual([
+        "z",
+        "ten",
+        "accent",
+        "two",
+        "plain",
+      ]);
+      expect(refreshed.data.map((recipe) => recipe.id)).toEqual([
+        "banana",
+        "z",
+        "ten",
+        "accent",
+        "two",
+        "plain",
+      ]);
+    },
+  );
+
+  it("preserves sorting across sections, leaves cookbooks in source order, and defaults to Newest on remount", async () => {
+    const collections = {
+      status: "ready" as const,
+      data: [
+        ...cookbooks.data,
+        { id: "breakfast", title: "Breakfast", recipeCount: 1 },
+      ],
+    };
+    const view = await render(
+      <RecipesLibraryView cookbooks={collections} recipes={recipes} />,
+    );
+    await fireEvent.press(screen.getByRole("button", { name: "A–Z" }));
+    await view.rerender(
+      <RecipesLibraryView
+        cookbooks={collections}
+        recipes={recipes}
+        section="cookbooks"
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "A–Z" })).toBeNull();
+    expect(
+      screen.getAllByTestId(/^cookbook-card-/).map((card) => card.props.testID),
+    ).toEqual(["cookbook-card-favorites", "cookbook-card-breakfast"]);
+    await view.rerender(
+      <RecipesLibraryView
+        cookbooks={collections}
+        recipes={recipes}
+        section="recipes"
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "A–Z", selected: true }),
+    ).toBeTruthy();
+    expect(recipeOrder()).toEqual(["cake", "soup"]);
+    await view.unmount();
+    await render(
+      <RecipesLibraryView
+        cookbooks={cookbooks}
+        recipes={recipes}
+        mode="household"
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Newest", selected: true }),
+    ).toBeTruthy();
+    expect(recipeOrder()).toEqual(["soup", "cake"]);
+  });
+
+  it("resets scroll for normalized search, sort, and section changes but not refreshes", async () => {
+    const scroll = jest
+      .spyOn(FlatList.prototype, "scrollToOffset")
+      .mockImplementation(() => undefined);
+    const view = await render(
+      <RecipesLibraryView cookbooks={cookbooks} recipes={recipes} />,
+    );
+    scroll.mockClear();
+    await fireEvent.changeText(
+      screen.getByTestId("library-recipes-search-input"),
+      "cake",
+    );
+    expect(scroll).toHaveBeenCalledWith({ offset: 0, animated: false });
+    scroll.mockClear();
+    await fireEvent.changeText(
+      screen.getByTestId("library-recipes-search-input"),
+      "  CAKE ",
+    );
+    expect(scroll).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole("button", { name: "A–Z" }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    scroll.mockClear();
+    await fireEvent.press(screen.getByRole("button", { name: "A–Z" }));
+    await view.rerender(
+      <RecipesLibraryView
+        cookbooks={cookbooks}
+        recipes={{ ...recipes, data: [...recipes.data] }}
+      />,
+    );
+    expect(scroll).not.toHaveBeenCalled();
+    await view.rerender(
+      <RecipesLibraryView
+        cookbooks={cookbooks}
+        recipes={recipes}
+        section="cookbooks"
+      />,
+    );
+    expect(scroll).toHaveBeenCalledWith({ offset: 0, animated: false });
+  });
+
   it("omits serving metadata when the base is unknown", async () => {
     await render(
       <RecipeCard
