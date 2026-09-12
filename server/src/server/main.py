@@ -1,8 +1,12 @@
+import logging
+
+import sentry_sdk
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sentry_sdk.integrations.logging import LoggingIntegration
 
-from server.config import settings
+from server.config import Settings, settings
 from server.core.lifespan import app_lifespan
 from server.modules.cookbooks.router import router as cookbook_router
 from server.modules.health.router import router as health_router
@@ -12,6 +16,36 @@ from server.modules.recipes.router import router as recipe_router
 
 
 __all__ = ["app", "create_app", "main"]
+
+
+logger = logging.getLogger(__name__)
+
+
+def _initialize_sentry(config: Settings) -> None:
+    if config.app_env not in {"staging", "production"}:
+        return
+    if not config.sentry_dsn:
+        logger.warning("Sentry is disabled because SENTRY_DSN is not configured")
+        return
+
+    sentry_sdk.init(
+        dsn=config.sentry_dsn.get_secret_value(),
+        environment=config.app_env,
+        release=config.sentry_release,
+        traces_sample_rate=config.sentry_traces_sample_rate,
+        profiles_sample_rate=config.sentry_profiles_sample_rate,
+        send_default_pii=False,
+        include_local_variables=False,
+        max_request_body_size="never",
+        integrations=[
+            LoggingIntegration(
+                level=logging.WARNING,
+                event_level=logging.ERROR,
+                sentry_logs_level=logging.WARNING,
+                capture_sentry_logs=True,
+            )
+        ],
+    )
 
 
 # Purpose: Assemble the FastAPI application, middleware, lifespan, and routers.
@@ -37,6 +71,7 @@ def create_app() -> FastAPI:
     return app
 
 
+_initialize_sentry(settings)
 app = create_app()
 
 

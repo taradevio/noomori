@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     expo_access_token: SecretStr | None = None
     household_join_code_hmac_key: SecretStr = Field(min_length=32)
 
+    sentry_dsn: SecretStr | None = None
+    sentry_release: str | None = None
+    sentry_traces_sample_rate: float = Field(default=0.1, ge=0, le=1)
+    sentry_profiles_sample_rate: float = Field(default=0.1, ge=0, le=1)
+
     cors_origins: list[str] = [
         "http://localhost:8081",
         "http://localhost:19006",

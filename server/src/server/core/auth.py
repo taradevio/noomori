@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 
+import sentry_sdk
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase import Client
@@ -36,5 +37,6 @@ def get_current_user(
         logger.warning("Authentication returned no user")
         raise HTTPException(status_code=401, detail="Invalid Authentication")
 
+    sentry_sdk.set_user({"id": str(response.user.id)})
     supabase.postgrest.auth(access_token)
     return AuthContext(user=response.user, supabase=supabase)

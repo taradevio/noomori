@@ -16,6 +16,32 @@ Push notifications also require server-only `SUPABASE_SERVICE_ROLE_KEY` and
 security before shipping rebuilt iOS or Android binaries; remote push is not
 supported in Android Expo Go.
 
+## Sentry
+
+Sentry is enabled only when `APP_ENV` is `staging` or `production` and
+`SENTRY_DSN` is configured. A missing DSN does not block startup. Set
+`SENTRY_RELEASE` to the deployed backend commit SHA.
+
+Use full trace and profile sampling in staging:
+
+```dotenv
+SENTRY_TRACES_SAMPLE_RATE=1.0
+SENTRY_PROFILES_SAMPLE_RATE=1.0
+```
+
+Production defaults to 10% of requests traced and 10% of those sampled traces
+profiled, or approximately 1% of all requests:
+
+```dotenv
+SENTRY_TRACES_SAMPLE_RATE=0.1
+SENTRY_PROFILES_SAMPLE_RATE=0.1
+```
+
+The backend sends warning-or-higher logs and automatically reported error
+events. Request bodies, stack-frame local variables, and default PII collection
+are disabled. Keep Sentry's server-side data scrubbing enabled, and do not put
+credentials, invite codes, or raw user content in application logs.
+
 ## Recipe HTML transport
 
 Create a private UTF-8 manifest containing exactly 20 recipe URLs, one per
