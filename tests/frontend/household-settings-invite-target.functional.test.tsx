@@ -22,10 +22,17 @@ jest.mock("react-native", () => {
   );
   MockScrollView.displayName = "MockScrollView";
 
-  return { ...ReactNative, ScrollView: MockScrollView };
+  return new Proxy(ReactNative, {
+    get(target, property) {
+      return property === "ScrollView"
+        ? MockScrollView
+        : Reflect.get(target, property, target);
+    },
+  });
 });
 
 jest.mock("expo-router", () => ({
+  DefaultTheme: { colors: {} },
   useLocalSearchParams: () => mockUseLocalSearchParams(),
 }));
 

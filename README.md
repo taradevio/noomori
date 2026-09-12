@@ -4,13 +4,15 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 
 ## Get started
 
-1. Install dependencies
+1. Install Node 22.23.2 and Bun 1.3.14. Node is pinned in `.node-version`.
+
+2. Install dependencies
 
    ```bash
    bun install
    ```
 
-2. Start the app
+3. Start the app
 
    ```bash
    bunx expo start
@@ -33,6 +35,41 @@ live in `src/shared/types.ts`. This project uses
 Noomori contains an Expo app and a separately deployable FastAPI modular
 monolith. Read [ARCHITECTURE.md](./ARCHITECTURE.md) before adding a new feature
 or dependency.
+
+## Tests
+
+Install Python 3.12 and uv, then create the backend environment with:
+
+```bash
+uv sync --project server --frozen
+```
+
+Use the smallest command that covers the behavior being changed:
+
+```bash
+# TypeScript
+bun run typecheck
+
+# One frontend file, watch mode, or the deterministic frontend suite
+bun run test:fe -- library.functional.test.tsx
+bun run test:fe:watch
+bun run test:functional:fe
+
+# Full offline backend suite
+bun run test:be
+
+# Complete offline verification
+bun run typecheck && bun run test:functional:fe && bun run test:be
+```
+
+Run one backend module, class, or test without running the full suite:
+
+```bash
+cd server
+.venv/bin/python -m unittest tests.test_recipe_text_import -v
+.venv/bin/python -m unittest tests.test_recipe_text_import.RecipeTextParserTest -v
+.venv/bin/python -m unittest tests.test_recipe_text_import.RecipeTextParserTest.test_imports_case_fixture -v
+```
 
 ## Authorization tests
 
@@ -62,7 +99,6 @@ This command will move the starter code to the **app-example** directory and cre
 ### Other setup steps
 
 - To set up ESLint for linting, run `bunx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
 - Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
 
 ## Learn more

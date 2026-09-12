@@ -45,22 +45,22 @@ describe("auth gate", () => {
     mockSignOut.mockResolvedValue(undefined);
   });
 
-  it("offers retry and sign out after account loading fails", () => {
-    render(<RootNavigator />);
+  it("offers retry and sign out after account loading fails", async () => {
+    await render(<RootNavigator />);
 
     expect(screen.getByText("Couldn’t load your account")).toBeTruthy();
-    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
 
     expect(mockRefreshUserState).toHaveBeenCalledTimes(1);
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it("disables recovery actions and reports a sign-out failure", () => {
+  it("disables recovery actions and reports a sign-out failure", async () => {
     mockIsSigningOut = true;
     mockSignOutError =
       "Couldn’t sign out. Check your connection and try again.";
-    render(<RootNavigator />);
+    await render(<RootNavigator />);
 
     expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
@@ -71,9 +71,9 @@ describe("auth gate", () => {
     ).toBeTruthy();
   });
 
-  it("shows in-app progress for later loading transitions", () => {
+  it("shows in-app progress for later loading transitions", async () => {
     mockSessionState = "loading";
-    render(<RootNavigator />);
+    await render(<RootNavigator />);
 
     expect(screen.getByText("Loading your account…")).toBeTruthy();
   });

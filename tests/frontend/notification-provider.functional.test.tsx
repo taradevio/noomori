@@ -107,14 +107,17 @@ describe("NotificationProvider", () => {
 
   function deferred<T = void>() {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>((done) => {
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((done, fail) => {
       resolve = done;
+      reject = fail;
     });
-    return { promise, resolve };
+    return { promise, reject, resolve };
   }
 
   beforeEach(() => {
     storage = {};
+    jest.spyOn(console, "debug").mockImplementation(() => undefined);
     jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     jest.spyOn(Linking, "openSettings").mockResolvedValue(undefined);
     jest
@@ -251,7 +254,8 @@ describe("NotificationProvider", () => {
   });
 
   it("rolls back the switch when device registration fails", async () => {
-    mockRegister.mockRejectedValueOnce(new Error("offline"));
+    const registration = deferred();
+    mockRegister.mockReturnValueOnce(registration.promise);
     await render(
       <NotificationProvider>
         <Harness />
@@ -263,6 +267,10 @@ describe("NotificationProvider", () => {
     );
     expect(screen.getByTestId("notification-state")).toHaveTextContent("on");
     expect(controls.isPending).toBe(true);
+
+    await act(async () => {
+      registration.reject(new Error("offline"));
+    });
 
     await waitFor(() =>
       expect(screen.getByTestId("notification-error")).toHaveTextContent(

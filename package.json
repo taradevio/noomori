@@ -2,6 +2,9 @@
   "name": "noomori",
   "main": "expo-router/entry",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=22.23.2 <23"
+  },
   "dependencies": {
     "@expo/ui": "~56.0.25",
     "@supabase/supabase-js": "^2.112.3",
@@ -60,6 +63,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "test:fe": "jest --config tests/frontend/jest.config.js",
+    "test:fe:watch": "jest --config tests/frontend/jest.config.js --watch",
     "test:functional:fe": "jest --config tests/frontend/jest.config.js --runInBand",
     "test:functional:be": "cd server && .venv/bin/python -m unittest discover -s tests -p 'test_functional_*.py' -v",
     "test:functional": "bun run test:functional:fe && bun run test:functional:be",

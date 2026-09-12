@@ -1,5 +1,10 @@
 import "react-native-gesture-handler/jestSetup";
 
+import { notifyManager } from "@tanstack/react-query";
+
+// Keep Query observer updates inside awaited RNTL interactions.
+notifyManager.setScheduler((callback) => callback());
+
 jest.mock("react-native-worklets", () => ({
   scheduleOnRN: (fn: (...args: unknown[]) => unknown, ...args: unknown[]) =>
     fn(...args),
@@ -141,10 +146,6 @@ jest.mock("react-native-safe-area-context", () => {
     SafeAreaView: View,
     useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
   };
-});
-
-beforeEach(() => {
-  jest.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
 afterEach(() => {

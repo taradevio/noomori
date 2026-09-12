@@ -98,7 +98,7 @@ describe("SessionProvider", () => {
   });
 
   it("resolves an empty initial session to signed out", async () => {
-    render(
+    await render(
       <SessionProvider>
         <Probe />
       </SessionProvider>,
@@ -115,7 +115,7 @@ describe("SessionProvider", () => {
       data: { onboarding_completed_at: "2026-09-07T00:00:00Z" },
       error: null,
     });
-    render(
+    await render(
       <SessionProvider>
         <Probe />
       </SessionProvider>,
@@ -134,6 +134,7 @@ describe("SessionProvider", () => {
   });
 
   it("ignores a stale user failure after the next user becomes ready", async () => {
+    const errorSpy = jest.spyOn(console, "error");
     const userA = deferred<{
       data: null;
       error: { code: string; message: string };
@@ -145,7 +146,7 @@ describe("SessionProvider", () => {
     mockProfileRead.mockImplementation((userId: string) =>
       userId === "user-a" ? userA.promise : userB.promise,
     );
-    render(
+    await render(
       <SessionProvider>
         <Probe />
       </SessionProvider>,
@@ -170,10 +171,11 @@ describe("SessionProvider", () => {
 
     expect(screen.getByTestId("session-user")).toHaveTextContent("user-b");
     expect(screen.getByTestId("session-state")).toHaveTextContent("ready");
-    expect(console.error).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it("shows a controlled error and recovers through manual retry", async () => {
+    const errorSpy = jest.spyOn(console, "error");
     const currentSession = session("user-a");
     mockProfileRead
       .mockResolvedValueOnce({
@@ -188,7 +190,7 @@ describe("SessionProvider", () => {
       data: { session: currentSession },
       error: null,
     });
-    render(
+    await render(
       <SessionProvider>
         <Probe />
       </SessionProvider>,
@@ -198,7 +200,7 @@ describe("SessionProvider", () => {
     expect(screen.getByTestId("session-state")).toHaveTextContent("error");
 
     await act(async () => {
-      fireEvent.press(
+      await fireEvent.press(
         screen.getByRole("button", { name: "Refresh user state" }),
       );
       await flush();
@@ -206,6 +208,6 @@ describe("SessionProvider", () => {
 
     expect(screen.getByTestId("session-state")).toHaveTextContent("ready");
     expect(mockProfileRead).toHaveBeenCalledTimes(2);
-    expect(console.error).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

@@ -161,6 +161,9 @@ describe("recipe creation identity", () => {
 
       await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(screen.getByTestId("save-recipe-placeholder")).toBeEnabled(),
+      );
 
       expect(timeout).toHaveBeenCalledWith(apiConfig.timeout);
       expect(fetchMock.mock.calls[0][1]).toMatchObject({
@@ -215,6 +218,9 @@ describe("recipe creation identity", () => {
     );
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("save-recipe-placeholder")).toBeEnabled(),
+    );
 
     const firstRequest = fetchMock.mock.calls[0][1] as RequestInit;
     const secondRequest = fetchMock.mock.calls[1][1] as RequestInit;
@@ -245,8 +251,9 @@ describe("recipe creation identity", () => {
 
     await act(async () => {
       completeRequest(response(apiRecipe("Original soup")));
+      await firstPress;
     });
-    await firstPress;
+    await waitFor(() => expect(save).toBeEnabled());
     expect(toast.success).toHaveBeenCalledWith("Recipe saved");
   });
 
@@ -299,6 +306,9 @@ describe("recipe creation identity", () => {
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByTestId("save-recipe-placeholder")).toBeEnabled(),
+    );
   });
 
   it("delegates recipe input visibility to keyboard-aware scrolling", async () => {

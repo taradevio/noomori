@@ -3,7 +3,7 @@ module.exports = {
   rootDir: "../..",
   setupFiles: ["<rootDir>/tests/frontend/env.ts"],
   setupFilesAfterEnv: ["<rootDir>/tests/frontend/setup.ts"],
-  testMatch: ["<rootDir>/tests/frontend/**/*.functional.test.ts?(x)"],
+  testMatch: ["<rootDir>/tests/frontend/**/*.test.ts?(x)"],
   moduleNameMapper: {
     "^@/assets/(.*)$": "<rootDir>/assets/$1",
     "^@/(.*)$": "<rootDir>/src/$1",
