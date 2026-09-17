@@ -1562,13 +1562,19 @@ old household H1
 
 # 39. Same Recipe Shared Again
 
-Suppose Tara leaves H1, then later somehow rejoins H1 and shares the original recipe again.
+Suppose Tara leaves H1, then later rejoins H1 and shares the original recipe again.
 
-The old handoff copy and newly shared recipe must be treated as separate lineage events.
+The original and every recipe created from its handoff form one tracked lineage.
+Only one representation of that lineage may be shared with H1 at a time:
 
-Do not automatically merge them.
+- sharing the original first withdraws its still-pending handoff snapshots;
+- keeping a handoff copy first blocks the original while that copy remains shared;
+- unsharing or deleting the active representation releases the lineage;
+- completed owner decisions remain final.
 
-Future deduplication can be considered separately.
+Share and Keep must serialize on household plus source recipe so concurrent
+requests follow the same first-action-wins rule. Recipes are not matched by
+title or content.
 
 ---
 

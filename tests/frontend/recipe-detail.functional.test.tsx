@@ -79,6 +79,22 @@ afterAll(() => {
 });
 
 describe("recipe source details", () => {
+  it("explains a lineage conflict without offering a pointless retry", async () => {
+    await render(
+      <RecipeDetailView
+        onBack={jest.fn()}
+        recipe={recipe}
+        shareErrorMessage="This recipe is already shared with this household"
+        shareErrorMode="share"
+      />,
+    );
+
+    expect(
+      screen.getByText("This recipe is already shared with this household"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Try again")).toBeNull();
+  });
+
   it("shows extractor total and one labeled additional duration", async () => {
     await render(
       <RecipeDetailView

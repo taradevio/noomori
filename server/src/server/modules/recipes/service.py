@@ -5,7 +5,11 @@ from uuid import UUID
 from fastapi import BackgroundTasks, Depends, Header, HTTPException, Response
 
 from server.core.auth import AuthContext, get_current_user
-from server.modules.households.service import execute_household_rpc, raise_household_rpc_error
+from server.modules.households.service import (
+    database_error_code,
+    execute_household_rpc,
+    raise_household_rpc_error,
+)
 from server.modules.notifications.service import queue_household_recipe_notification
 from server.modules.recipes.images import (
     RECIPE_IMAGE_BUCKET,
@@ -30,6 +34,8 @@ from server.modules.recipes.schemas import (
 logger = logging.getLogger(__name__)
 RECIPE_SELECT = "*,household_recipe_shares(recipe_id)"
 HOUSEHOLD_RECIPE_SELECT = "*,household_recipe_shares!inner(recipe_id)"
+DUPLICATE_PERSONAL_RECIPE_CODE = "NM001"
+DUPLICATE_PERSONAL_RECIPE_MESSAGE = "This recipe is already in your recipes."
 
 
 # Purpose: Load the minimal recipe record only when the current user owns it.
@@ -218,6 +224,11 @@ def create_recipe(
         )
         return recipe_with_signed_image(auth, recipe)
     except Exception as exc:
+        if database_error_code(exc) == DUPLICATE_PERSONAL_RECIPE_CODE:
+            raise HTTPException(
+                status_code=409,
+                detail=DUPLICATE_PERSONAL_RECIPE_MESSAGE,
+            ) from exc
         logger.exception(
             "Failed to save recipe user_id=%s duration_ms=%.1f",
             auth.user.id,
@@ -256,6 +267,11 @@ def update_recipe(
             .execute()
         )
     except Exception as exc:
+        if database_error_code(exc) == DUPLICATE_PERSONAL_RECIPE_CODE:
+            raise HTTPException(
+                status_code=409,
+                detail=DUPLICATE_PERSONAL_RECIPE_MESSAGE,
+            ) from exc
         logger.exception(
             "Failed to update recipe recipe_id=%s duration_ms=%.1f",
             recipe_id,

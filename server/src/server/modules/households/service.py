@@ -95,6 +95,11 @@ def raise_household_rpc_error(result: dict) -> None:
             status_code=409,
             detail="Add another household member before sharing recipes",
         )
+    if status == "DUPLICATE_RECIPE":
+        raise HTTPException(
+            status_code=409,
+            detail="This recipe is already shared with this household",
+        )
     if status == "RECIPE_NOT_FOUND":
         raise HTTPException(status_code=404, detail="Recipe not found")
     if status == "INVALID_ACTIVITY":
@@ -140,6 +145,11 @@ def execute_household_rpc(
     except HTTPException:
         raise
     except Exception as exc:
+        if database_error_code(exc) == "NM001":
+            raise HTTPException(
+                status_code=409,
+                detail="This recipe is already in your recipes.",
+            ) from exc
         logger.exception(
             "Household RPC failed operation=%s user_id=%s",
             name,

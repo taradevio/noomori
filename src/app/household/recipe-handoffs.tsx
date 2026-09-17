@@ -6,6 +6,7 @@ import {
 import { colorTokens, MaxContentWidth } from "@/shared/design-system";
 import {
   getRecipeHandoffs,
+  HouseholdApiError,
   resolveRecipeHandoff,
   type RecipeHandoffItem,
 } from "@/shared/household-api";
@@ -90,6 +91,15 @@ export default function RecipeHandoffsScreen() {
             : "Recipes removed",
       );
     },
+    onError: async (error) => {
+      if (!(error instanceof HouseholdApiError) || error.status !== 409) return;
+      setSelected(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: handoffKey }),
+        queryClient.invalidateQueries({ queryKey: ["household"] }),
+        queryClient.invalidateQueries({ queryKey: ["recipes"] }),
+      ]);
+    },
   });
 
   const close = () => {
@@ -128,8 +138,13 @@ export default function RecipeHandoffsScreen() {
         />
         <View className="gap-2 border-t border-border bg-surface px-5 py-3">
           {decisionMutation.isError ? (
-            <Text accessibilityRole="alert" className="text-sm font-medium leading-5 text-error">
-              Couldn’t save that decision. Try again.
+            <Text
+              accessibilityRole="alert"
+              className="text-sm font-medium leading-5 text-error"
+            >
+              {decisionMutation.error instanceof HouseholdApiError
+                ? decisionMutation.error.message
+                : "Couldn’t save that decision. Try again."}
             </Text>
           ) : null}
           <View className="flex-row gap-3">
@@ -308,8 +323,13 @@ export default function RecipeHandoffsScreen() {
               </View>
             ))}
             {decisionMutation.isError ? (
-              <Text accessibilityRole="alert" className="text-sm font-medium leading-5 text-error">
-                Couldn’t save that decision. Try again.
+              <Text
+                accessibilityRole="alert"
+                className="text-sm font-medium leading-5 text-error"
+              >
+                {decisionMutation.error instanceof HouseholdApiError
+                  ? decisionMutation.error.message
+                  : "Couldn’t save that decision. Try again."}
               </Text>
             ) : null}
           </View>

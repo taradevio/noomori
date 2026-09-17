@@ -9,6 +9,7 @@ import {
 import { Alert, Keyboard } from "react-native";
 
 import { apiConfig } from "@/config/api";
+import EditRecipeRoute from "@/app/recipe/[id]/edit";
 import { RecipeCreateScreen } from "@/shared/components/recipe/recipe-create-screen";
 import type { PreparedRecipePhoto } from "@/shared/components/recipe/recipe-image";
 import { attachRecipeImage } from "@/shared/components/recipe/recipe-image-storage";
@@ -37,7 +38,11 @@ jest.mock("expo-router", () => ({
   useRouter: () => ({
     back: jest.fn(),
     canGoBack: () => false,
+    dismissTo: jest.fn(),
     replace: jest.fn(),
+  }),
+  useLocalSearchParams: () => ({
+    id: "22222222-2222-4222-8222-222222222222",
   }),
 }));
 
@@ -114,6 +119,16 @@ function response(recipe: ApiRecipe) {
   } as unknown as Response;
 }
 
+function duplicateResponse() {
+  return {
+    ok: false,
+    status: 409,
+    json: jest.fn().mockResolvedValue({
+      detail: "This recipe is already in your recipes.",
+    }),
+  } as unknown as Response;
+}
+
 function renderScreen(
   initialDraft = draft,
   initialPreparedPhoto: PreparedRecipePhoto | null = null,
@@ -130,6 +145,20 @@ function renderScreen(
         initialDraft={initialDraft}
         initialPreparedPhoto={initialPreparedPhoto}
       />
+    </QueryClientProvider>,
+  );
+}
+
+function renderEditScreen() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { gcTime: Infinity, retry: false },
+      queries: { gcTime: Infinity, retry: false },
+    },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <EditRecipeRoute />
     </QueryClientProvider>,
   );
 }
@@ -255,6 +284,42 @@ describe("recipe creation identity", () => {
     });
     await waitFor(() => expect(save).toBeEnabled());
     expect(toast.success).toHaveBeenCalledWith("Recipe saved");
+  });
+
+  it("keeps a duplicate draft open and explains why it was not saved", async () => {
+    fetchMock.mockResolvedValueOnce(duplicateResponse());
+    await renderScreen();
+
+    await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "This recipe is already in your recipes.",
+      ),
+    );
+    expect(screen.getByLabelText("Recipe title")).toHaveProp(
+      "value",
+      "Original soup",
+    );
+    expect(attachRecipeImage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a duplicate-producing edit open and explains the conflict", async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(apiRecipe("Original soup")))
+      .mockResolvedValueOnce(duplicateResponse());
+    await renderEditScreen();
+    const title = await screen.findByLabelText("Recipe title");
+
+    await fireEvent.press(screen.getByTestId("save-changes-placeholder"));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "This recipe is already in your recipes.",
+      ),
+    );
+    expect(title).toHaveProp("value", "Original soup");
+    expect(attachRecipeImage).not.toHaveBeenCalled();
   });
 
   it("blocks an over-limit imported initial draft until it is corrected", async () => {

@@ -23,6 +23,9 @@ import { useSession } from "@/shared/providers/session-providers";
 import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+const DUPLICATE_RECIPE_MESSAGE =
+  "This recipe is already shared with this household";
+
 export default function RecipeDetailRoute() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -74,7 +77,14 @@ export default function RecipeDetailRoute() {
           signal: AbortSignal.timeout(apiConfig.timeout),
         },
       );
-      if (!response.ok) throw new Error("Could not change recipe sharing.");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(
+          typeof body?.detail === "string"
+            ? body.detail
+            : "Could not change recipe sharing.",
+        );
+      }
       return response.json();
     },
     onSuccess: async (updatedRecipe, shared) => {
@@ -202,7 +212,9 @@ export default function RecipeDetailRoute() {
           recipeQuery.refetch();
         }}
         onRetryShare={
-          shareMutation.isError && shareMutation.variables !== undefined
+          shareMutation.isError &&
+          shareMutation.error.message !== DUPLICATE_RECIPE_MESSAGE &&
+          shareMutation.variables !== undefined
             ? () => shareMutation.mutate(shareMutation.variables!)
             : undefined
         }
@@ -213,6 +225,9 @@ export default function RecipeDetailRoute() {
             : undefined
         }
         recipe={recipe}
+        shareErrorMessage={
+          shareMutation.isError ? shareMutation.error.message : undefined
+        }
         shareErrorMode={
           shareMutation.isError
             ? shareMutation.variables

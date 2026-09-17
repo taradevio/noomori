@@ -24,6 +24,12 @@ COOKBOOK_ID = "33333333-3333-4333-8333-333333333333"
 RECIPE_CREATION_HEADERS = {"Recipe-Creation-Id": RECIPE_ID}
 
 
+class DatabaseError(RuntimeError):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 def recipe(**changes):
     value = {
         "id": RECIPE_ID,
@@ -157,6 +163,9 @@ class FakeQuery:
 
     def execute(self):
         self.database.calls.append((self.table, self.operation, self.values))
+        error = self.database.errors.get((self.table, self.operation))
+        if error is not None:
+            raise error
         configured = self.database.responses.get((self.table, self.operation))
         if configured is not None:
             return SimpleNamespace(data=configured)
@@ -189,6 +198,7 @@ class FakeRpc:
 class FakeDatabase:
     def __init__(self):
         self.calls = []
+        self.errors = {}
         self.responses = {}
         self.rpc_calls = []
         self.rpc_results = {}
@@ -500,6 +510,28 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(200, separate.status_code)
         self.assertEqual(SECOND_RECIPE_ID, separate.json()["id"])
         self.assertEqual(2, len(self.database.recipe_rows))
+
+    async def test_recipe_create_and_update_report_personal_duplicates(self):
+        self.database.errors[("recipes", "upsert")] = DatabaseError("NM001")
+        created = await self.client.post(
+            "/recipes",
+            headers=RECIPE_CREATION_HEADERS,
+            json=recipe_payload(),
+        )
+
+        del self.database.errors[("recipes", "upsert")]
+        self.database.errors[("recipes", "update")] = DatabaseError("NM001")
+        updated = await self.client.put(
+            f"/recipes/{RECIPE_ID}",
+            json=recipe_payload(),
+        )
+
+        self.assertEqual(409, created.status_code)
+        self.assertEqual(409, updated.status_code)
+        self.assertEqual(
+            "This recipe is already in your recipes.", created.json()["detail"]
+        )
+        self.assertEqual(created.json(), updated.json())
 
     async def test_recipe_share_delete_and_image_routes_cover_mutation_contracts(self):
         shared = recipe(is_shared=True)
