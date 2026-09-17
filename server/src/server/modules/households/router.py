@@ -6,8 +6,16 @@ from server.modules.households import service
 router = APIRouter()
 router.add_api_route("/household", service.get_household_settings, methods=["GET"])
 router.add_api_route("/household", service.create_household, methods=["POST"])
+router.add_api_route("/household", service.leave_household, methods=["DELETE"])
 router.add_api_route(
-    "/household", service.leave_household, methods=["DELETE"], status_code=204
+    "/household/recipe-handoffs",
+    service.get_recipe_handoffs,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/household/recipe-handoffs/{handoff_id}/resolve",
+    service.resolve_recipe_handoff,
+    methods=["POST"],
 )
 router.add_api_route(
     "/household/activity", service.get_household_activity, methods=["GET"]

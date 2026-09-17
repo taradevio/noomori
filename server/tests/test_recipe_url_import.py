@@ -1825,6 +1825,65 @@ Instructions
             log.call_args.args[-4:],
         )
 
+    def test_falls_back_when_schema_instruction_is_none_placeholder(self):
+        html = """
+            <script type="application/ld+json">
+              {
+                "@context": "https://schema.org/",
+                "@type": "Recipe",
+                "name": "SunGold Kiwitini",
+                "totalTime": "PT5M",
+                "recipeYield": "1",
+                "recipeIngredient": ["1 kiwifruit", "1 ounce vodka"],
+                "recipeInstructions": {
+                  "@type": "HowToStep",
+                  "name": "Mix ingredients",
+                  "text": "Cut the fruit. Muddle it. Shake with ice."
+                }
+              }
+            </script>
+            <div class="recipe">
+              <h1>SunGold Kiwitini</h1>
+              <h2>INGREDIENTS</h2>
+              <ul><li>1 kiwifruit</li><li>1 ounce vodka</li></ul>
+              <h2>METHOD</h2>
+              <ol>
+                <li>Cut the fruit.</li>
+                <li>Muddle it.</li>
+                <li>Shake with ice.</li>
+              </ol>
+              <div class="pro-tip">
+                <div class="desc"><div class="tip-title">PRO TIP</div>Chop the fruit before muddling.</div>
+              </div>
+            </div>
+        """
+        page = FetchedRecipePage(
+            html=html,
+            url="https://www.zespri.com/en-US/recipedetail/sungold-kiwitini",
+            hostname="www.zespri.com",
+            response_size=len(html.encode()),
+        )
+        with (
+            patch("server.modules.recipes.imports.website.fetch_public_html", return_value=page),
+            patch("server.modules.recipes.imports.website.logger.log") as log,
+        ):
+            response = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual(
+            ["Cut the fruit.", "Muddle it.", "Shake with ice."],
+            [step.text for step in response.instructions[0].steps],
+        )
+        self.assertEqual(1, response.servings)
+        self.assertEqual(5, response.total_time_minutes)
+        self.assertEqual("Chop the fruit before muddling.", response.description)
+        self.assertEqual(
+            ("dom_fallback", "primary_missing_instructions", "none", 0),
+            log.call_args.args[-4:],
+        )
+
     def test_dapur_primary_applies_only_verified_ingredient_groups(self):
         page = FetchedRecipePage(
             html=DAPUR_FIXTURE_PATH.read_text(),

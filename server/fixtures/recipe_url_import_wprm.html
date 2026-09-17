@@ -38,8 +38,13 @@
     </script>
   </head>
   <body>
-    <article class="wprm-recipe-container">
-      <h1>Macaroni Salad</h1>
+    <article class="wprm-recipe-container" data-servings="8">
+      <div class="nk-recipe-wrap">
+      <div class="nk-recipe-header">
+        <div class="nk-recipe-header-left">
+          <h1 class="wprm-recipe-name">Macaroni Salad</h1>
+        </div>
+      </div>
       <button type="button">Print Recipe</button>
       <label><input type="checkbox" /> Cook Mode</label>
       <div class="wprm-recipe-meta-container">
@@ -49,6 +54,9 @@
       </div>
 
       <div class="wprm-recipe-ingredients-container">
+        <h3 class="wprm-recipe-ingredients-header">
+          Ingredients <span>US Customary</span><span>Metric</span>
+        </h3>
         <div class="wprm-recipe-ingredient-group">
           <ul class="wprm-recipe-ingredients">
             <li class="wprm-recipe-ingredient">8 ounces macaroni</li>
@@ -65,6 +73,7 @@
       </div>
 
       <div class="wprm-recipe-instructions-container">
+        <h3 class="wprm-recipe-instructions-header">Instructions</h3>
         <ol class="wprm-recipe-instructions">
           <li class="wprm-recipe-instruction">
             Cook the macaroni, then drain and cool it.
@@ -73,6 +82,14 @@
             Mix the dressing and fold it into the macaroni.
           </li>
         </ol>
+      </div>
+      <div class="wprm-recipe-notes-container">
+        <h3 class="wprm-recipe-notes-header">Notes</h3>
+        <ul>
+          <li>Keep refrigerated after serving.</li>
+          <li>Mix only until combined.</li>
+        </ul>
+      </div>
       </div>
     </article>
   </body>

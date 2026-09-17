@@ -274,15 +274,19 @@ type LibraryPageProps = Pick<
   RecipesLibraryViewProps,
   | "cookbooks"
   | "householdName"
+  | "handoffCount"
   | "mode"
   | "onAddRecipe"
   | "onCookbookPress"
   | "onCreateCookbook"
   | "onRecipeImageError"
   | "onRecipePress"
+  | "onRefresh"
+  | "onReviewHandoffs"
   | "onRetryCookbooks"
   | "onRetryRecipes"
   | "onShareRecipe"
+  | "refreshing"
   | "recipes"
 > & {
   cardWidth: number;
@@ -299,6 +303,7 @@ function LibraryPage({
   cardWidth,
   columnCount,
   cookbooks,
+  handoffCount = 0,
   householdName,
   horizontalGutter,
   mode = "personal",
@@ -308,12 +313,15 @@ function LibraryPage({
   onQueryChange,
   onRecipeImageError,
   onRecipePress,
+  onRefresh,
+  onReviewHandoffs,
   onRetryCookbooks,
   onRetryRecipes,
   onShareRecipe,
   onSortChange,
   pageSection,
   query,
+  refreshing = false,
   recipes,
   sort,
 }: LibraryPageProps) {
@@ -462,6 +470,7 @@ function LibraryPage({
       ref={listRef}
       key={`library-${pageSection}-${columnCount}`}
       data={listItems}
+      extraData={handoffCount}
       keyExtractor={(entry) =>
         entry.kind === "skeleton" ? entry.id : `${entry.kind}-${entry.item.id}`
       }
@@ -469,6 +478,8 @@ function LibraryPage({
       keyboardShouldPersistTaps="handled"
       numColumns={columnCount}
       onScrollBeginDrag={Keyboard.dismiss}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
       renderItem={({ item }) => {
         if (item.kind === "skeleton") {
           return <SkeletonCard width={cardWidth} />;
@@ -513,6 +524,45 @@ function LibraryPage({
                   value={query}
                 />
               </View>
+              {handoffCount > 0 ? (
+                <Pressable
+                  accessibilityHint="Opens recipes awaiting your decision."
+                  accessibilityRole="button"
+                  className="mt-5 min-h-[64px] flex-row items-center gap-3 border-y border-accent py-3 focus:border-2 focus:border-primary active:opacity-70"
+                  onPress={onReviewHandoffs}
+                  testID="recipe-handoff-banner"
+                >
+                  <SymbolView
+                    accessible={false}
+                    name={{
+                      ios: "tray.full",
+                      android: "inbox",
+                      web: "inbox",
+                    }}
+                    size={24}
+                    tintColor={colorTokens.primaryStrong}
+                  />
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-base font-bold leading-6 text-text-primary">
+                      Recipes need review
+                    </Text>
+                    <Text className="text-sm leading-5 text-text-secondary">
+                      {handoffCount} {handoffCount === 1 ? "recipe" : "recipes"}{" "}
+                      from former household members
+                    </Text>
+                  </View>
+                  <SymbolView
+                    accessible={false}
+                    name={{
+                      ios: "chevron.right",
+                      android: "chevron_right",
+                      web: "chevron_right",
+                    }}
+                    size={22}
+                    tintColor={colorTokens.textSecondary}
+                  />
+                </Pressable>
+              ) : null}
             </>
           ) : null}
           <View className={isHousehold ? "mt-8" : "pt-1"}>
@@ -587,6 +637,7 @@ function LibraryPage({
 export function RecipesLibraryView({
   recipes,
   cookbooks,
+  handoffCount = 0,
   householdName,
   mode = "personal",
   onActivityPress,
@@ -595,11 +646,14 @@ export function RecipesLibraryView({
   onCreateCookbook,
   onRecipeImageError,
   onRecipePress,
+  onRefresh,
+  onReviewHandoffs,
   onRetryCookbooks,
   onRetryRecipes,
   onSectionChange,
   onSearchQueryChange,
   onShareRecipe,
+  refreshing = false,
   section: activeSection = "recipes",
   showActivity = false,
   unreadActivityCount = 0,
@@ -632,6 +686,7 @@ export function RecipesLibraryView({
       cardWidth={cardWidth}
       columnCount={columnCount}
       cookbooks={cookbooks}
+      handoffCount={handoffCount}
       householdName={householdName}
       horizontalGutter={horizontalGutter}
       mode={mode}
@@ -641,12 +696,15 @@ export function RecipesLibraryView({
       onQueryChange={(query) => changeQuery(visibleSection, query)}
       onRecipeImageError={onRecipeImageError}
       onRecipePress={onRecipePress}
+      onRefresh={onRefresh}
+      onReviewHandoffs={onReviewHandoffs}
       onRetryCookbooks={onRetryCookbooks}
       onRetryRecipes={onRetryRecipes}
       onShareRecipe={onShareRecipe}
       onSortChange={setSort}
       pageSection={visibleSection}
       query={queries[visibleSection]}
+      refreshing={refreshing}
       recipes={recipes}
       sort={sort}
     />

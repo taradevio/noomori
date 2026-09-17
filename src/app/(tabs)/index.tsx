@@ -105,6 +105,14 @@ export default function RecipesScreen() {
         retriedRecipeImages.current = true;
         recipesQuery.refetch();
       }}
+      onRefresh={() => {
+        void Promise.all([
+          activityQuery.refetch(),
+          section === "recipes"
+            ? recipesQuery.refetch()
+            : cookbooksQuery.refetch(),
+        ]);
+      }}
       onRetryRecipes={() => recipesQuery.refetch()}
       onRetryCookbooks={() => cookbooksQuery.refetch()}
       onSectionChange={(nextSection) =>
@@ -112,6 +120,12 @@ export default function RecipesScreen() {
       }
       section={section}
       showActivity={(activityQuery.data?.member_count ?? 0) >= 2}
+      refreshing={
+        activityQuery.isRefetching ||
+        (section === "recipes"
+          ? recipesQuery.isRefetching
+          : cookbooksQuery.isRefetching)
+      }
       unreadActivityCount={activityQuery.data?.unread_count ?? 0}
     />
   );

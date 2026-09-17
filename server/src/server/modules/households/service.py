@@ -4,13 +4,16 @@ import logging
 import re
 import secrets
 from datetime import datetime, timezone
+from typing import Literal
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator
 
 from server.config import settings
 from server.core.auth import AuthContext, get_current_user
-from server.core.database import rpc_result
+from server.core.database import get_admin_supabase, rpc_result
+from server.modules.recipes.images import RECIPE_IMAGE_BUCKET
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,11 @@ class HouseholdJoinCodeRequest(BaseModel):
 
 class HouseholdActivityRead(BaseModel):
     through_activity_id: int = Field(gt=0)
+
+
+class ResolveRecipeHandoff(BaseModel):
+    decision: Literal["keep", "remove"]
+    item_ids: list[UUID] | None = Field(default=None, min_length=1)
 
 
 # Purpose: Create a keyed, context-bound digest for a household join code.
@@ -75,6 +83,11 @@ def raise_household_rpc_error(result: dict) -> None:
             status_code=409,
             detail="Household owners cannot leave their household",
         )
+    if status == "HOUSEHOLD_HAS_MEMBERS":
+        raise HTTPException(
+            status_code=409,
+            detail="Your household must have only you before you can join another",
+        )
     if status == "NO_HOUSEHOLD":
         raise HTTPException(status_code=404, detail="Household not found")
     if status == "HOUSEHOLD_NOT_READY":
@@ -86,6 +99,14 @@ def raise_household_rpc_error(result: dict) -> None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     if status == "INVALID_ACTIVITY":
         raise HTTPException(status_code=400, detail="Activity marker is invalid")
+    if status in {"HANDOFF_NOT_FOUND", "ITEM_NOT_FOUND"}:
+        raise HTTPException(status_code=404, detail="Recipe handoff not found")
+    if status == "DECISION_CONFLICT":
+        raise HTTPException(status_code=409, detail="Recipe handoff decision is final")
+    if status in {"INVALID_DECISION", "INVALID_ITEMS"}:
+        raise HTTPException(status_code=400, detail="Recipe handoff request is invalid")
+    if status in {"ASSETS_NOT_READY", "MEMBERSHIP_CHANGED"}:
+        raise HTTPException(status_code=409, detail="Recipe handoff is not ready")
     if status == "ALREADY_MEMBER":
         raise HTTPException(
             status_code=409,
@@ -169,13 +190,157 @@ def mark_household_activity_read(
     return Response(status_code=204)
 
 
-# Purpose: Remove the current non-owner member from their household.
+# Purpose: Leave the active household, restoring a parked owned household when present.
 # Connects to: Registered by server/src/server/modules/households/router.py::router.add_api_route() for DELETE /household; calls server/src/server/modules/households/service.py::{execute_household_rpc(),raise_household_rpc_error()}.
 def leave_household(auth: AuthContext = Depends(get_current_user)):
     result = execute_household_rpc(auth, "leave_household")
-    if result["status"] != "LEFT":
+    if result["status"] == "HANDOFF_PREPARED":
+        try:
+            admin = get_admin_supabase()
+            bucket = admin.storage.from_(RECIPE_IMAGE_BUCKET)
+            for task in result.get("copy_tasks", []):
+                source_path = task.get("source_path")
+                destination_path = task.get("destination_path")
+                if not source_path or not destination_path:
+                    continue
+                try:
+                    bucket.copy(source_path, destination_path)
+                except Exception as copy_error:
+                    try:
+                        bucket.info(destination_path)
+                    except Exception:
+                        raise copy_error
+
+            result = rpc_result(
+                admin.rpc(
+                    "finalize_recipe_handoff",
+                    {
+                        "p_user_id": auth.user.id,
+                        "p_handoff_id": result["handoff_id"],
+                    },
+                ).execute()
+            )
+        except Exception as exc:
+            logger.exception(
+                "Could not isolate recipe handoff assets user_id=%s",
+                auth.user.id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Could not leave the household",
+            ) from exc
+    if result["status"] not in {"LEFT", "RESTORED"}:
         raise_household_rpc_error(result)
-    return Response(status_code=204)
+    return {
+        "status": result["status"],
+        "household": result.get("household"),
+    }
+
+
+def get_recipe_handoffs(auth: AuthContext = Depends(get_current_user)):
+    result = execute_household_rpc(auth, "get_recipe_handoffs")
+    if result["status"] != "OK":
+        raise_household_rpc_error(result)
+
+    handoffs = result.get("handoffs") or []
+    paths = [
+        item["image_path"]
+        for handoff in handoffs
+        for item in handoff.get("items", [])
+        if item.get("image_path")
+    ]
+    urls_by_path: dict[str, str] = {}
+    if paths:
+        try:
+            signed = (
+                get_admin_supabase()
+                .storage.from_(RECIPE_IMAGE_BUCKET)
+                .create_signed_urls(list(dict.fromkeys(paths)), 3600)
+            )
+            for image in signed:
+                path = image.get("path")
+                url = image.get("signedURL") or image.get("signedUrl")
+                if path and url and not image.get("error"):
+                    urls_by_path[path] = url
+        except Exception:
+            logger.exception("Could not sign recipe handoff images")
+
+    for handoff in handoffs:
+        for item in handoff.get("items", []):
+            item["image_url"] = urls_by_path.get(item.get("image_path"))
+    return handoffs
+
+
+def _delete_handoff_cleanup_paths(admin, rows: list[dict]) -> None:
+    bucket = admin.storage.from_(RECIPE_IMAGE_BUCKET)
+    for row in rows:
+        path = row.get("asset_cleanup_path")
+        if not path:
+            continue
+        try:
+            bucket.remove([path])
+            (
+                admin.table("recipe_handoff_items")
+                .update({"asset_cleanup_path": None})
+                .eq("id", row["id"])
+                .eq("asset_cleanup_path", path)
+                .execute()
+            )
+        except Exception:
+            logger.exception("Could not clean up recipe handoff image path=%s", path)
+
+
+def cleanup_recipe_handoff_assets() -> None:
+    admin = get_admin_supabase()
+    rows = (
+        admin.table("recipe_handoff_items")
+        .select("id,asset_cleanup_path")
+        .not_.is_("asset_cleanup_path", "null")
+        .limit(100)
+        .execute()
+        .data
+        or []
+    )
+    _delete_handoff_cleanup_paths(admin, rows)
+
+
+def resolve_recipe_handoff(
+    handoff_id: UUID,
+    payload: ResolveRecipeHandoff,
+    auth: AuthContext = Depends(get_current_user),
+):
+    result = execute_household_rpc(
+        auth,
+        "resolve_recipe_handoff",
+        {
+            "p_handoff_id": str(handoff_id),
+            "p_decision": payload.decision,
+            "p_item_ids": (
+                [str(item_id) for item_id in payload.item_ids]
+                if payload.item_ids is not None
+                else None
+            ),
+        },
+    )
+    if result["status"] != "OK":
+        raise_household_rpc_error(result)
+
+    cleanup_paths = result.pop("cleanup_paths", [])
+    if cleanup_paths:
+        try:
+            admin = get_admin_supabase()
+            rows = (
+                admin.table("recipe_handoff_items")
+                .select("id,asset_cleanup_path")
+                .in_("asset_cleanup_path", cleanup_paths)
+                .execute()
+                .data
+                or []
+            )
+            _delete_handoff_cleanup_paths(admin, rows)
+        except Exception:
+            logger.exception("Could not immediately clean up recipe handoff images")
+    return {key: value for key, value in result.items() if key != "status"}
 
 
 # Purpose: Generate and store a new unique household invite code for an owner.

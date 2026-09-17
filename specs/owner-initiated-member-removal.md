@@ -69,7 +69,7 @@ Not applicable.
 - Reuse the handoff preparation and finalization flow from `handoff.md` for the
   target member's shared recipes.
 - At finalization, update the target's single membership back to
-  `previous_household_id` as `owner`, or delete it and clear onboarding when no
+  `parked_household_id` as `owner`, or delete it and clear onboarding when no
   previous household exists.
 
 ### API contract
@@ -122,4 +122,3 @@ the loser returns a stable already-removed/not-found result without duplicating
 handoffs. A removed user's open app may contain stale cached household data, so
 future implementation must clear it on the next membership refresh or
 household authorization failure.
-

@@ -10,6 +10,7 @@ from server.modules.notifications.service import queue_household_recipe_notifica
 from server.modules.recipes.images import (
     RECIPE_IMAGE_BUCKET,
     RECIPE_IMAGE_MAX_BYTES,
+    delete_recipe_image_object,
     recipe_with_signed_image,
     recipes_with_signed_images,
     valid_recipe_image_path,
@@ -374,7 +375,7 @@ def delete_recipe(
     image_cleanup = "not_needed"
     if image_path:
         try:
-            auth.supabase.storage.from_(RECIPE_IMAGE_BUCKET).remove([image_path])
+            delete_recipe_image_object(auth, image_path)
             image_cleanup = "deleted"
         except Exception:
             image_cleanup = "failed"
@@ -455,7 +456,7 @@ def activate_recipe_image(
     old_path = recipe.get("image_path")
     if old_path and old_path != payload.image_path:
         try:
-            auth.supabase.storage.from_(RECIPE_IMAGE_BUCKET).remove([old_path])
+            delete_recipe_image_object(auth, old_path)
         except Exception:
             logger.exception("Failed to remove replaced recipe image recipe_id=%s", recipe_id)
     return recipe_with_signed_image(auth, updated)
@@ -488,7 +489,7 @@ def remove_recipe_image(
     old_path = recipe.get("image_path")
     if old_path:
         try:
-            auth.supabase.storage.from_(RECIPE_IMAGE_BUCKET).remove([old_path])
+            delete_recipe_image_object(auth, old_path)
         except Exception:
             logger.exception("Failed to delete recipe image object recipe_id=%s", recipe_id)
     return recipe_with_signed_image(auth, updated)

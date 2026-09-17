@@ -63,6 +63,53 @@ function recipeOrder() {
 }
 
 describe("recipe and cookbook library workflow", () => {
+  it("uses the native list refresh control", async () => {
+    const onRefresh = jest.fn();
+    await render(
+      <RecipesLibraryView
+        cookbooks={cookbooks}
+        onRefresh={onRefresh}
+        recipes={recipes}
+        refreshing
+      />,
+    );
+
+    const list = screen.getByTestId("library-grid-recipes");
+    expect(list.props.refreshing).toBe(true);
+    await fireEvent(list, "refresh");
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows pending recipe handoffs only when the household has work", async () => {
+    const onReview = jest.fn();
+    const view = await render(
+      <RecipesLibraryView
+        cookbooks={cookbooks}
+        handoffCount={2}
+        mode="household"
+        onReviewHandoffs={onReview}
+        recipes={recipes}
+      />,
+    );
+
+    await fireEvent.press(screen.getByTestId("recipe-handoff-banner"));
+    expect(
+      screen.getByText("2 recipes from former household members"),
+    ).toBeTruthy();
+    expect(onReview).toHaveBeenCalledTimes(1);
+
+    await view.rerender(
+      <RecipesLibraryView
+        cookbooks={cookbooks}
+        handoffCount={0}
+        mode="household"
+        onReviewHandoffs={onReview}
+        recipes={recipes}
+      />,
+    );
+    expect(screen.queryByTestId("recipe-handoff-banner")).toBeNull();
+  });
+
   it.each(libraryContexts)(
     "distinguishes no matches from an empty $noun collection",
     async ({ mode, section, noun, stateKey, action }) => {

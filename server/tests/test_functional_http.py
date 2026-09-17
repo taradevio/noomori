@@ -252,6 +252,8 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
                 "/household/invite": {"delete", "post"},
                 "/household/join": {"post"},
                 "/household/join/preview": {"post"},
+                "/household/recipe-handoffs": {"get"},
+                "/household/recipe-handoffs/{handoff_id}/resolve": {"post"},
                 "/household/recipes": {"get"},
                 "/notifications/device": {"delete", "put"},
                 "/recipes": {"get", "post"},
@@ -622,7 +624,7 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
                 "activities": [],
             },
             "mark_household_activity_read": {"status": "OK"},
-            "leave_household": {"status": "LEFT"},
+            "leave_household": {"status": "LEFT", "household": None},
             "revoke_household_join_code": {"status": "OK"},
             "preview_household_join_code": {
                 "status": "OK",
@@ -669,7 +671,11 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(204, revoked.status_code)
         self.assertEqual("Home", preview.json()["household_name"])
         self.assertEqual("JOINED", joined.json()["status"])
-        self.assertEqual(204, left.status_code)
+        self.assertEqual(200, left.status_code)
+        self.assertEqual(
+            {"status": "LEFT", "household": None},
+            left.json(),
+        )
 
     async def test_household_create_completes_owner_membership_and_profile(self):
         self.database.responses[("households", "insert")] = [

@@ -5,6 +5,7 @@ import unittest
 
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -17,12 +18,15 @@ os.environ.setdefault(
 from server.modules.households.service import (  # noqa: E402
     HOUSEHOLD_JOIN_CODE_CONTEXT,
     HouseholdJoinCodeRequest,
+    ResolveRecipeHandoff,
+    get_recipe_handoffs,
     get_household_settings,
     household_join_code_digest,
     join_household_with_code,
     leave_household,
     preview_household_join_code,
     replace_household_join_code,
+    resolve_recipe_handoff,
 )
 from server.config import settings  # noqa: E402
 
@@ -51,6 +55,40 @@ class FakeSupabase:
     def rpc(self, name, params):
         self.calls.append((name, params))
         return FakeRpcCall(self.outcomes.pop(0))
+
+
+class FakeHandoffBucket:
+    def __init__(self):
+        self.copies = []
+
+    def copy(self, source, destination):
+        self.copies.append((source, destination))
+
+    def create_signed_urls(self, paths, _expires_in):
+        return [
+            {"path": path, "signedURL": f"https://images.test/{path}"}
+            for path in paths
+        ]
+
+
+class FailingHandoffBucket(FakeHandoffBucket):
+    def copy(self, source, destination):
+        raise RuntimeError("copy failed")
+
+    def info(self, _path):
+        raise RuntimeError("destination missing")
+
+
+class FakeHandoffAdmin:
+    def __init__(self, rpc_result):
+        self.bucket = FakeHandoffBucket()
+        self.rpc_result = rpc_result
+        self.rpc_calls = []
+        self.storage = SimpleNamespace(from_=lambda _name: self.bucket)
+
+    def rpc(self, name, params):
+        self.rpc_calls.append((name, params))
+        return FakeRpcCall(self.rpc_result)
 
 
 def auth(*outcomes):
@@ -174,8 +212,164 @@ class HouseholdEndpointTest(unittest.TestCase):
 
         response = leave_household(context)
 
-        self.assertEqual(204, response.status_code)
+        self.assertEqual({"status": "LEFT", "household": None}, response)
         self.assertEqual([("leave_household", {})], context.supabase.calls)
+
+    def test_member_can_restore_a_parked_household(self):
+        context = auth(
+            {
+                "status": "RESTORED",
+                "household": {"id": "owned-home", "name": "My kitchen"},
+            }
+        )
+
+        response = leave_household(context)
+
+        self.assertEqual("RESTORED", response["status"])
+        self.assertEqual("My kitchen", response["household"]["name"])
+
+    @patch("server.modules.households.service.get_admin_supabase")
+    def test_leave_copies_handoff_images_before_finalizing(self, get_admin):
+        admin = FakeHandoffAdmin({"status": "LEFT", "household": None})
+        get_admin.return_value = admin
+        context = auth(
+            {
+                "status": "HANDOFF_PREPARED",
+                "handoff_id": "handoff-id",
+                "recipe_count": 1,
+                "copy_tasks": [
+                    {
+                        "item_id": "item-id",
+                        "source_path": "recipes/user/recipe/photo.webp",
+                        "destination_path": "recipe-handoffs/handoff-id/item-id.webp",
+                    }
+                ],
+            }
+        )
+
+        response = leave_household(context)
+
+        self.assertEqual({"status": "LEFT", "household": None}, response)
+        self.assertEqual(
+            [
+                (
+                    "recipes/user/recipe/photo.webp",
+                    "recipe-handoffs/handoff-id/item-id.webp",
+                )
+            ],
+            admin.bucket.copies,
+        )
+        self.assertEqual(
+            [
+                (
+                    "finalize_recipe_handoff",
+                    {
+                        "p_user_id": "22222222-2222-4222-8222-222222222222",
+                        "p_handoff_id": "handoff-id",
+                    },
+                )
+            ],
+            admin.rpc_calls,
+        )
+
+    @patch("server.modules.households.service.get_admin_supabase")
+    def test_copy_failure_never_finalizes_the_handoff(self, get_admin):
+        admin = FakeHandoffAdmin({"status": "LEFT", "household": None})
+        admin.bucket = FailingHandoffBucket()
+        admin.storage = SimpleNamespace(from_=lambda _name: admin.bucket)
+        get_admin.return_value = admin
+        context = auth(
+            {
+                "status": "HANDOFF_PREPARED",
+                "handoff_id": "handoff-id",
+                "recipe_count": 1,
+                "copy_tasks": [
+                    {
+                        "source_path": "recipes/user/recipe/photo.webp",
+                        "destination_path": "recipe-handoffs/handoff-id/item-id.webp",
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            leave_household(context)
+
+        self.assertEqual(500, raised.exception.status_code)
+        self.assertEqual([], admin.rpc_calls)
+
+    @patch("server.modules.households.service.get_admin_supabase")
+    def test_owner_lists_handoffs_with_signed_images(self, get_admin):
+        admin = FakeHandoffAdmin({"status": "unused"})
+        get_admin.return_value = admin
+        context = auth(
+            {
+                "status": "OK",
+                "handoffs": [
+                    {
+                        "id": "handoff-id",
+                        "items": [
+                            {
+                                "id": "item-id",
+                                "image_path": "recipe-handoffs/handoff-id/item-id.webp",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+        handoffs = get_recipe_handoffs(context)
+
+        self.assertEqual(
+            "https://images.test/recipe-handoffs/handoff-id/item-id.webp",
+            handoffs[0]["items"][0]["image_url"],
+        )
+
+    def test_owner_resolves_handoff_through_one_rpc(self):
+        handoff_id = "33333333-3333-4333-8333-333333333333"
+        item_id = "44444444-4444-4444-8444-444444444444"
+        context = auth(
+            {
+                "status": "OK",
+                "handoff_id": handoff_id,
+                "handoff_status": "resolved",
+                "resolved_item_ids": [item_id],
+                "kept_recipe_ids": ["kept-id"],
+                "cleanup_paths": [],
+            }
+        )
+
+        response = resolve_recipe_handoff(
+            UUID(handoff_id),
+            ResolveRecipeHandoff(decision="keep", item_ids=[UUID(item_id)]),
+            context,
+        )
+
+        self.assertEqual("resolved", response["handoff_status"])
+        self.assertEqual(
+            (
+                "resolve_recipe_handoff",
+                {
+                    "p_handoff_id": handoff_id,
+                    "p_decision": "keep",
+                    "p_item_ids": [item_id],
+                },
+            ),
+            context.supabase.calls[0],
+        )
+
+    def test_owner_with_members_cannot_switch_households(self):
+        request = HouseholdJoinCodeRequest(code="483921")
+
+        with self.assertRaises(HTTPException) as raised:
+            preview_household_join_code(
+                request,
+                auth({"status": "HOUSEHOLD_HAS_MEMBERS"}),
+            )
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertIn("must have only you", raised.exception.detail)
 
     def test_owner_cannot_leave_household(self):
         with self.assertRaises(HTTPException) as raised:

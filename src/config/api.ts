@@ -26,5 +26,8 @@ export const apiConfig = {
     householdInvite: "/household/invite",
     householdJoinPreview: "/household/join/preview",
     householdJoin: "/household/join",
+    recipeHandoffs: "/household/recipe-handoffs",
+    resolveRecipeHandoff: (handoffId: string) =>
+      `/household/recipe-handoffs/${handoffId}/resolve`,
   },
 } as const;

@@ -11,7 +11,7 @@ Owner-initiated member removal and the recipe-handoff workflow are deferred.
 
 ## Implementation Changes
 
-- Add nullable `previous_household_id` to `household_members`, referencing
+- Add nullable `parked_household_id` to `household_members`, referencing
   `households`.
   - It may be set only on a `member` membership.
   - It must differ from the active `household_id`.
@@ -21,7 +21,7 @@ Owner-initiated member removal and the recipe-handoff workflow are deferred.
   - A solo owner, meaning the household contains only their owner membership,
     may preview and join another household.
   - Joining updates the existing membership to the target household with role
-    `member`, saves the owned household in `previous_household_id`, resets
+    `member`, saves the owned household in `parked_household_id`, resets
     household-specific activity state, and preserves the original household
     and recipe shares.
   - Revoke the parked household's active invite so nobody can join while its
@@ -33,7 +33,7 @@ Owner-initiated member removal and the recipe-handoff workflow are deferred.
 - Update leave behavior:
   - Continue removing the departing user's shares from the outgoing household
     while recipe handoff is deferred.
-  - When `previous_household_id` exists, update the same membership back to
+  - When `parked_household_id` exists, update the same membership back to
     that household as `owner`, clear the previous pointer, keep onboarding
     complete, and return `RESTORED`.
   - Without a previous household, delete the membership, clear onboarding
@@ -100,4 +100,3 @@ Owner-initiated member removal and the recipe-handoff workflow are deferred.
 - The parked household is stored but inaccessible until restored.
 - There is no household selector and no second active membership.
 - Recipe handoff and owner-initiated member removal are deferred.
-

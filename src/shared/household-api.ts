@@ -15,6 +15,47 @@ export type HouseholdSettings = {
   member_count: number;
   members: HouseholdMember[];
   role: HouseholdRole;
+  shared_recipe_count: number;
+  pending_handoff_recipe_count: number;
+};
+
+export type RecipeHandoffSnapshot = {
+  title: string;
+  description: string | null;
+  ingredients: unknown[];
+  instructions: unknown[];
+  servings: number | null;
+  nutrition_per_serving: Record<string, unknown> | null;
+  prep_time_minutes: number | null;
+  cook_time_minutes: number | null;
+  total_time_minutes: number | null;
+  additional_time_label: string | null;
+  additional_time_minutes: number | null;
+  source_type: "my_recipe" | "family" | "website";
+  source_person_name: string | null;
+  source_url: string | null;
+};
+
+export type RecipeHandoffItem = {
+  id: string;
+  snapshot_schema_version: 1;
+  snapshot: RecipeHandoffSnapshot;
+  image_path: string | null;
+  image_url: string | null;
+};
+
+export type RecipeHandoff = {
+  id: string;
+  departed_user_display_name: string;
+  created_at: string;
+  items: RecipeHandoffItem[];
+};
+
+export type ResolveRecipeHandoffResult = {
+  handoff_id: string;
+  handoff_status: "pending" | "resolved";
+  resolved_item_ids: string[];
+  kept_recipe_ids: string[];
 };
 
 export type GeneratedHouseholdCode = {
@@ -37,6 +78,16 @@ export type HouseholdJoinResult = {
   };
   status: "ALREADY_MEMBER" | "JOINED";
 };
+
+export type LeaveHouseholdResult =
+  | {
+      status: "RESTORED";
+      household: { id: string; name: string };
+    }
+  | {
+      status: "LEFT";
+      household: null;
+    };
 
 export type HouseholdActivityAction = "added" | "edited" | "unshared";
 
@@ -103,7 +154,40 @@ export async function getHouseholdSettings(accessToken: string) {
     accessToken,
     apiConfig.endpoints.households,
   );
-  return { ...settings, members: settings.members ?? [] };
+  return {
+    ...settings,
+    members: settings.members ?? [],
+    shared_recipe_count: settings.shared_recipe_count ?? 0,
+    pending_handoff_recipe_count:
+      settings.pending_handoff_recipe_count ?? 0,
+  };
+}
+
+export async function getRecipeHandoffs(accessToken: string) {
+  const handoffs = await householdRequest<RecipeHandoff[]>(
+    accessToken,
+    apiConfig.endpoints.recipeHandoffs,
+  );
+  return handoffs.map((handoff) => ({
+    ...handoff,
+    items: handoff.items ?? [],
+  }));
+}
+
+export function resolveRecipeHandoff(
+  accessToken: string,
+  handoffId: string,
+  decision: "keep" | "remove",
+  itemIds: string[] | null,
+) {
+  return householdRequest<ResolveRecipeHandoffResult>(
+    accessToken,
+    apiConfig.endpoints.resolveRecipeHandoff(handoffId),
+    {
+      method: "POST",
+      body: JSON.stringify({ decision, item_ids: itemIds }),
+    },
+  );
 }
 
 export async function getHouseholdActivity(accessToken: string) {
@@ -166,7 +250,7 @@ export function unregisterNotificationDevice(
 }
 
 export function leaveHousehold(accessToken: string) {
-  return householdRequest<void>(
+  return householdRequest<LeaveHouseholdResult>(
     accessToken,
     apiConfig.endpoints.households,
     { method: "DELETE" },
