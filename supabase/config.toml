@@ -157,7 +157,7 @@ enabled = true
 # in emails.
 site_url = "noomori://"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
-external_url = "https://modular-vote-find-bless.trycloudflare.com/auth/v1"
+external_url = "https://heater-departmental-assist-swimming.trycloudflare.com/auth/v1"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 additional_redirect_urls = ["noomori://"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
