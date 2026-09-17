@@ -36,6 +36,7 @@ export type RecipesLibraryViewProps = {
   recipes: LibraryResource<RecipeCardModel>;
   cookbooks: LibraryResource<CookbookCardModel>;
   householdName?: string;
+  handoffCount?: number;
   mode?: LibraryMode;
   onActivityPress?: () => void;
   onAddRecipe?: () => void;
@@ -43,11 +44,14 @@ export type RecipesLibraryViewProps = {
   onCreateCookbook?: () => void;
   onRecipeImageError?: (imagePath: string) => void;
   onRecipePress?: (recipeId: string) => void;
+  onRefresh?: () => void;
+  onReviewHandoffs?: () => void;
   onRetryCookbooks?: () => void;
   onRetryRecipes?: () => void;
   onSectionChange?: (section: LibrarySection) => void;
   onSearchQueryChange?: (section: LibrarySection, query: string) => void;
   onShareRecipe?: () => void;
+  refreshing?: boolean;
   section?: LibrarySection;
   showActivity?: boolean;
   unreadActivityCount?: number;

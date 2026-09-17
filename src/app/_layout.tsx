@@ -117,6 +117,18 @@ export function RootNavigator() {
             title: "Household settings",
           }}
         />
+        <Stack.Screen
+          name="household/join"
+          options={{
+            headerBackTitle: "Back",
+            headerShown: true,
+            title: "Join another household",
+          }}
+        />
+        <Stack.Screen
+          name="household/recipe-handoffs"
+          options={{ headerShown: false }}
+        />
       </Stack.Protected>
     </Stack>
   );

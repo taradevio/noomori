@@ -17,7 +17,7 @@ affect the member's original recipes.
 
 **Proposed solution:** Prepare isolated recipe snapshots, copy their assets,
 then atomically finalize the handoff and either restore
-`previous_household_id` or remove the membership. The old owner reviews only
+`parked_household_id` or remove the membership. The old owner reviews only
 the isolated snapshots.
 
 **Success criteria:**
@@ -80,7 +80,7 @@ and Storage helpers.
 3. `finalize_recipe_handoff` verifies that every required asset is isolated,
    removes the originals' outgoing share rows, and changes membership in one
    database transaction:
-   - with `previous_household_id`, restore that household and role `owner`;
+   - with `parked_household_id`, restore that household and role `owner`;
    - without it, delete membership and clear onboarding completion.
 4. Finalization changes the handoff to `pending`. Only then may it appear in
    the old owner's review list.
@@ -138,4 +138,3 @@ so the preparing state is required. Image mutation and deletion paths must
 respect preparing references. Finalization must lock membership and handoff
 rows so retries cannot duplicate snapshots, membership changes, or kept
 recipes.
-

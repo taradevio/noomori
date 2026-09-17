@@ -130,6 +130,7 @@ _NOTES_HEADINGS = {
     "tips and notes",
     "notes & tips",
     "notes and tips",
+    "pro tip",
     "chef's tips for success",
     "chef’s tips for success",
 }
@@ -1132,6 +1133,19 @@ def _standalone_emphasis_text(tag: Tag) -> str | None:
     return text if text and text == _normalized_dom_text(emphasis) else None
 
 
+# Purpose: Accept only explicit semantic, emphasized, or verified Pro Tip headings.
+# Connects to: Called by server/src/server/recipe_url_import.py::{_recipe_metadata_scope(),extract_recipe_dom_metadata(),_serialize_recipe_scope()::visit()}; calls server/src/server/recipe_url_import.py::{_normalized_dom_text(),_standalone_emphasis_text(),is_recipe_notes_heading()}.
+def _is_notes_heading_tag(tag: Tag) -> bool:
+    if tag.name not in _HEADING_TAGS | {"p", "div"}:
+        return False
+    text = _normalized_dom_text(tag)
+    return is_recipe_notes_heading(text) and (
+        tag.name in _HEADING_TAGS
+        or _standalone_emphasis_text(tag) == text
+        or text.removesuffix(":").casefold() == "pro tip"
+    )
+
+
 # Purpose: Classify a semantic or standalone-emphasis tag as a recipe section heading.
 # Connects to: Called by server/src/server/recipe_url_import.py::{_recipe_dom_candidate(),_serialize_recipe_scope()::visit()}; calls server/src/server/recipe_url_import.py::{_normalized_dom_text(),_standalone_emphasis_text(),recipe_section_name()}.
 def _section_kind(tag: Tag) -> str | None:
@@ -1296,6 +1310,9 @@ def _serialize_recipe_scope(
             if tag is instruction_heading:
                 inside_instructions = True
             return False
+
+        if inside_instructions and _is_notes_heading_tag(tag):
+            return True
 
         if (
             inside_instructions
@@ -1624,6 +1641,9 @@ def _bounded_notes_text(root: Tag, heading: Tag) -> str | None:
         int(heading.name[1]) if heading.name in _HEADING_TAGS else None
     )
     lines: list[str] = []
+    for sibling in heading.next_siblings:
+        if isinstance(sibling, NavigableString):
+            _append_dom_line(lines, str(sibling))
     after_heading = False
     for tag in root.find_all(True):
         if tag is heading:
@@ -1670,6 +1690,16 @@ def _recipe_metadata_scope(soup: BeautifulSoup, title: str | None) -> Tag:
             for heading in tag.find_all(_HEADING_TAGS)
         )
     ]
+    candidates_with_notes = [
+        tag
+        for tag in candidates
+        if any(
+            _is_notes_heading_tag(descendant)
+            for descendant in tag.find_all(_HEADING_TAGS | {"p", "div"})
+        )
+    ]
+    if candidates_with_notes:
+        candidates = candidates_with_notes
     candidates = [
         tag for tag in candidates
         if not any(other is not tag and _is_descendant(other, tag) for other in candidates)
@@ -1686,13 +1716,11 @@ def extract_recipe_dom_metadata(
     _clean_dom(soup)
     root = _recipe_metadata_scope(soup, title)
 
-    note_headings = []
-    for tag in root.find_all(_HEADING_TAGS | {"p", "div"}):
-        text = _normalized_dom_text(tag)
-        if tag.name in {"p", "div"} and _standalone_emphasis_text(tag) != text:
-            continue
-        if is_recipe_notes_heading(text):
-            note_headings.append(tag)
+    note_headings = [
+        tag
+        for tag in root.find_all(_HEADING_TAGS | {"p", "div"})
+        if _is_notes_heading_tag(tag)
+    ]
 
     notes = None
     if len(note_headings) == 1:
@@ -1769,9 +1797,11 @@ def extract_recipe(html: str, url: str) -> ExtractedRecipe:
             ingredient_groups = [ExtractedIngredientGroup(None, ingredients)]
 
     instructions = [
-        instruction.strip()
+        cleaned
         for instruction in (_optional_value(scraper, "instructions_list") or [])
-        if instruction and instruction.strip()
+        if instruction
+        and (cleaned := instruction.strip())
+        and cleaned.casefold() != "none"
     ]
 
     # Purpose: Retain only non-empty string values from optional scraper fields.

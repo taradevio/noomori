@@ -2,11 +2,22 @@ import logging
 from uuid import UUID
 
 from server.core.auth import AuthContext
+from server.core.database import get_admin_supabase
 
 
 logger = logging.getLogger(__name__)
 RECIPE_IMAGE_BUCKET = "noomori-recipe-images"
 RECIPE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+HANDOFF_IMAGE_PREFIX = "recipe-handoffs/"
+
+
+def delete_recipe_image_object(auth: AuthContext, image_path: str) -> None:
+    client = (
+        get_admin_supabase()
+        if image_path.startswith(HANDOFF_IMAGE_PREFIX)
+        else auth.supabase
+    )
+    client.storage.from_(RECIPE_IMAGE_BUCKET).remove([image_path])
 
 
 # Purpose: Flatten the recipe share relation into a client-facing boolean flag.

@@ -10,11 +10,12 @@ import {
   previewHouseholdCode,
   type HouseholdJoinPreview,
 } from "@/shared/household-api";
+import { clearHouseholdTransitionCaches } from "@/shared/household-query";
 import { useSession } from "@/shared/providers/session-providers";
 import { toast } from "@/shared/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigation } from "expo-router";
-import { useEffect, useState } from "react";
+import { useNavigation, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Keyboard,
@@ -33,12 +34,15 @@ function formatJoinCode(value: string) {
   return value.length > 3 ? `${value.slice(0, 3)} ${value.slice(3)}` : value;
 }
 
-function joinErrorMessage(error: unknown) {
+export function joinErrorMessage(error: unknown) {
   if (error instanceof HouseholdApiError) {
     if (error.status === 400) {
       return "This invite code is invalid or has expired. Ask the household owner for a new code.";
     }
     if (error.status === 409) {
+      if (error.message.includes("must have only you")) {
+        return "You can only join another household when no one else is in yours.";
+      }
       return "You’re already part of a household.";
     }
     if (error.status === 429) {
@@ -48,8 +52,15 @@ function joinErrorMessage(error: unknown) {
   return "Couldn’t check the join code. Try again.";
 }
 
-export default function JoinHousehold() {
+type JoinHouseholdScreenProps = {
+  preservesOwnedHousehold?: boolean;
+};
+
+export function JoinHouseholdScreen({
+  preservesOwnedHousehold = false,
+}: JoinHouseholdScreenProps) {
   const navigation = useNavigation();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { refreshUserState, session } = useSession();
   const { compact } = useOnboardingLayout();
@@ -58,6 +69,7 @@ export default function JoinHousehold() {
   const [isFieldFocused, setIsFieldFocused] = useState(false);
   const [isFieldTouched, setIsFieldTouched] = useState(false);
   const [preview, setPreview] = useState<HouseholdJoinPreview | null>(null);
+  const allowRouteRemovalRef = useRef(false);
 
   async function refreshCanonicalState() {
     await Promise.all([
@@ -76,7 +88,11 @@ export default function JoinHousehold() {
       setStep("preview");
     },
     onError: (error) => {
-      if (error instanceof HouseholdApiError && error.status === 409) {
+      if (
+        error instanceof HouseholdApiError &&
+        error.status === 409 &&
+        !error.message.includes("must have only you")
+      ) {
         void refreshCanonicalState();
       }
     },
@@ -86,6 +102,12 @@ export default function JoinHousehold() {
     mutationFn: () => joinHousehold(session?.access_token ?? "", code),
     onSuccess: async () => {
       toast.success("Joined household");
+      if (preservesOwnedHousehold) {
+        await clearHouseholdTransitionCaches(queryClient);
+        allowRouteRemovalRef.current = true;
+        router.replace("/household");
+        return;
+      }
       await refreshCanonicalState();
     },
   });
@@ -105,7 +127,7 @@ export default function JoinHousehold() {
 
   useEffect(() => {
     return navigation.addListener("beforeRemove", (event) => {
-      if (step !== "preview") return;
+      if (step !== "preview" || allowRouteRemovalRef.current) return;
 
       event.preventDefault();
       if (joinMutation.isPending) return;
@@ -148,7 +170,7 @@ export default function JoinHousehold() {
           className={`grow ${compact ? "gap-6 pb-4 pt-5" : "gap-8 pb-6 pt-8"}`}
         >
           <Text className="text-[13px] font-bold uppercase leading-[18px] tracking-[0.5px] text-secondary">
-            Household setup
+            {preservesOwnedHousehold ? "Household" : "Household setup"}
           </Text>
 
           <View className="w-full max-w-[400px] self-center gap-3">
@@ -193,7 +215,9 @@ export default function JoinHousehold() {
 
           <View className="w-full max-w-[400px] self-center rounded-[10px] bg-surface-subtle px-4 py-3">
             <Text className="text-sm font-medium leading-5 text-text-primary">
-              You’ll join as a Member. Your personal recipe library stays yours.
+              {preservesOwnedHousehold
+                ? "You’ll join as a Member. Your household stays saved and returns when you leave this one."
+                : "You’ll join as a Member. Your personal recipe library stays yours."}
             </Text>
           </View>
 
@@ -233,7 +257,7 @@ export default function JoinHousehold() {
         className={`grow ${compact ? "gap-6 pb-4 pt-5" : "gap-8 pb-6 pt-8"}`}
       >
         <Text className="text-[13px] font-bold uppercase leading-[18px] tracking-[0.5px] text-secondary">
-          Household setup
+          {preservesOwnedHousehold ? "Household" : "Household setup"}
         </Text>
 
         <View className="w-full max-w-[400px] self-center gap-3">
@@ -241,10 +265,14 @@ export default function JoinHousehold() {
             accessibilityRole="header"
             className="text-[30px] font-bold leading-9 text-text-primary"
           >
-            Join a household
+            {preservesOwnedHousehold
+              ? "Join another household"
+              : "Join a household"}
           </Text>
           <Text className="text-base font-normal leading-6 text-text-secondary">
-            Enter the 6-digit code shared by the household owner.
+            {preservesOwnedHousehold
+              ? "Enter the 6-digit code from the household you want to join. Your household will stay saved."
+              : "Enter the 6-digit code shared by the household owner."}
           </Text>
         </View>
 
@@ -320,4 +348,8 @@ export default function JoinHousehold() {
       </View>
     </OnboardingScreen>
   );
+}
+
+export default function JoinHousehold() {
+  return <JoinHouseholdScreen />;
 }

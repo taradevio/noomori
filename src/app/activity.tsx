@@ -37,7 +37,8 @@ function ActivityRow({ activity }: { activity: HouseholdActivity }) {
     <>
       <View className="h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface-subtle">
         <Text className="text-lg font-bold text-text-primary">
-          {activity.actor_display_name.trim().charAt(0).toLocaleUpperCase() || "?"}
+          {activity.actor_display_name.trim().charAt(0).toLocaleUpperCase() ||
+            "?"}
         </Text>
       </View>
       <View className="min-w-0 flex-1">
@@ -117,30 +118,41 @@ export default function HouseholdActivityScreen() {
     },
   });
 
+  const markLatestRead = useCallback(
+    (data?: HouseholdActivityResponse) => {
+      const latestId = data?.latest_activity_id ?? null;
+      if (
+        (data?.member_count ?? 0) >= 2 &&
+        latestId !== null &&
+        markingActivityId.current !== latestId
+      ) {
+        markingActivityId.current = latestId;
+        markActivityRead(latestId);
+      }
+    },
+    [markActivityRead],
+  );
+
   useFocusEffect(
     useCallback(() => {
       let focused = true;
       if (accessToken) {
         void refetchActivity().then(({ data }) => {
-          const latestId = data?.latest_activity_id ?? null;
-          if (
-            focused &&
-            (data?.member_count ?? 0) >= 2 &&
-            latestId !== null &&
-            markingActivityId.current !== latestId
-          ) {
-            markingActivityId.current = latestId;
-            markActivityRead(latestId);
-          }
+          if (focused) markLatestRead(data);
         });
       }
       return () => {
         focused = false;
       };
-    }, [accessToken, markActivityRead, refetchActivity]),
+    }, [accessToken, markLatestRead, refetchActivity]),
   );
 
   const memberCount = activityQuery.data?.member_count ?? 0;
+  const activities = activityQuery.data?.activities ?? [];
+
+  const refreshActivity = useCallback(() => {
+    void refetchActivity().then(({ data }) => markLatestRead(data));
+  }, [markLatestRead, refetchActivity]);
 
   const close = () => {
     if (router.canGoBack()) router.back();
@@ -176,38 +188,32 @@ export default function HouseholdActivityScreen() {
         <Text className="text-base font-bold text-text-primary">Try again</Text>
       </Pressable>
     </View>
-  ) : memberCount < 2 ? (
-    <View className="flex-1 items-center justify-center px-6">
-      <Text
-        accessibilityRole="header"
-        className="text-center text-xl font-bold text-text-primary"
-      >
-        Activity starts when someone joins
-      </Text>
-      <Text className="mt-2 max-w-[440px] text-center text-base leading-6 text-text-secondary">
-        Shared recipe updates will appear here after your household has another
-        member.
-      </Text>
-    </View>
-  ) : activityQuery.data.activities.length === 0 ? (
-    <View className="flex-1 items-center justify-center px-6">
-      <Text
-        accessibilityRole="header"
-        className="text-center text-xl font-bold text-text-primary"
-      >
-        No recipe activity yet
-      </Text>
-      <Text className="mt-2 max-w-[440px] text-center text-base leading-6 text-text-secondary">
-        When household members share or update recipes, you’ll see it here.
-      </Text>
-    </View>
   ) : (
     <FlatList
-      data={activityQuery.data.activities}
+      data={activities}
       keyExtractor={(item) => String(item.id)}
       renderItem={({ item }) => <ActivityRow activity={item} />}
       ItemSeparatorComponent={() => <View className="h-3" />}
-      contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+      ListEmptyComponent={
+        <View className="flex-1 items-center justify-center px-6">
+          <Text
+            accessibilityRole="header"
+            className="text-center text-xl font-bold text-text-primary"
+          >
+            {memberCount < 2
+              ? "Activity starts when someone joins"
+              : "No recipe activity yet"}
+          </Text>
+          <Text className="mt-2 max-w-[440px] text-center text-base leading-6 text-text-secondary">
+            {memberCount < 2
+              ? "Shared recipe updates will appear here after your household has another member."
+              : "When household members share or update recipes, you’ll see it here."}
+          </Text>
+        </View>
+      }
+      contentContainerStyle={{ flexGrow: 1, padding: 20, paddingBottom: 40 }}
+      onRefresh={refreshActivity}
+      refreshing={activityQuery.isRefetching}
       showsVerticalScrollIndicator={false}
       testID="household-activity-list"
     />
@@ -242,7 +248,10 @@ export default function HouseholdActivityScreen() {
         </Text>
         <View className="h-12 w-12" />
       </View>
-      <View className="flex-1 self-center" style={{ width: "100%", maxWidth: MaxContentWidth }}>
+      <View
+        className="flex-1 self-center"
+        style={{ width: "100%", maxWidth: MaxContentWidth }}
+      >
         {content}
       </View>
     </SafeAreaView>

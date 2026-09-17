@@ -69,6 +69,11 @@ export default function HouseholdRecipesScreen() {
   return (
     <RecipesLibraryView
       cookbooks={emptyCookbooks}
+      handoffCount={
+        householdQuery.data?.role === "owner"
+          ? householdQuery.data.pending_handoff_recipe_count
+          : 0
+      }
       householdName={householdQuery.data?.household_name}
       mode="household"
       onRecipeImageError={() => {
@@ -83,11 +88,18 @@ export default function HouseholdRecipesScreen() {
         }
         router.navigate(`/recipe/${id}` as Href);
       }}
+      onRefresh={() => {
+        void Promise.all([householdQuery.refetch(), recipesQuery.refetch()]);
+      }}
+      onReviewHandoffs={() =>
+        router.navigate("/household/recipe-handoffs" as Href)
+      }
       onRetryRecipes={() => recipesQuery.refetch()}
       onShareRecipe={() =>
         router.navigate({ pathname: "/", params: { section: "recipes" } })
       }
       recipes={recipes}
+      refreshing={householdQuery.isRefetching || recipesQuery.isRefetching}
     />
   );
 }

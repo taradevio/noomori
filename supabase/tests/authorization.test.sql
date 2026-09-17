@@ -182,11 +182,13 @@ select is(
     where schemas.nspname = 'public'
       and functions.proname = any(array[
         'create_personal_cookbook', 'get_household_activity',
-        'get_household_settings', 'join_household_with_code',
+        'get_household_settings', 'get_recipe_handoffs',
+        'join_household_with_code',
         'leave_household', 'mark_household_activity_read',
         'preview_household_join_code', 'replace_household_join_code',
         'replace_personal_cookbook_recipes', 'revoke_household_join_code',
-        'set_recipe_household_shared'
+        'resolve_recipe_handoff', 'set_recipe_household_shared',
+        'finalize_recipe_handoff', 'recipe_handoff_image_delete_allowed'
       ])
       and has_function_privilege('anon', functions.oid, 'EXECUTE')
   ),
@@ -322,6 +324,10 @@ select is(public.get_household_activity() ->> 'status', 'OK', 'household members
 reset role;
 
 -- Storage authorization follows recipe ownership and active sharing.
+update public.recipes
+set image_path = 'recipes/11111111-1111-4111-8111-111111111111/44444444-4444-4444-8444-444444444444/88888888-8888-4888-8888-888888888888.webp'
+where id = '44444444-4444-4444-8444-444444444444';
+
 insert into storage.objects (bucket_id, name, owner_id)
 values (
   'noomori-recipe-images',
@@ -365,7 +371,7 @@ reset role;
 
 select set_config('request.jwt.claims', '{"sub":"22222222-2222-4222-8222-222222222222","role":"authenticated"}', true);
 set local role authenticated;
-select is((select count(*) from storage.objects where bucket_id = 'noomori-recipe-images'), 2::bigint, 'members read images for shared recipes');
+select is((select count(*) from storage.objects where bucket_id = 'noomori-recipe-images'), 1::bigint, 'members read only the active image for shared recipes');
 select ok(
   exists (
     select 1
@@ -383,7 +389,7 @@ delete from storage.objects
 where bucket_id = 'noomori-recipe-images';
 select is(
   (select count(*) from storage.objects where bucket_id = 'noomori-recipe-images'),
-  2::bigint,
+  1::bigint,
   'household members cannot delete another owner''s image objects'
 );
 reset role;

@@ -133,6 +133,19 @@ class ImportRecipeUrlSiteTest(unittest.TestCase):
         self.assertEqual([2, 2], [len(group.items) for group in draft.ingredients])
         self.assertEqual(
             [
+                (8, "oz", "macaroni"),
+                (2, None, "hard-boiled eggs"),
+                (1, "cup", "mayonnaise"),
+                (1, "tbsp", "Dijon mustard"),
+            ],
+            [
+                (item.quantity, item.unit, item.name)
+                for group in draft.ingredients
+                for item in group.items
+            ],
+        )
+        self.assertEqual(
+            [
                 "Cook the macaroni, then drain and cool it.",
                 "Mix the dressing and fold it into the macaroni.",
             ],
@@ -143,6 +156,10 @@ class ImportRecipeUrlSiteTest(unittest.TestCase):
         self.assertEqual(10, draft.cook_time_minutes)
         self.assertEqual(332, draft.nutrition_per_serving.calories_kcal)
         self.assertEqual(6, draft.nutrition_per_serving.protein_g)
+        self.assertEqual(
+            "Keep refrigerated after serving.\nMix only until combined.",
+            draft.description,
+        )
         self.assertEqual(
             "https://images.example.com/macaroni-salad.jpg",
             str(draft.image_url),
@@ -160,6 +177,8 @@ class ImportRecipeUrlSiteTest(unittest.TestCase):
         self.assertEqual(len(core_text), len(set(core_text)))
         self.assertNotIn("Print Recipe", core_text)
         self.assertNotIn("Cook Mode", core_text)
+        self.assertNotIn("Keep refrigerated after serving.", core_text)
+        self.assertNotIn("Mix only until combined.", core_text)
 
 
 if __name__ == "__main__":

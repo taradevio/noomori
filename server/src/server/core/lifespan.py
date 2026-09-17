@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from server.config import settings
 from server.core.database import get_admin_supabase
+from server.modules.households.service import cleanup_recipe_handoff_assets
 from server.push_notifications import check_push_receipts
 from server.recipe_url_import import assert_html_browser_profile_supported
 
@@ -30,6 +31,17 @@ async def push_receipt_loop() -> None:
             logger.exception("Failed to check Expo push receipts")
 
 
+async def recipe_handoff_cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(60)
+        if not settings.supabase_service_role_key:
+            continue
+        try:
+            await asyncio.to_thread(cleanup_recipe_handoff_assets)
+        except Exception:
+            logger.exception("Failed to clean up recipe handoff images")
+
+
 # Purpose: Start and cleanly cancel application-wide background tasks.
 # Connects to: Registered by server/src/server/main.py::create_app() as FastAPI's lifespan callback; starts server/src/server/core/lifespan.py::push_receipt_loop().
 @asynccontextmanager
@@ -39,9 +51,12 @@ async def app_lifespan(_app: FastAPI):
         # wheel. It does not resolve a hostname or perform a request.
         assert_html_browser_profile_supported()
     receipt_task = asyncio.create_task(push_receipt_loop())
+    handoff_cleanup_task = asyncio.create_task(recipe_handoff_cleanup_loop())
     try:
         yield
     finally:
         receipt_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await receipt_task
+        handoff_cleanup_task.cancel()
+        for task in (receipt_task, handoff_cleanup_task):
+            with suppress(asyncio.CancelledError):
+                await task
