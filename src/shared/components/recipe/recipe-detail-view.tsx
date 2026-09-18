@@ -40,6 +40,7 @@ type RecipeDetailViewProps = {
   onRetryShare?: () => void;
   onSetShared?: (shared: boolean) => void;
   recipe: RecipeDetailModel;
+  shareErrorMessage?: string;
   shareErrorMode?: "share" | "unshare";
 };
 
@@ -84,6 +85,7 @@ export function RecipeDetailView({
   onRetryShare,
   onSetShared,
   recipe,
+  shareErrorMessage,
   shareErrorMode,
 }: RecipeDetailViewProps) {
   const actionsSheetRef = useRef<BottomSheetModal>(null);
@@ -236,7 +238,8 @@ export function RecipeDetailView({
             <Text className="text-sm leading-5 text-text-secondary">
               {deleteError
                 ? "Check your connection and try again."
-                : "Check your household and connection, then try again."}
+                : shareErrorMessage ??
+                  "Check your household and connection, then try again."}
             </Text>
           </View>
           {canManage && (deleteError || onRetryShare) ? (

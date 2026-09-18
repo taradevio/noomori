@@ -26,6 +26,9 @@ type RecipeSubmission = {
   photo: PreparedRecipePhoto | null;
 };
 
+const DUPLICATE_PERSONAL_RECIPE_MESSAGE =
+  "This recipe is already in your recipes.";
+
 type RecipeCreateScreenProps = {
   initialDraft: RecipeDraft;
   // NOTE: Import-only context is passed through to the existing form instead of
@@ -116,6 +119,13 @@ export function RecipeCreateScreen({
       );
 
       if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        if (
+          res.status === 409 &&
+          body?.detail === DUPLICATE_PERSONAL_RECIPE_MESSAGE
+        ) {
+          throw new Error(DUPLICATE_PERSONAL_RECIPE_MESSAGE);
+        }
         throw new Error(`Server returned status code: ${res.status}`);
       }
 
@@ -172,9 +182,11 @@ export function RecipeCreateScreen({
 
   const { mutateAsync, isPending, isError, reset } = useMutation({
     mutationFn: saveNewRecipe,
-    onError: () => {
+    onError: (error) => {
       toast.error(
-        "Recipe not saved. Your changes are still here—check your connection and try again.",
+        error.message === DUPLICATE_PERSONAL_RECIPE_MESSAGE
+          ? DUPLICATE_PERSONAL_RECIPE_MESSAGE
+          : "Recipe not saved. Your changes are still here—check your connection and try again.",
       );
     },
     onSuccess: async ({ recipe, photo, photoFailed }) => {

@@ -35,6 +35,9 @@ type EditSubmission = {
   photo: PreparedRecipePhoto | null;
 };
 
+const DUPLICATE_PERSONAL_RECIPE_MESSAGE =
+  "This recipe is already in your recipes.";
+
 export default function EditRecipeRoute() {
   const navigation = useNavigation();
   const router = useRouter();
@@ -159,6 +162,13 @@ export default function EditRecipeRoute() {
         },
       );
       if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        if (
+          response.status === 409 &&
+          body?.detail === DUPLICATE_PERSONAL_RECIPE_MESSAGE
+        ) {
+          throw new Error(DUPLICATE_PERSONAL_RECIPE_MESSAGE);
+        }
         throw new Error(`Could not update recipe (${response.status}).`);
       }
       updatedRecipe = (await response.json()) as ApiRecipe;
@@ -193,8 +203,12 @@ export default function EditRecipeRoute() {
 
   const { mutateAsync, isPending, isError, reset } = useMutation({
     mutationFn: updateRecipe,
-    onError: () => {
-      toast.error("Recipe not saved. Check your connection and try again.");
+    onError: (error) => {
+      toast.error(
+        error.message === DUPLICATE_PERSONAL_RECIPE_MESSAGE
+          ? DUPLICATE_PERSONAL_RECIPE_MESSAGE
+          : "Recipe not saved. Check your connection and try again.",
+      );
     },
     onSuccess: ({ recipe, submission, photoFailed }) => {
       if (!photoFailed) return finish(recipe);

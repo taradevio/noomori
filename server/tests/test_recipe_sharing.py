@@ -96,6 +96,16 @@ class RecipeSharingTest(unittest.TestCase):
 
         self.assertEqual(409, raised.exception.status_code)
 
+    def test_lineage_duplicate_cannot_be_shared(self):
+        with self.assertRaises(HTTPException) as raised:
+            share_recipe(self.recipe_id, self.auth("DUPLICATE_RECIPE"))
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual(
+            "This recipe is already shared with this household",
+            raised.exception.detail,
+        )
+
     def test_idempotent_share_and_unshare_queue_only_changed_pushes(self):
         auth = self.auth()
         tasks = BackgroundTasks()

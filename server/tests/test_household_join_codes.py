@@ -359,6 +359,40 @@ class HouseholdEndpointTest(unittest.TestCase):
             context.supabase.calls[0],
         )
 
+    def test_owner_cannot_keep_a_duplicate_personal_recipe(self):
+        handoff_id = "33333333-3333-4333-8333-333333333333"
+        item_id = "44444444-4444-4444-8444-444444444444"
+
+        with self.assertRaises(HTTPException) as raised:
+            resolve_recipe_handoff(
+                UUID(handoff_id),
+                ResolveRecipeHandoff(decision="keep", item_ids=[UUID(item_id)]),
+                auth(DatabaseError("NM001")),
+            )
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual(
+            "This recipe is already in your recipes.",
+            raised.exception.detail,
+        )
+
+    def test_owner_cannot_keep_a_duplicate_household_recipe(self):
+        handoff_id = "33333333-3333-4333-8333-333333333333"
+        item_id = "44444444-4444-4444-8444-444444444444"
+
+        with self.assertRaises(HTTPException) as raised:
+            resolve_recipe_handoff(
+                UUID(handoff_id),
+                ResolveRecipeHandoff(decision="keep", item_ids=[UUID(item_id)]),
+                auth(DatabaseError("NM002")),
+            )
+
+        self.assertEqual(409, raised.exception.status_code)
+        self.assertEqual(
+            "This recipe is already shared with this household",
+            raised.exception.detail,
+        )
+
     def test_owner_with_members_cannot_switch_households(self):
         request = HouseholdJoinCodeRequest(code="483921")
 
