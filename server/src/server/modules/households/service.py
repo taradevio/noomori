@@ -150,6 +150,11 @@ def execute_household_rpc(
                 status_code=409,
                 detail="This recipe is already in your recipes.",
             ) from exc
+        if database_error_code(exc) == "NM002":
+            raise HTTPException(
+                status_code=409,
+                detail="This recipe is already shared with this household",
+            ) from exc
         logger.exception(
             "Household RPC failed operation=%s user_id=%s",
             name,
