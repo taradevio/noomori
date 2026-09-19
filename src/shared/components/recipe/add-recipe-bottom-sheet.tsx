@@ -23,8 +23,8 @@ type RecipeOption = {
 const recipeOptions: readonly RecipeOption[] = [
   {
     id: "write",
-    title: "Write from scratch",
-    body: "Start with a blank recipe.",
+    title: "Write a recipe",
+    body: "Start with a blank page.",
     icon: {
       ios: "square.and.pencil",
       android: "edit_note",
@@ -33,8 +33,8 @@ const recipeOptions: readonly RecipeOption[] = [
   },
   {
     id: "copy",
-    title: "Import from text",
-    body: "Paste a recipe you already have.",
+    title: "Paste a recipe",
+    body: "Bring in one from your notes or messages.",
     icon: {
       ios: "doc.on.clipboard",
       android: "content_paste",
@@ -43,8 +43,8 @@ const recipeOptions: readonly RecipeOption[] = [
   },
   {
     id: "url",
-    title: "Import from website",
-    body: "Bring in a recipe from a website.",
+    title: "Import from a website",
+    body: "Paste a recipe link and we’ll fill it in.",
     icon: { ios: "link", android: "link", web: "link" },
   },
 ];

@@ -39,11 +39,11 @@ export default function AuthScreen() {
             <AuthHeroIllustration compact={compact} />
             <View style={styles.copyBlock}>
               <Text accessibilityRole="header" style={styles.heading}>
-                Your recipes, kept close.
+                Recipes for your household—and you.
               </Text>
               <Text style={styles.supportingCopy}>
-                Save the dishes you love, and share them with your household
-                when you choose.
+                Keep your own recipes organized, then share the ones everyone
+                should have.
               </Text>
             </View>
           </View>

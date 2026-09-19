@@ -148,7 +148,7 @@ def execute_household_rpc(
         if database_error_code(exc) == "NM001":
             raise HTTPException(
                 status_code=409,
-                detail="This recipe is already in your recipes.",
+                detail="You already have this recipe.",
             ) from exc
         if database_error_code(exc) == "NM002":
             raise HTTPException(

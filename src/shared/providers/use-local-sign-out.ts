@@ -3,8 +3,7 @@ import { useNotifications } from "@/shared/providers/notification-provider";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const SIGN_OUT_ERROR =
-  "Couldn’t sign out. Check your connection and try again.";
+const SIGN_OUT_ERROR = "Couldn’t sign out. Try again.";
 
 export function useLocalSignOut() {
   const notifications = useNotifications();

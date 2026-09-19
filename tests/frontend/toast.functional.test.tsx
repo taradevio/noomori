@@ -47,6 +47,15 @@ describe("global toast feedback", () => {
     expect(successId).toBeGreaterThan(0);
     expect(screen.getByText("Recipe saved")).toBeTruthy();
     expect(screen.getByTestId("toast-icon-success")).toBeTruthy();
+    expect(screen.getByTestId("toast-status").props.className).toContain(
+      "bg-success",
+    );
+    expect(screen.getByText("Recipe saved").props.className).toContain(
+      "text-text-primary",
+    );
+    expect(screen.getByTestId("toast-surface").props.className).toContain(
+      "rounded-[18px]",
+    );
     expect(screen.getByTestId("toast-card").props.accessibilityLabel).toBe(
       "Success: Recipe saved",
     );
@@ -67,6 +76,12 @@ describe("global toast feedback", () => {
     expect(screen.queryByText("Recipe saved")).toBeNull();
     expect(screen.getByText("Recipe not saved")).toBeTruthy();
     expect(screen.getByTestId("toast-icon-error")).toBeTruthy();
+    expect(screen.getByTestId("toast-status").props.className).toContain(
+      "bg-error",
+    );
+    expect(screen.getByText("Recipe not saved").props.className).toContain(
+      "text-on-primary",
+    );
     expect(
       AccessibilityInfo.announceForAccessibilityWithOptions,
     ).toHaveBeenLastCalledWith("Error: Recipe not saved", {

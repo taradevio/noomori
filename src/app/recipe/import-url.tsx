@@ -43,11 +43,11 @@ const errorMessages: Record<string, string> = {
   page_too_large:
     "This page is too large to import. Paste the recipe text instead.",
   unsupported_content_type:
-    "This link isn’t an HTML recipe page. Try another link or paste the recipe text.",
+    "This link doesn’t look like a recipe page. Try another link or paste the recipe instead.",
   recipe_not_found:
-    "We couldn’t find enough recipe information on this page. Paste the recipe text instead.",
+    "No recipe found on this page. Try another link or paste the recipe instead.",
   page_unavailable:
-    "We couldn’t reach this page. Check that it’s public and try again.",
+    "Couldn’t reach this page. Check that it’s public and try again.",
   fetch_timeout: "This page took too long to respond. Try again.",
 };
 
@@ -55,7 +55,7 @@ class WebsiteImportFailure extends Error {
   constructor(public detail: string) {
     super(
       errorMessages[detail] ??
-        "We couldn’t import this recipe. Check the link and try again.",
+        "Couldn’t import this recipe. Check the link and try again.",
     );
   }
 }
@@ -75,7 +75,7 @@ export default function ImportRecipeUrlRoute() {
   const importMutation = useMutation({
     mutationFn: async (url: string) => {
       const accessToken = session?.access_token;
-      if (!accessToken) throw new Error("Authentication required.");
+      if (!accessToken) throw new Error("Please sign in again.");
 
       let response: Response;
       try {
@@ -93,7 +93,7 @@ export default function ImportRecipeUrlRoute() {
         );
       } catch {
         throw new Error(
-          "We couldn’t connect to Noomori. Check your connection and try again.",
+          "Couldn’t connect to Noomori. Try again.",
         );
       }
       if (!response.ok) {
@@ -229,7 +229,7 @@ export default function ImportRecipeUrlRoute() {
                 Recipe link
               </Text>
               <TextInput
-                accessibilityHint="Enter a public HTTP or HTTPS recipe link."
+                accessibilityHint="Enter a public recipe link."
                 accessibilityLabel="Recipe link"
                 autoCapitalize="none"
                 autoCorrect={false}

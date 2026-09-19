@@ -58,7 +58,7 @@ export function RootNavigator() {
             Couldn’t load your account
           </Text>
           <Text className="text-base leading-6 text-text-secondary">
-            Check your connection and try again.
+            Try again in a moment.
           </Text>
           <OnboardingButton
             disabled={isSigningOut}

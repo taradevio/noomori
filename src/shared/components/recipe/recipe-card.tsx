@@ -26,7 +26,7 @@ function getCookingTime(minutes: number | null | undefined) {
 
 function getSharedLabel(item: RecipeCardModel) {
   if (!item.isShared) return null;
-  return item.sharedLabel?.trim() || "Shared";
+  return item.sharedLabel?.trim() || "Shared with household";
 }
 
 /** Compact, data-driven recipe summary with no fabricated metadata. */

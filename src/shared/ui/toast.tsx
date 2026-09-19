@@ -5,7 +5,6 @@ import {
   AppState,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from "react-native";
@@ -205,8 +204,8 @@ function ToastCard({ item }: { item: ToastItem }) {
   const translateY = useSharedValue(0);
   const gestureStartY = useSharedValue(0);
   const measuredHeight = useSharedValue(1);
-  const toneColor =
-    item.tone === "success" ? colorTokens.success : colorTokens.error;
+  const toneForegroundColor =
+    item.tone === "success" ? colorTokens.textPrimary : colorTokens.onPrimary;
   const accessibilityLabel = `${item.tone === "success" ? "Success" : "Error"}: ${item.message}`;
 
   useEffect(() => {
@@ -296,11 +295,15 @@ function ToastCard({ item }: { item: ToastItem }) {
         style={gestureStyle}
         testID="toast-card"
       >
-        <View style={[styles.toast, { borderLeftColor: toneColor }]}>
+        <View
+          className="min-h-14 flex-row items-center rounded-[18px] bg-surface p-1.5 shadow-lg shadow-text-primary/10"
+          testID="toast-surface"
+        >
           <Animated.View
+            className={`min-h-11 min-w-0 flex-1 flex-row items-center gap-2 rounded-xl px-3 ${item.tone === "success" ? "bg-success" : "bg-error"}`}
             entering={TOAST_CONTENT_ENTER}
             key={item.id}
-            style={styles.content}
+            testID="toast-status"
           >
             <SymbolView
               accessible={false}
@@ -317,11 +320,15 @@ function ToastCard({ item }: { item: ToastItem }) {
                       web: "error",
                     }
               }
-              size={24}
+              size={20}
               testID={`toast-icon-${item.tone}`}
-              tintColor={toneColor}
+              tintColor={toneForegroundColor}
             />
-            <Text style={styles.message}>{item.message}</Text>
+            <Text
+              className={`min-w-0 flex-1 text-[15px] font-semibold leading-5 ${item.tone === "success" ? "text-text-primary" : "text-on-primary"}`}
+            >
+              {item.message}
+            </Text>
           </Animated.View>
 
           <Pressable
@@ -332,11 +339,11 @@ function ToastCard({ item }: { item: ToastItem }) {
             onPressIn={() => setPressed(true)}
             onPressOut={() => setPressed(false)}
             pressRetentionOffset={16}
-            style={styles.closeButton}
+            className="ml-0.5 h-11 w-11 items-center justify-center"
           >
             <Animated.View
               style={{
-                transform: [{ scale: reduceMotion || !pressed ? 1 : 0.97 }],
+                transform: [{ scale: reduceMotion || !pressed ? 1 : 0.96 }],
                 transition: "transform 120ms cubic-bezier(0.23, 1, 0.32, 1)",
               }}
             >
@@ -364,15 +371,16 @@ export function ToastHost() {
 
   return (
     <View
+      className="absolute inset-x-0 z-[1000] items-center px-3"
       pointerEvents="box-none"
-      style={[styles.viewport, { top: insets.top + 12 }]}
+      style={{ top: insets.top + 12 }}
       testID="toast-viewport"
     >
       {item ? (
         <Animated.View
+          className="w-full max-w-[480px]"
           entering={reduceMotion ? TOAST_FADE_IN : TOAST_ENTER}
           exiting={reduceMotion ? TOAST_FADE_OUT : TOAST_EXIT}
-          style={styles.toastWidth}
         >
           <ToastCard item={item} />
         </Animated.View>
@@ -380,58 +388,3 @@ export function ToastHost() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  viewport: {
-    alignItems: "center",
-    left: 0,
-    paddingHorizontal: 16,
-    position: "absolute",
-    right: 0,
-    zIndex: 1_000,
-  },
-  toastWidth: {
-    maxWidth: 560,
-    width: "100%",
-  },
-  toast: {
-    alignItems: "center",
-    backgroundColor: colorTokens.surface,
-    borderColor: colorTokens.border,
-    borderLeftWidth: 4,
-    borderRadius: 16,
-    borderWidth: 1,
-    elevation: 8,
-    flexDirection: "row",
-    minHeight: 64,
-    paddingBottom: 9,
-    paddingLeft: 14,
-    paddingRight: 8,
-    paddingTop: 9,
-    shadowColor: colorTokens.textPrimary,
-    shadowOffset: { height: 4, width: 0 },
-    shadowOpacity: 0.16,
-    shadowRadius: 12,
-  },
-  content: {
-    alignItems: "center",
-    flex: 1,
-    flexDirection: "row",
-    gap: 10,
-    minWidth: 0,
-  },
-  message: {
-    color: colorTokens.textPrimary,
-    flex: 1,
-    fontSize: 16,
-    fontWeight: "600",
-    lineHeight: 22,
-  },
-  closeButton: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    marginLeft: 4,
-    width: 44,
-  },
-});

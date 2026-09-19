@@ -855,22 +855,22 @@ export function RecipeForm({
             </View>
 
             <View>
-              <FieldLabel label="Recipe title" required />
+              <FieldLabel label="Recipe name" required />
               <FormInput
-                accessibilityLabel="Recipe title"
+                accessibilityLabel="Recipe name"
                 error={titleError}
                 onBlur={() => setTitleTouched(true)}
                 onChangeText={(title) =>
                   setDraft((current) => ({ ...current, title }))
                 }
-                placeholder="e.g. Sunday tomato pasta"
+                placeholder="Sunday tomato pasta"
                 value={draft.title}
               />
             </View>
 
             <View className="gap-4">
               <SectionHeading
-                body="Choose structured times so recipes stay easy to scan."
+                body="Add any times you want to remember."
                 title="Timing"
               />
               <View className="flex-row flex-wrap gap-3">
@@ -922,10 +922,10 @@ export function RecipeForm({
               <View className="gap-3">
                 <View>
                   <Text className="mb-2 text-sm font-bold text-text-primary">
-                    Additional time label
+                    Other time label
                   </Text>
                   <FormInput
-                    accessibilityLabel="Additional time label"
+                    accessibilityLabel="Other time label"
                     error={validationErrors.timing}
                     maxLength={40}
                     onChangeText={(additionalTimeLabel) =>
@@ -934,16 +934,16 @@ export function RecipeForm({
                         additionalTimeLabel,
                       }))
                     }
-                    placeholder="e.g. Chill"
+                    placeholder="Chill time"
                     value={draft.additionalTimeLabel}
                   />
                 </View>
                 <View>
                   <Text className="mb-2 text-sm font-bold text-text-primary">
-                    Additional duration
+                    How long?
                   </Text>
                   <Pressable
-                    accessibilityHint="Opens additional duration choices."
+                    accessibilityHint="Opens extra time duration choices."
                     accessibilityRole="button"
                     className="min-h-[52px] flex-row items-center justify-between gap-2 rounded-xl border-2 border-border bg-surface px-3 py-3 focus:border-primary-strong active:bg-surface-subtle"
                     onPress={() => setDurationField("additional")}
@@ -970,23 +970,23 @@ export function RecipeForm({
               <SectionHeading
                 body={
                   draft.servings === null
-                    ? "Set the exact base before scaling ingredient amounts."
-                    : "Ingredient amounts scale from their original values."
+                    ? "How many does this recipe make?"
+                    : "Change the servings to adjust ingredient amounts."
                 }
                 title="Servings"
               />
               {draft.servings === null ? (
                 <View className="max-w-[280px] gap-3">
                   <FormInput
-                    accessibilityLabel="Base servings"
+                    accessibilityLabel="Servings"
                     keyboardType="number-pad"
                     onChangeText={setBaseServingsInput}
-                    placeholder="For example, 4"
+                    placeholder="4"
                     value={baseServingsInput}
                   />
                   <ActionButton
                     disabled={positiveServingCount(baseServingsInput) === null}
-                    label="Set base"
+                    label="Set servings"
                     onPress={establishServings}
                   />
                 </View>
@@ -1032,7 +1032,7 @@ export function RecipeForm({
 
             <View className="gap-4">
               <SectionHeading
-                body="Add structured amounts, units, names, and preparation notes."
+                body="Add what you’ll need for this recipe."
                 title="Ingredients"
               />
               {draft.ingredientGroups.length ? (
@@ -1223,8 +1223,7 @@ export function RecipeForm({
                 </View>
               ) : (
                 <Text className="rounded-xl border border-border bg-surface px-4 py-4 text-sm leading-5 text-text-secondary">
-                  No ingredients yet. Add a simple ingredient or start with a
-                  section.
+                  Start with your first ingredient.
                 </Text>
               )}
               <View className="flex-row gap-3">
@@ -1247,7 +1246,7 @@ export function RecipeForm({
 
             <View className="gap-4">
               <SectionHeading
-                body="Keep each direction independently editable and easy to follow."
+                body="Add the steps in the order you cook them."
                 title="Instructions"
               />
               {draft.instructionGroups.length ? (
@@ -1257,7 +1256,7 @@ export function RecipeForm({
                       {group.title !== null ? (
                         <View className="gap-2 border-b border-border pb-3">
                           <FormInput
-                            accessibilityLabel="Instruction section name"
+                            accessibilityLabel="Step section name"
                             error={
                               submitAttempted
                                 ? validationErrors.instructionGroupTitles[
@@ -1293,10 +1292,10 @@ export function RecipeForm({
                         >
                           <View className="flex-row items-center justify-between gap-3">
                             <Text className="text-sm font-bold text-text-primary">
-                              Instruction {index + 1}
+                              Step {index + 1}
                             </Text>
                             <Pressable
-                              accessibilityLabel={`Delete instruction step ${index + 1}`}
+                              accessibilityLabel={`Delete step ${index + 1}`}
                               accessibilityRole="button"
                               className="h-12 w-12 items-center justify-center rounded-xl border-2 border-error bg-surface focus:border-primary-strong active:bg-surface-subtle"
                               onPress={() =>
@@ -1326,7 +1325,7 @@ export function RecipeForm({
                             </View>
                             <View className="flex-1">
                               <FormInput
-                                accessibilityLabel={`Instruction step ${index + 1}`}
+                                accessibilityLabel={`Step ${index + 1}`}
                                 error={
                                   submitAttempted
                                     ? validationErrors.instructionSteps[step.id]
@@ -1360,7 +1359,7 @@ export function RecipeForm({
                         </View>
                       ))}
                       <ActionButton
-                        label="Add instruction"
+                        label="Add step"
                         onPress={() => addInstruction(group.id)}
                       />
                     </View>
@@ -1368,15 +1367,14 @@ export function RecipeForm({
                 </View>
               ) : (
                 <Text className="rounded-xl border border-border bg-surface px-4 py-4 text-sm leading-5 text-text-secondary">
-                  No instructions yet. Add a step or organize steps into
-                  sections.
+                  Start with your first step.
                 </Text>
               )}
               <View className="flex-row gap-3">
                 {!draft.instructionGroups.length ? (
                   <View className="flex-1">
                     <ActionButton
-                      label="Add instruction"
+                      label="Add step"
                       onPress={() => addInstruction()}
                     />
                   </View>
@@ -1392,7 +1390,7 @@ export function RecipeForm({
 
             <View>
               <SectionHeading
-                body="Keep optional context separate from ingredients and directions."
+                body="Add a tip, substitution, family reminder, or anything else worth remembering."
                 title="Notes"
               />
               <View className="mt-4">
@@ -1402,7 +1400,7 @@ export function RecipeForm({
                   onChangeText={(notes) =>
                     setDraft((current) => ({ ...current, notes }))
                   }
-                  placeholder="Optional notes"
+                  placeholder="Add a note"
                   value={draft.notes}
                 />
               </View>
@@ -1410,7 +1408,7 @@ export function RecipeForm({
 
             <View className="gap-4">
               <SectionHeading
-                body="Optional values per serving. These stay stable when the editor scales the batch."
+                body="Add nutrition details per serving, if you have them."
                 title="Nutrition"
               />
               <View className="gap-4">
@@ -1450,7 +1448,7 @@ export function RecipeForm({
                 {(
                   [
                     ["my-recipe", "My recipe"],
-                    ["family-friend", "Family / Friend"],
+                    ["family-friend", "Family or friend"],
                     ["website", "Website"],
                   ] as const
                 ).map(([type, label]) => {
@@ -1509,9 +1507,9 @@ export function RecipeForm({
               ) : null}
               {draft.source.type === "website" ? (
                 <View>
-                  <FieldLabel label="Website URL" required />
+                  <FieldLabel label="Recipe link" required />
                   <FormInput
-                    accessibilityLabel="Recipe source website URL"
+                    accessibilityLabel="Recipe link"
                     error={sourceUrlError}
                     onBlur={() => setSourceUrlTouched(true)}
                     onChangeText={(url) =>
@@ -1544,7 +1542,7 @@ export function RecipeForm({
             >
               <Text className="text-center text-base font-bold leading-6 text-on-primary">
                 {isSaving
-                  ? "Saving..."
+                  ? "Saving…"
                   : mode === "create"
                     ? "Save recipe"
                     : "Save changes"}

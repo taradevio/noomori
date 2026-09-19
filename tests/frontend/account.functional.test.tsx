@@ -117,10 +117,10 @@ describe("Account settings", () => {
     await render(<AccountScreen />);
 
     const toggle = screen.getByRole("switch", {
-      name: "Recipe activity",
+      name: "Receive shared recipe updates",
     });
     expect(screen.getByText("Notifications")).toBeTruthy();
-    expect(screen.getByText("Recipe activity")).toBeTruthy();
+    expect(screen.getByText("Receive shared recipe updates")).toBeTruthy();
     expect(toggle).not.toBeChecked();
 
     await fireEvent(toggle, "valueChange", true);
@@ -142,7 +142,7 @@ describe("Account settings", () => {
     await render(<AccountScreen />);
 
     const toggle = screen.getByRole("switch", {
-      name: "Recipe activity",
+      name: "Receive shared recipe updates",
     });
     expect(toggle).toBeChecked();
     expect(toggle).toBeDisabled();
@@ -153,15 +153,15 @@ describe("Account settings", () => {
     await render(<AccountScreen />);
 
     expect(screen.getByText("Notifications")).toBeTruthy();
-    expect(screen.getByText("Recipe activity")).toBeTruthy();
+    expect(screen.getByText("Receive shared recipe updates")).toBeTruthy();
     expect(
-      screen.getByText("Checking notification availability…"),
+      screen.getByText("Checking notification settings…"),
     ).toBeTruthy();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(
-      screen.queryByRole("button", { name: /Recipe activity/ }),
+      screen.queryByRole("button", { name: /Receive shared recipe updates/ }),
     ).toBeNull();
-    expect(screen.getByText("Session")).toBeTruthy();
+    expect(screen.getByText("Account")).toBeTruthy();
   });
 
   it("opens the invite section for a solo household owner", async () => {
@@ -174,10 +174,12 @@ describe("Account settings", () => {
     });
     await render(<AccountScreen />);
 
-    const invite = screen.getByRole("button", { name: /Recipe activity/ });
+    const invite = screen.getByRole("button", {
+      name: /Receive shared recipe updates/,
+    });
     expect(
       screen.getByText(
-        "Invite someone to enable notifications for shared recipe changes.",
+        "Invite someone to get notified when shared recipes change.",
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("switch")).toBeNull();
@@ -200,10 +202,10 @@ describe("Account settings", () => {
     await render(<AccountScreen />);
 
     expect(
-      screen.getByText("Household invitations are managed by the owner."),
+      screen.getByText("Only the household owner can invite people."),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: /Recipe activity/ }),
+      screen.queryByRole("button", { name: /Receive shared recipe updates/ }),
     ).toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();
   });
@@ -219,7 +221,7 @@ describe("Account settings", () => {
     await render(<AccountScreen />);
 
     expect(
-      screen.getByText("Couldn’t check notification availability."),
+      screen.getByText("Couldn’t load notification settings."),
     ).toBeTruthy();
     await fireEvent.press(
       screen.getByRole("button", {
@@ -261,7 +263,7 @@ describe("Account settings", () => {
     await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
     expect(
       await screen.findByText(
-        "Couldn’t sign out. Check your connection and try again.",
+        "Couldn’t sign out. Try again.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
@@ -279,7 +281,7 @@ describe("Account settings", () => {
     expect(mockSignOut).not.toHaveBeenCalled();
     expect(
       await screen.findByText(
-        "Couldn’t sign out. Check your connection and try again.",
+        "Couldn’t sign out. Try again.",
       ),
     ).toBeTruthy();
   });

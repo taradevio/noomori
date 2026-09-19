@@ -37,7 +37,7 @@ function formatJoinCode(value: string) {
 export function joinErrorMessage(error: unknown) {
   if (error instanceof HouseholdApiError) {
     if (error.status === 400) {
-      return "This invite code is invalid or has expired. Ask the household owner for a new code.";
+      return "This join code doesn’t work. Check the code, or ask for a new one.";
     }
     if (error.status === 409) {
       if (error.message.includes("must have only you")) {
@@ -46,7 +46,9 @@ export function joinErrorMessage(error: unknown) {
       return "You’re already part of a household.";
     }
     if (error.status === 429) {
-      return "Too many attempts. Please try again later.";
+      return error.retryAfter
+        ? `Too many tries. Try again in ${error.retryAfter} seconds.`
+        : "Too many tries. Try again in a little while.";
     }
   }
   return "Couldn’t check the join code. Try again.";
@@ -170,7 +172,7 @@ export function JoinHouseholdScreen({
           className={`grow ${compact ? "gap-6 pb-4 pt-5" : "gap-8 pb-6 pt-8"}`}
         >
           <Text className="text-[13px] font-bold uppercase leading-[18px] tracking-[0.5px] text-secondary">
-            {preservesOwnedHousehold ? "Household" : "Household setup"}
+            Your household
           </Text>
 
           <View className="w-full max-w-[400px] self-center gap-3">
@@ -181,7 +183,7 @@ export function JoinHouseholdScreen({
               Join “{preview.household_name}”?
             </Text>
             <Text className="text-base font-normal leading-6 text-text-secondary">
-              Make sure this is the household you meant to join.
+              Just checking that you’ve got the right household.
             </Text>
           </View>
 
@@ -197,7 +199,7 @@ export function JoinHouseholdScreen({
             <View className="h-px bg-border" />
             <View className="gap-1">
               <Text className="text-sm font-bold leading-5 text-text-secondary">
-                Owner
+                Created by
               </Text>
               <Text className="text-lg font-bold leading-6 text-text-primary">
                 {preview.owner_display_name}
@@ -205,7 +207,7 @@ export function JoinHouseholdScreen({
             </View>
             <View className="gap-1">
               <Text className="text-sm font-bold leading-5 text-text-secondary">
-                Members
+                People
               </Text>
               <Text className="text-base font-normal leading-6 text-text-primary">
                 {preview.member_count}
@@ -216,14 +218,14 @@ export function JoinHouseholdScreen({
           <View className="w-full max-w-[400px] self-center rounded-[10px] bg-surface-subtle px-4 py-3">
             <Text className="text-sm font-medium leading-5 text-text-primary">
               {preservesOwnedHousehold
-                ? "You’ll join as a Member. Your household stays saved and returns when you leave this one."
-                : "You’ll join as a Member. Your personal recipe library stays yours."}
+                ? "Your household will stay saved while you’re away."
+                : "Your recipes will stay yours."}
             </Text>
           </View>
 
           <View className="mt-auto w-full max-w-[380px] self-center gap-3 pt-2">
             <OnboardingButton
-              accessibilityHint="Joins this household as a Member."
+              accessibilityHint="Joins this household."
               label="Join household"
               loading={joinMutation.isPending}
               loadingLabel="Joining household…"
@@ -257,7 +259,7 @@ export function JoinHouseholdScreen({
         className={`grow ${compact ? "gap-6 pb-4 pt-5" : "gap-8 pb-6 pt-8"}`}
       >
         <Text className="text-[13px] font-bold uppercase leading-[18px] tracking-[0.5px] text-secondary">
-          {preservesOwnedHousehold ? "Household" : "Household setup"}
+          Your household
         </Text>
 
         <View className="w-full max-w-[400px] self-center gap-3">
@@ -271,8 +273,8 @@ export function JoinHouseholdScreen({
           </Text>
           <Text className="text-base font-normal leading-6 text-text-secondary">
             {preservesOwnedHousehold
-              ? "Enter the 6-digit code from the household you want to join. Your household will stay saved."
-              : "Enter the 6-digit code shared by the household owner."}
+              ? "Enter the join code someone shared with you. Your household will stay saved."
+              : "Enter the join code someone shared with you."}
           </Text>
         </View>
 
@@ -329,14 +331,14 @@ export function JoinHouseholdScreen({
               </Text>
             ) : (
               <Text className="text-sm font-normal leading-5 text-text-secondary">
-                You can type or paste the code.
+                Type or paste the 6-digit code.
               </Text>
             )}
           </View>
 
           <View className="mt-2">
             <OnboardingButton
-              accessibilityHint="Validates the code and shows the household before joining."
+              accessibilityHint="Checks the join code and shows the household."
               disabled={!canPreview}
               label="Continue"
               loading={previewMutation.isPending}

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { createCookbook, CookbookApiError } from "@/shared/cookbook-api";
+import { createCookbook } from "@/shared/cookbook-api";
 import { cacheCreatedCookbook } from "@/shared/cookbook-query";
 import { CookbookRecipePicker } from "@/shared/components/cookbook/cookbook-recipe-picker";
 import {
@@ -55,9 +55,7 @@ export default function NewCookbookRoute() {
     },
   });
   const saveError = createMutation.isError
-    ? createMutation.error instanceof CookbookApiError
-      ? createMutation.error.message
-      : "Couldn’t create the cookbook. Try again."
+    ? "Couldn’t create the cookbook. Try again."
     : null;
 
   useEffect(() => {
@@ -96,7 +94,7 @@ export default function NewCookbookRoute() {
 
   const continueToRecipes = () => {
     if (!title.trim()) {
-      const message = "Enter a cookbook title.";
+      const message = "Enter a cookbook name.";
       setTitleError(message);
       AccessibilityInfo.announceForAccessibility(message);
       return;
@@ -144,16 +142,16 @@ export default function NewCookbookRoute() {
               Name your cookbook
             </Text>
             <Text className="text-base leading-6 text-text-secondary">
-              Choose a short title that makes this collection easy to recognize.
+              Give it a name you’ll recognize.
             </Text>
           </View>
 
           <View className="gap-2">
             <Text className="text-base font-bold leading-6 text-text-primary">
-              Cookbook title
+              Cookbook name
             </Text>
             <TextInput
-              accessibilityLabel="Cookbook title"
+              accessibilityLabel="Cookbook name"
               autoCapitalize="sentences"
               autoFocus
               className={`min-h-14 rounded-xl border-2 bg-surface px-4 py-3 text-base leading-6 text-text-primary outline-none ${titleError ? "border-error" : "border-border focus:border-primary-strong"}`}
@@ -163,7 +161,7 @@ export default function NewCookbookRoute() {
                 if (titleError && value.trim()) setTitleError(null);
               }}
               onSubmitEditing={continueToRecipes}
-              placeholder="e.g. Weeknight favorites"
+              placeholder="Weeknight favorites"
               placeholderTextColor={colorTokens.textSecondary}
               returnKeyType="next"
               selectionColor={colorTokens.primaryStrong}

@@ -55,7 +55,7 @@ export default function AccountScreen() {
     queryFn: () => getHouseholdSettings(accessToken),
     retry: false,
   });
-  // NOTE: Keep the section mounted while eligibility resolves so Session does
+  // NOTE: Keep the section mounted while eligibility resolves so Account does
   // not shift when the household request finishes.
   const household = householdQuery.data;
   const notificationEligibilityFailed =
@@ -67,14 +67,14 @@ export default function AccountScreen() {
     household?.member_count === 1 &&
     household.role === "owner";
   const notificationDescription = householdQuery.isPending
-    ? "Checking notification availability…"
+    ? "Checking notification settings…"
     : notificationEligibilityFailed
-      ? "Couldn’t check notification availability."
+      ? "Couldn’t load notification settings."
       : notificationsEligible
         ? "Get notified when shared recipes change."
         : soloOwner
-          ? "Invite someone to enable notifications for shared recipe changes."
-          : "Household invitations are managed by the owner.";
+          ? "Invite someone to get notified when shared recipes change."
+          : "Only the household owner can invite people.";
 
   const notificationRowContent = (
     <>
@@ -96,7 +96,7 @@ export default function AccountScreen() {
       </View>
       <View className="min-w-0 flex-1">
         <Text className="text-base font-bold leading-6 text-text-primary">
-          Recipe activity
+          Receive shared recipe updates
         </Text>
         <Text className="min-h-10 text-sm font-normal leading-5 text-text-secondary">
           {notificationDescription}
@@ -105,7 +105,7 @@ export default function AccountScreen() {
       <View className="w-14 shrink-0 items-end justify-center">
         {notificationsEligible ? (
           <Switch
-            accessibilityLabel="Recipe activity"
+            accessibilityLabel="Receive shared recipe updates"
             accessibilityState={{
               busy: notifications.isPending,
               disabled: notifications.isPending || isSigningOut,
@@ -228,10 +228,10 @@ export default function AccountScreen() {
                 </View>
                 <View className="min-w-0 flex-1">
                   <Text className="text-base font-bold leading-6 text-text-primary">
-                    Household settings
+                    Household
                   </Text>
                   <Text className="text-sm font-normal leading-5 text-text-secondary">
-                    Manage members and invitations
+                    People and invites
                   </Text>
                 </View>
                 <SymbolView
@@ -253,8 +253,8 @@ export default function AccountScreen() {
               <SectionLabel>Notifications</SectionLabel>
               {soloOwner ? (
                 <Pressable
-                  accessibilityHint="Opens household settings at Invite member"
-                  accessibilityLabel={`Recipe activity. ${notificationDescription}`}
+                  accessibilityHint="Opens household settings at Invite someone"
+                  accessibilityLabel={`Receive shared recipe updates. ${notificationDescription}`}
                   accessibilityRole="button"
                   className="min-h-16 flex-row items-center gap-3 rounded-2xl border-2 border-transparent bg-surface px-3 py-2.5 focus:border-primary active:bg-surface-subtle"
                   onPress={() =>
@@ -284,7 +284,7 @@ export default function AccountScreen() {
           ) : null}
 
           <View>
-            <SectionLabel>Session</SectionLabel>
+            <SectionLabel>Account</SectionLabel>
             <View className="overflow-hidden rounded-2xl bg-surface">
               <Pressable
                 accessibilityHint="Signs out on this device"

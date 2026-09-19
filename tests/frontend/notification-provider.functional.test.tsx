@@ -274,7 +274,7 @@ describe("NotificationProvider", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("notification-error")).toHaveTextContent(
-        "Couldn’t update notifications. Check your connection and try again.",
+        "Couldn’t update notifications. Try again.",
       ),
     );
     expect(storage[enabledKey]).toBeUndefined();

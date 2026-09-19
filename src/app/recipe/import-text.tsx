@@ -26,18 +26,17 @@ import { SafeAreaView } from "react-native-safe-area-context";
 const MAX_RECIPE_TEXT_LENGTH = 20_000;
 const parserErrorMessages: Record<string, string> = {
   insufficient_structure:
-    "We couldn’t identify enough recipe information. Edit the text and try again.",
-  multiple_recipes:
-    "We found more than one recipe. Paste one recipe at a time.",
+    "Couldn’t find enough recipe details. Make sure the text includes ingredients and steps, then try again.",
+  multiple_recipes: "More than one recipe found. Paste one recipe at a time.",
   ambiguous_structure:
-    "We couldn’t safely separate this recipe. Adjust the pasted text and try again.",
+    "Couldn’t tell which text belongs to the recipe. Remove unrelated text, then try again.",
 };
 
 class RecipeTextImportFailure extends Error {
   constructor(code: string) {
     super(
       parserErrorMessages[code] ??
-        "We couldn’t process this recipe. Check the text and try again.",
+        "Couldn’t import this recipe. Make sure it includes ingredients and steps, then try again.",
     );
   }
 }
@@ -52,7 +51,7 @@ export default function ImportRecipeTextRoute() {
   const importMutation = useMutation({
     mutationFn: async (text: string) => {
       const accessToken = session?.access_token;
-      if (!accessToken) throw new Error("Authentication required.");
+      if (!accessToken) throw new Error("Please sign in again.");
 
       let response: Response;
       try {
@@ -75,7 +74,7 @@ export default function ImportRecipeTextRoute() {
         throw new Error(
           timedOut
             ? "This import took too long. Try again."
-            : "We couldn’t connect to Noomori. Check your connection and try again.",
+            : "Couldn’t connect to Noomori. Try again.",
         );
       }
       if (!response.ok) {
@@ -137,13 +136,13 @@ export default function ImportRecipeTextRoute() {
                 accessibilityRole="header"
                 className="shrink text-2xl font-bold leading-[30px] text-text-primary"
               >
-                Import from text
+                Paste a recipe
               </Text>
             </View>
 
             <Text className="mt-5 text-base font-normal leading-6 text-text-secondary">
-              Paste one structured recipe from notes, messages, or another
-              document. You’ll review everything before saving.
+              Copy one from your notes, messages, or anywhere else. You’ll get
+              a chance to check it before saving.
             </Text>
 
             <View className="mt-8">
@@ -162,7 +161,7 @@ export default function ImportRecipeTextRoute() {
                   if (importMutation.isError) importMutation.reset();
                 }}
                 onFocus={() => setFocused(true)}
-                placeholder="Paste recipe here..."
+                placeholder="Paste recipe here…"
                 placeholderTextColor={colorTokens.textSecondary}
                 selectionColor={colorTokens.primaryStrong}
                 textAlignVertical="top"
@@ -195,7 +194,7 @@ export default function ImportRecipeTextRoute() {
               ) : null}
               <Text className="text-center text-base font-bold leading-6 text-on-primary">
                 {importMutation.isPending
-                  ? "Importing…"
+                  ? "Importing recipe…"
                   : importMutation.isError
                     ? "Try again"
                     : "Import recipe"}

@@ -93,9 +93,8 @@ describe("recipe and cookbook library workflow", () => {
     );
 
     await fireEvent.press(screen.getByTestId("recipe-handoff-banner"));
-    expect(
-      screen.getByText("2 recipes from former household members"),
-    ).toBeTruthy();
+    expect(screen.getByText("Recipes from someone who left")).toBeTruthy();
+    expect(screen.getByText("Choose which ones you’d like to keep.")).toBeTruthy();
     expect(onReview).toHaveBeenCalledTimes(1);
 
     await view.rerender(
@@ -136,7 +135,7 @@ describe("recipe and cookbook library workflow", () => {
       );
       expect(
         screen.getByText(
-          `${sourceCount} ${sourceCount === 1 ? "item" : "items"}`,
+          `${sourceCount} ${section === "recipes" ? (sourceCount === 1 ? "recipe" : "recipes") : sourceCount === 1 ? "cookbook" : "cookbooks"}`,
         ),
       ).toBeTruthy();
       await fireEvent.changeText(
@@ -144,8 +143,12 @@ describe("recipe and cookbook library workflow", () => {
         "missing recipe",
       );
       expect(screen.getByTestId(`library-${stateKey}-no-results`)).toBeTruthy();
-      expect(screen.getByText(`No ${noun} found`)).toBeTruthy();
-      expect(screen.getByText("0 items")).toBeTruthy();
+      expect(
+        screen.getByText(`No ${noun} found for “missing recipe”`),
+      ).toBeTruthy();
+      expect(
+        screen.getByText(section === "recipes" ? "0 recipes" : "0 cookbooks"),
+      ).toBeTruthy();
       expect(screen.queryByTestId(`library-${stateKey}-empty`)).toBeNull();
       expect(screen.queryByRole("button", { name: action })).toBeNull();
       expect(Boolean(screen.queryByRole("button", { name: "Newest" }))).toBe(
@@ -160,7 +163,7 @@ describe("recipe and cookbook library workflow", () => {
       ).toBe("");
       expect(
         screen.getByText(
-          `${sourceCount} ${sourceCount === 1 ? "item" : "items"}`,
+          `${sourceCount} ${section === "recipes" ? (sourceCount === 1 ? "recipe" : "recipes") : sourceCount === 1 ? "cookbook" : "cookbooks"}`,
         ),
       ).toBeTruthy();
 
@@ -435,17 +438,17 @@ describe("recipe and cookbook library workflow", () => {
     ).toBeTruthy();
     expect(
       screen.getByRole("button", {
-        name: /Chocolate cake, 50 minutes, 8 servings, Shared/,
+        name: /Chocolate cake, 50 minutes, 8 servings, Shared with household/,
       }),
     ).toBeTruthy();
-    expect(screen.getByText("2 items")).toBeTruthy();
+    expect(screen.getByText("2 recipes")).toBeTruthy();
 
     await fireEvent.changeText(
       screen.getByTestId("library-recipes-search-input"),
       "cake",
     );
     expect(screen.queryByTestId("recipe-card-soup")).toBeNull();
-    expect(screen.getByText("1 item")).toBeTruthy();
+    expect(screen.getByText("1 recipe")).toBeTruthy();
     await fireEvent.press(
       screen.getByRole("button", { name: /Chocolate cake/ }),
     );
@@ -456,13 +459,13 @@ describe("recipe and cookbook library workflow", () => {
       screen.getByTestId("library-recipes-search-input"),
       "bread",
     );
-    expect(screen.getByText("0 items")).toBeTruthy();
+    expect(screen.getByText("0 recipes")).toBeTruthy();
 
     await fireEvent.press(
       screen.getByRole("button", { name: "Clear recipes search" }),
     );
     expect(screen.getByTestId("recipe-card-soup")).toBeTruthy();
-    expect(screen.getByText("2 items")).toBeTruthy();
+    expect(screen.getByText("2 recipes")).toBeTruthy();
   });
 
   it("counts filtered cookbooks and household shared recipes", async () => {
@@ -480,12 +483,12 @@ describe("recipe and cookbook library workflow", () => {
       />,
     );
 
-    expect(screen.getByText("2 items")).toBeTruthy();
+    expect(screen.getByText("2 cookbooks")).toBeTruthy();
     await fireEvent.changeText(
       screen.getByTestId("library-cookbooks-search-input"),
       "favorites",
     );
-    expect(screen.getByText("1 item")).toBeTruthy();
+    expect(screen.getByText("1 cookbook")).toBeTruthy();
 
     await view.rerender(
       <RecipesLibraryView
@@ -494,13 +497,13 @@ describe("recipe and cookbook library workflow", () => {
         recipes={recipes}
       />,
     );
-    expect(screen.getByText("2 items")).toBeTruthy();
-    expect(screen.queryByText("Shared")).toBeNull();
+    expect(screen.getByText("2 recipes")).toBeTruthy();
+    expect(screen.queryByText("Shared with household")).toBeNull();
     await fireEvent.changeText(
       screen.getByTestId("library-recipes-search-input"),
       "tomato",
     );
-    expect(screen.getByText("1 item")).toBeTruthy();
+    expect(screen.getByText("1 recipe")).toBeTruthy();
   });
 
   it("switches to cookbooks without duplicating the create action", async () => {
@@ -575,7 +578,7 @@ describe("recipe and cookbook library workflow", () => {
     expect(screen.getByText("35 min")).toBeTruthy();
     expect(screen.getByText("4")).toBeTruthy();
     expect(screen.getByText("Weeknight favorites")).toBeTruthy();
-    expect(screen.getByText("Shared")).toBeTruthy();
+    expect(screen.getByText("Shared with household")).toBeTruthy();
     expect(
       screen.getByTestId("recipe-card-missing-image-shared-missing", {
         includeHiddenElements: true,

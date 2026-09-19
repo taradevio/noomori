@@ -107,7 +107,7 @@ describe("Household invite route target", () => {
   it("scrolls and focuses the owner invite section once", async () => {
     const view = await render(<HouseholdSettingsScreen />);
 
-    await fireEvent(screen.getByText("Invite member"), "layout", {
+    await fireEvent(screen.getByText("Invite someone"), "layout", {
       nativeEvent: { layout: { y: 360 } },
     });
 
@@ -126,7 +126,7 @@ describe("Household invite route target", () => {
     mockUseLocalSearchParams.mockReturnValue({});
     await render(<HouseholdSettingsScreen />);
 
-    await fireEvent(screen.getByText("Invite member"), "layout", {
+    await fireEvent(screen.getByText("Invite someone"), "layout", {
       nativeEvent: { layout: { y: 360 } },
     });
 
@@ -161,7 +161,7 @@ describe("Household invite route target", () => {
     await render(<HouseholdSettingsScreen />);
 
     expect(
-      screen.getByText(/invitations are managed by the Owner/),
+      screen.getByText("Only the household owner can invite people."),
     ).toBeTruthy();
     expect(mockScrollTo).not.toHaveBeenCalled();
   });

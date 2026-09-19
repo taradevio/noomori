@@ -529,7 +529,7 @@ class FunctionalHttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(409, created.status_code)
         self.assertEqual(409, updated.status_code)
         self.assertEqual(
-            "This recipe is already in your recipes.", created.json()["detail"]
+            "You already have this recipe.", created.json()["detail"]
         )
         self.assertEqual(created.json(), updated.json())
 
