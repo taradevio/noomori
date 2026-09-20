@@ -4,7 +4,7 @@
     "slug": "noomori",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/noomori-icon.webp",
     "scheme": "noomori",
     "userInterfaceStyle": "light",
     "ios": {
@@ -32,7 +32,7 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#FFFDF8",
-          "image": "./assets/images/noomori-splash.png",
+          "image": "./assets/images/noomori-icon.webp",
           "imageWidth": 144,
           "resizeMode": "contain"
         }
