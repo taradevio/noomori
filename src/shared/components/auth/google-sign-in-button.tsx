@@ -24,7 +24,7 @@ type AuthActionState =
   | { status: "error"; kind: AuthErrorKind; message: string };
 
 const OFFLINE_ERROR = "You’re offline. Connect to the internet and try again.";
-const GENERIC_ERROR = "We couldn’t sign you in. Try again.";
+const GENERIC_ERROR = "Couldn’t sign you in. Try again.";
 
 const googleButtonSource = Platform.select({
   ios: require("@/assets/images/auth/google-sign-in.ios.svg"),

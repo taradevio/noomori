@@ -70,9 +70,17 @@ jest.mock("@/shared/ui", () => ({
 jest.mock("@/shared/components/recipe/recipe-detail-view", () => {
   const { Pressable, Text, View } = jest.requireActual("react-native");
   return {
-    RecipeDetailView: ({ onBack, recipe }: { onBack: () => void; recipe: { title: string } }) => (
+    RecipeDetailView: ({
+      onBack,
+      recipe,
+    }: {
+      onBack: () => void;
+      recipe: { title: string };
+    }) => (
       <View>
-        <Pressable onPress={onBack}><Text>Back from snapshot</Text></Pressable>
+        <Pressable onPress={onBack}>
+          <Text>Back from snapshot</Text>
+        </Pressable>
         <Text>{recipe.title}</Text>
       </View>
     ),
@@ -85,8 +93,8 @@ describe("recipe handoff review", () => {
   it("opens an isolated snapshot and submits an individual decision", async () => {
     await render(<RecipeHandoffsScreen />);
 
-    expect(screen.getByText("From Tara")).toBeTruthy();
-    await fireEvent.press(screen.getByText("Review recipe"));
+    expect(screen.getByText("Recipes from Tara")).toBeTruthy();
+    await fireEvent.press(screen.getByText("View recipe"));
     expect(screen.getByText("Tomato soup")).toBeTruthy();
 
     await fireEvent.press(screen.getByText("Keep"));

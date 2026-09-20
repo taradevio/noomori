@@ -1,5 +1,6 @@
 // NOTE: Retrospective regression coverage for behavior implemented before TDD adoption.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import AuthScreen from "@/shared/components/auth/auth-screen";
 import { GoogleSignInButton } from "@/shared/components/auth/google-sign-in-button";
 
 jest.mock("@/lib/supabase", () => ({
@@ -32,6 +33,17 @@ beforeEach(() => {
 });
 
 describe("authentication workflow", () => {
+  it("leads with household value and preserves personal ownership", async () => {
+    await render(<AuthScreen />);
+
+    expect(screen.getByText("Recipes for your household—and you.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Keep your own recipes organized, then share the ones everyone should have.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("opens Google and establishes the returned session", async () => {
     mockOpenAuthSessionAsync.mockResolvedValue({
       type: "success",

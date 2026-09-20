@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo } from "react-native";
 
 import {
-  CookbookApiError,
   getCookbook,
   replaceCookbookRecipes,
   type ApiCookbookDetail,
@@ -63,9 +62,7 @@ export default function EditCookbookRecipesRoute() {
   }, [cookbookQuery.data]);
 
   const error = saveMutation.isError
-    ? saveMutation.error instanceof CookbookApiError
-      ? saveMutation.error.message
-      : "Couldn’t update the cookbook. Try again."
+    ? "Couldn’t update the cookbook. Try again."
     : cookbookQuery.isError
       ? "Couldn’t load the cookbook."
       : recipesQuery.isError

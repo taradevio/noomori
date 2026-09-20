@@ -35,8 +35,7 @@ type EditSubmission = {
   photo: PreparedRecipePhoto | null;
 };
 
-const DUPLICATE_PERSONAL_RECIPE_MESSAGE =
-  "This recipe is already in your recipes.";
+const DUPLICATE_PERSONAL_RECIPE_MESSAGE = "You already have this recipe.";
 
 export default function EditRecipeRoute() {
   const navigation = useNavigation();
@@ -83,7 +82,7 @@ export default function EditRecipeRoute() {
           [
             { text: "Keep editing", style: "cancel" },
             {
-              text: "Discard",
+              text: "Discard changes",
               style: "destructive",
               onPress: () => {
                 allowNavigation.current = true;
@@ -101,7 +100,7 @@ export default function EditRecipeRoute() {
     else router.replace("/");
   };
 
-  const finish = async (recipe: ApiRecipe, message = "Recipe updated") => {
+  const finish = async (recipe: ApiRecipe, message = "Changes saved") => {
     // PERFORMANCE: Stop both list requests before applying the authoritative
     // response so a stale household request cannot overwrite an edited recipe.
     await Promise.all([
@@ -162,11 +161,7 @@ export default function EditRecipeRoute() {
         },
       );
       if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        if (
-          response.status === 409 &&
-          body?.detail === DUPLICATE_PERSONAL_RECIPE_MESSAGE
-        ) {
+        if (response.status === 409) {
           throw new Error(DUPLICATE_PERSONAL_RECIPE_MESSAGE);
         }
         throw new Error(`Could not update recipe (${response.status}).`);
@@ -204,10 +199,16 @@ export default function EditRecipeRoute() {
   const { mutateAsync, isPending, isError, reset } = useMutation({
     mutationFn: updateRecipe,
     onError: (error) => {
+      const connectionFailed =
+        error instanceof TypeError ||
+        error.name === "AbortError" ||
+        error.name === "TimeoutError";
       toast.error(
         error.message === DUPLICATE_PERSONAL_RECIPE_MESSAGE
           ? DUPLICATE_PERSONAL_RECIPE_MESSAGE
-          : "Recipe not saved. Check your connection and try again.",
+          : connectionFailed
+            ? "Recipe not saved. Your changes are still here. Reconnect and try again."
+            : "Recipe not saved. Your changes are still here. Try again.",
       );
     },
     onSuccess: ({ recipe, submission, photoFailed }) => {
@@ -230,7 +231,7 @@ export default function EditRecipeRoute() {
             "Your recipe edits are safe. You can try once more or continue with the previous photo.",
             [
               {
-                text: "Continue",
+                text: "Continue without photo",
                 onPress: () =>
                   void finish(recipe, "Recipe updated without changing photo"),
               },
@@ -241,11 +242,11 @@ export default function EditRecipeRoute() {
       };
 
       Alert.alert(
-        "Recipe saved, but the photo wasn’t changed",
-        "Your recipe edits are safe. Try the photo again?",
+        "Changes saved — the photo stayed the same",
+        "Your recipe edits are safe. Want to try the photo again?",
         [
           {
-            text: "Continue",
+            text: "Continue without photo",
             onPress: () =>
               void finish(recipe, "Recipe updated without changing photo"),
           },

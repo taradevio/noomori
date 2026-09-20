@@ -7,12 +7,7 @@ import {
 } from "react-native-gesture-handler/jest-utils";
 import * as Reanimated from "react-native-reanimated";
 
-import {
-  getToastDragOffset,
-  shouldDismissToast,
-  ToastHost,
-  toast,
-} from "@/shared/ui/toast";
+import { shouldDismissToast, ToastHost, toast } from "@/shared/ui/toast";
 
 function renderHost() {
   return render(
@@ -47,6 +42,15 @@ describe("global toast feedback", () => {
     expect(successId).toBeGreaterThan(0);
     expect(screen.getByText("Recipe saved")).toBeTruthy();
     expect(screen.getByTestId("toast-icon-success")).toBeTruthy();
+    expect(screen.getByTestId("toast-status").props.className).toContain(
+      "bg-success",
+    );
+    expect(screen.getByText("Recipe saved").props.className).toContain(
+      "text-text-primary",
+    );
+    expect(screen.getByTestId("toast-surface").props.className).toContain(
+      "rounded-[18px]",
+    );
     expect(screen.getByTestId("toast-card").props.accessibilityLabel).toBe(
       "Success: Recipe saved",
     );
@@ -67,6 +71,12 @@ describe("global toast feedback", () => {
     expect(screen.queryByText("Recipe saved")).toBeNull();
     expect(screen.getByText("Recipe not saved")).toBeTruthy();
     expect(screen.getByTestId("toast-icon-error")).toBeTruthy();
+    expect(screen.getByTestId("toast-status").props.className).toContain(
+      "bg-error",
+    );
+    expect(screen.getByText("Recipe not saved").props.className).toContain(
+      "text-on-primary",
+    );
     expect(
       AccessibilityInfo.announceForAccessibilityWithOptions,
     ).toHaveBeenLastCalledWith("Error: Recipe not saved", {
@@ -97,15 +107,19 @@ describe("global toast feedback", () => {
     expect(screen.queryByText("Latest result")).toBeNull();
   });
 
-  it("dismisses with the close button", async () => {
+  it("exposes an accessible dismiss action without a visible close button", async () => {
     await renderHost();
     await act(() => {
       toast.success("Cookbook created");
     });
 
-    await fireEvent.press(
-      screen.getByRole("button", { name: "Dismiss notification" }),
-    );
+    expect(
+      screen.queryByRole("button", { name: "Dismiss notification" }),
+    ).toBeNull();
+
+    await fireEvent(screen.getByTestId("toast-card"), "accessibilityAction", {
+      nativeEvent: { actionName: "dismiss" },
+    });
 
     expect(screen.queryByText("Cookbook created")).toBeNull();
   });
@@ -144,34 +158,47 @@ describe("global toast feedback", () => {
     const gesture = getByGestureTestId("toast-pan");
     await act(() => {
       fireGestureHandler(gesture, [
-        { state: State.BEGAN, translationY: 0, velocityY: 0 },
-        { state: State.ACTIVE, translationY: -10, velocityY: -120 },
-        { state: State.END, translationY: -10, velocityY: -120 },
+        { state: State.BEGAN, translationX: 0, velocityX: 0 },
+        { state: State.ACTIVE, translationX: -0.2, velocityX: -120 },
+        { state: State.END, translationX: -0.2, velocityX: -120 },
       ]);
     });
     expect(screen.getByText("Couldn’t save")).toBeTruthy();
 
     await act(() => {
       fireGestureHandler(gesture, [
-        { state: State.BEGAN, translationY: 0, velocityY: 0 },
-        { state: State.ACTIVE, translationY: -10, velocityY: -900 },
-        { state: State.END, translationY: -10, velocityY: -900 },
+        { state: State.BEGAN, translationX: 0, velocityX: 0 },
+        { state: State.ACTIVE, translationX: -0.2, velocityX: -900 },
+        { state: State.END, translationX: -0.2, velocityX: -900 },
       ]);
     });
 
     expect(screen.queryByText("Couldn’t save")).toBeNull();
+
+    await act(() => {
+      toast.success("Saved on the right");
+    });
+    await act(() => {
+      fireGestureHandler(getByGestureTestId("toast-pan"), [
+        { state: State.BEGAN, translationX: 0, velocityX: 0 },
+        { state: State.ACTIVE, translationX: 0.2, velocityX: 900 },
+        { state: State.END, translationX: 0.2, velocityX: 900 },
+      ]);
+    });
+
+    expect(screen.queryByText("Saved on the right")).toBeNull();
   });
 
-  it("uses measured distance, velocity, and downward resistance", () => {
+  it("dismisses left or right by measured distance or velocity", () => {
     expect(shouldDismissToast(-35, 100, -699)).toBe(true);
+    expect(shouldDismissToast(35, 100, 699)).toBe(true);
     expect(shouldDismissToast(-34, 100, -700)).toBe(true);
+    expect(shouldDismissToast(34, 100, 700)).toBe(true);
     expect(shouldDismissToast(-34, 100, -699)).toBe(false);
-    expect(getToastDragOffset(-20, 100)).toBe(-20);
-    expect(getToastDragOffset(50, 100)).toBeGreaterThan(0);
-    expect(getToastDragOffset(50, 100)).toBeLessThan(50);
+    expect(shouldDismissToast(34, 100, 699)).toBe(false);
   });
 
-  it("keeps close dismissal but disables swipe under reduced motion", async () => {
+  it("keeps swipe dismissal under reduced motion", async () => {
     jest.spyOn(Reanimated, "useReducedMotion").mockReturnValue(true);
     await renderHost();
     await act(() => {
@@ -180,15 +207,10 @@ describe("global toast feedback", () => {
 
     await act(() => {
       fireGestureHandler(getByGestureTestId("toast-pan"), [
-        { state: State.BEGAN, translationY: 0, velocityY: 0 },
-        { state: State.END, translationY: -80, velocityY: -1_000 },
+        { state: State.BEGAN, translationX: 0, velocityX: 0 },
+        { state: State.END, translationX: 1, velocityX: 1_000 },
       ]);
     });
-    expect(screen.getByText("Recipe updated")).toBeTruthy();
-
-    await fireEvent.press(
-      screen.getByRole("button", { name: "Dismiss notification" }),
-    );
     expect(screen.queryByText("Recipe updated")).toBeNull();
   });
 });

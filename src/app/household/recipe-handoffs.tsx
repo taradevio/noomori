@@ -51,6 +51,21 @@ type DecisionInput = {
   itemIds: string[] | null;
 };
 
+function decisionFailureMessage(error: unknown, input?: DecisionInput) {
+  if (error instanceof HouseholdApiError && error.status === 409) {
+    return "Things changed while you were here. Refresh the recipes and try again.";
+  }
+  const oneRecipe = input?.itemIds?.length === 1;
+  if (input?.decision === "remove") {
+    return oneRecipe
+      ? "Couldn’t remove this recipe. Try again."
+      : "Couldn’t remove these recipes. Try again.";
+  }
+  return oneRecipe
+    ? "Couldn’t keep this recipe. Try again."
+    : "Couldn’t keep these recipes. Try again.";
+}
+
 export default function RecipeHandoffsScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -68,12 +83,7 @@ export default function RecipeHandoffsScreen() {
   });
   const decisionMutation = useMutation({
     mutationFn: ({ handoffId, decision, itemIds }: DecisionInput) =>
-      resolveRecipeHandoff(
-        accessToken,
-        handoffId,
-        decision,
-        itemIds,
-      ),
+      resolveRecipeHandoff(accessToken, handoffId, decision, itemIds),
     onSuccess: async (_result, input) => {
       setSelected(null);
       await Promise.all([
@@ -116,7 +126,7 @@ export default function RecipeHandoffsScreen() {
   const confirmRemoveAll = (handoffId: string, count: number) => {
     Alert.alert(
       `Remove all ${count} ${count === 1 ? "recipe" : "recipes"}?`,
-      "These handoff copies will be permanently discarded. The former member’s original recipes will not be affected.",
+      "They’ll be removed from this household. The original recipes won’t be affected.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -132,19 +142,17 @@ export default function RecipeHandoffsScreen() {
     const recipe = handoffRecipe(selected.item);
     return (
       <View className="flex-1 bg-background">
-        <RecipeDetailView
-          onBack={() => setSelected(null)}
-          recipe={recipe}
-        />
+        <RecipeDetailView onBack={() => setSelected(null)} recipe={recipe} />
         <View className="gap-2 border-t border-border bg-surface px-5 py-3">
           {decisionMutation.isError ? (
             <Text
               accessibilityRole="alert"
               className="text-sm font-medium leading-5 text-error"
             >
-              {decisionMutation.error instanceof HouseholdApiError
-                ? decisionMutation.error.message
-                : "Couldn’t save that decision. Try again."}
+              {decisionFailureMessage(
+                decisionMutation.error,
+                decisionMutation.variables,
+              )}
             </Text>
           ) : null}
           <View className="flex-row gap-3">
@@ -153,7 +161,9 @@ export default function RecipeHandoffsScreen() {
               accessibilityState={{ disabled: decisionMutation.isPending }}
               className="min-h-[52px] flex-1 items-center justify-center rounded-lg border-2 border-error px-3 focus:border-text-primary disabled:opacity-50"
               disabled={decisionMutation.isPending}
-              onPress={() => decide(selected.handoffId, "remove", [selected.item.id])}
+              onPress={() =>
+                decide(selected.handoffId, "remove", [selected.item.id])
+              }
             >
               <Text className="text-base font-bold leading-6 text-error">
                 Remove
@@ -164,7 +174,9 @@ export default function RecipeHandoffsScreen() {
               accessibilityState={{ disabled: decisionMutation.isPending }}
               className="min-h-[52px] flex-1 items-center justify-center rounded-lg bg-primary px-3 focus:border-2 focus:border-text-primary disabled:opacity-50"
               disabled={decisionMutation.isPending}
-              onPress={() => decide(selected.handoffId, "keep", [selected.item.id])}
+              onPress={() =>
+                decide(selected.handoffId, "keep", [selected.item.id])
+              }
             >
               {decisionMutation.isPending ? (
                 <ActivityIndicator color={colorTokens.onPrimary} />
@@ -205,39 +217,49 @@ export default function RecipeHandoffsScreen() {
           accessibilityRole="header"
           className="min-w-0 flex-1 text-xl font-bold leading-7 text-text-primary"
         >
-          Recipe review
+          Recipes from someone who left
         </Text>
       </View>
 
       {handoffsQuery.isPending ? (
         <View className="flex-1 items-center justify-center gap-3">
           <ActivityIndicator color={colorTokens.primaryStrong} size="large" />
-          <Text className="text-base text-text-secondary">Loading recipes…</Text>
+          <Text className="text-base text-text-secondary">
+            Loading recipes…
+          </Text>
         </View>
       ) : handoffsQuery.isError ? (
         <View className="flex-1 items-center justify-center gap-4 px-5">
           <Text className="text-center text-xl font-bold text-text-primary">
-            Couldn’t load recipe review
+            Couldn’t load these recipes
           </Text>
           <Pressable
             accessibilityRole="button"
             className="min-h-[52px] rounded-lg bg-primary px-5 py-3"
             onPress={() => void handoffsQuery.refetch()}
           >
-            <Text className="text-base font-bold text-on-primary">Try again</Text>
+            <Text className="text-base font-bold text-on-primary">
+              Try again
+            </Text>
           </Pressable>
         </View>
       ) : handoffsQuery.data.length === 0 ? (
         <View className="flex-1 items-center justify-center gap-3 px-5">
           <SymbolView
             accessible={false}
-            name={{ ios: "checkmark.circle", android: "check_circle", web: "check_circle" }}
+            name={{
+              ios: "checkmark.circle",
+              android: "check_circle",
+              web: "check_circle",
+            }}
             size={42}
             tintColor={colorTokens.success}
           />
-          <Text className="text-xl font-bold text-text-primary">All reviewed</Text>
+          <Text className="text-xl font-bold text-text-primary">
+            All done
+          </Text>
           <Text className="text-center text-base leading-6 text-text-secondary">
-            There are no recipes waiting for a decision.
+            You’ve taken care of all the recipes.
           </Text>
         </View>
       ) : (
@@ -246,28 +268,37 @@ export default function RecipeHandoffsScreen() {
             {handoffsQuery.data.map((handoff) => (
               <View key={handoff.id} className="gap-4">
                 <View className="gap-1">
-                  <Text accessibilityRole="header" className="text-xl font-bold leading-7 text-text-primary">
-                    From {handoff.departed_user_display_name}
+                  <Text
+                    accessibilityRole="header"
+                    className="text-xl font-bold leading-7 text-text-primary"
+                  >
+                    Recipes from {handoff.departed_user_display_name}
                   </Text>
                   <Text className="text-sm leading-5 text-text-secondary">
-                    {handoff.items.length} {handoff.items.length === 1 ? "recipe" : "recipes"} awaiting review
+                    {handoff.departed_user_display_name} left the household.
+                    Choose which of their shared recipes you’d like to keep here.
                   </Text>
                 </View>
 
                 <View className="border-t border-border">
                   {handoff.items.map((item) => (
-                    <View key={item.id} className="min-h-[72px] flex-row items-center gap-3 border-b border-border py-3">
+                    <View
+                      key={item.id}
+                      className="min-h-[72px] flex-row items-center gap-3 border-b border-border py-3"
+                    >
                       <Pressable
-                        accessibilityHint="Opens the saved recipe snapshot."
+                        accessibilityHint="Opens the recipe."
                         accessibilityRole="button"
                         className="min-w-0 flex-1 rounded-lg border-2 border-transparent py-2 focus:border-primary active:opacity-60"
-                        onPress={() => setSelected({ handoffId: handoff.id, item })}
+                        onPress={() =>
+                          setSelected({ handoffId: handoff.id, item })
+                        }
                       >
                         <Text className="text-base font-bold leading-6 text-text-primary">
                           {item.snapshot.title}
                         </Text>
                         <Text className="text-sm leading-5 text-text-secondary">
-                          Review recipe
+                          View recipe
                         </Text>
                       </Pressable>
                       <Pressable
@@ -279,7 +310,11 @@ export default function RecipeHandoffsScreen() {
                       >
                         <SymbolView
                           accessible={false}
-                          name={{ ios: "trash", android: "delete", web: "delete" }}
+                          name={{
+                            ios: "trash",
+                            android: "delete",
+                            web: "delete",
+                          }}
                           size={21}
                           tintColor={colorTokens.error}
                         />
@@ -293,7 +328,11 @@ export default function RecipeHandoffsScreen() {
                       >
                         <SymbolView
                           accessible={false}
-                          name={{ ios: "checkmark", android: "check", web: "check" }}
+                          name={{
+                            ios: "checkmark",
+                            android: "check",
+                            web: "check",
+                          }}
                           size={22}
                           tintColor={colorTokens.success}
                         />
@@ -307,9 +346,13 @@ export default function RecipeHandoffsScreen() {
                     accessibilityRole="button"
                     className="min-h-[52px] flex-1 items-center justify-center rounded-lg border-2 border-error px-3 focus:border-text-primary active:bg-surface-subtle disabled:opacity-50"
                     disabled={decisionMutation.isPending}
-                    onPress={() => confirmRemoveAll(handoff.id, handoff.items.length)}
+                    onPress={() =>
+                      confirmRemoveAll(handoff.id, handoff.items.length)
+                    }
                   >
-                    <Text className="text-center text-base font-bold leading-6 text-error">Remove all</Text>
+                    <Text className="text-center text-base font-bold leading-6 text-error">
+                      Remove all
+                    </Text>
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
@@ -317,7 +360,9 @@ export default function RecipeHandoffsScreen() {
                     disabled={decisionMutation.isPending}
                     onPress={() => decide(handoff.id, "keep", null)}
                   >
-                    <Text className="text-center text-base font-bold leading-6 text-on-primary">Keep all</Text>
+                    <Text className="text-center text-base font-bold leading-6 text-on-primary">
+                      Keep all
+                    </Text>
                   </Pressable>
                 </View>
               </View>
@@ -327,9 +372,10 @@ export default function RecipeHandoffsScreen() {
                 accessibilityRole="alert"
                 className="text-sm font-medium leading-5 text-error"
               >
-                {decisionMutation.error instanceof HouseholdApiError
-                  ? decisionMutation.error.message
-                  : "Couldn’t save that decision. Try again."}
+                {decisionFailureMessage(
+                  decisionMutation.error,
+                  decisionMutation.variables,
+                )}
               </Text>
             ) : null}
           </View>

@@ -178,7 +178,7 @@ function PersonalHeader({
               numberOfLines={1}
               className="text-sm font-medium leading-5 text-text-secondary"
             >
-              Your recipes, ready when you are
+              Recipes for you and your household
             </Text>
           </View>
           {showActivity ? (
@@ -400,7 +400,7 @@ function LibraryPage({
               ? onRetryRecipes && "Try again"
               : onRetryCookbooks && "Try again"
           }
-          body="Check your connection and try again."
+          body="Try again in a moment."
           icon={{
             ios: "exclamationmark.arrow.circlepath",
             android: "sync_problem",
@@ -420,7 +420,7 @@ function LibraryPage({
           icon={{ ios: "magnifyingglass", android: "search", web: "search" }}
           onAction={() => onQueryChange("")}
           testID={`library-${stateKey}-no-results`}
-          title={`No ${noun} found`}
+          title={`No ${noun} found for “${query.trim()}”`}
         />
       );
     }
@@ -429,11 +429,11 @@ function LibraryPage({
       return (
         <LibraryFeedback
           actionLabel="Share a recipe"
-          body="Choose a recipe from your personal library to share with your household."
+          body="Pick one of your recipes to share with the household."
           icon={{ ios: "person.2", android: "group", web: "group" }}
           onAction={onShareRecipe}
           testID="library-shared-recipes-empty"
-          title="No shared recipes yet"
+          title="Nothing shared yet"
         />
       );
     }
@@ -442,8 +442,8 @@ function LibraryPage({
         actionLabel={isRecipes ? "Add your first recipe" : "Create a cookbook"}
         body={
           isRecipes
-            ? "Start by adding one you already love. Your library stays private until you choose to share."
-            : "Group the recipes you return to into simple collections."
+            ? "Add one you already love. It’s yours until you choose to share it."
+            : "Keep the recipes you come back to together."
         }
         icon={
           isRecipes
@@ -526,7 +526,7 @@ function LibraryPage({
               </View>
               {handoffCount > 0 ? (
                 <Pressable
-                  accessibilityHint="Opens recipes awaiting your decision."
+                  accessibilityHint="Opens recipes from someone who left."
                   accessibilityRole="button"
                   className="mt-5 min-h-[64px] flex-row items-center gap-3 border-y border-accent py-3 focus:border-2 focus:border-primary active:opacity-70"
                   onPress={onReviewHandoffs}
@@ -544,11 +544,11 @@ function LibraryPage({
                   />
                   <View className="min-w-0 flex-1">
                     <Text className="text-base font-bold leading-6 text-text-primary">
-                      Recipes need review
+                      Recipes from someone who left
                     </Text>
                     <Text className="text-sm leading-5 text-text-secondary">
-                      {handoffCount} {handoffCount === 1 ? "recipe" : "recipes"}{" "}
-                      from former household members
+                      Choose which {handoffCount === 1 ? "one" : "ones"} you’d
+                      like to keep.
                     </Text>
                   </View>
                   <SymbolView
@@ -579,7 +579,13 @@ function LibraryPage({
               </Text>
               {count != null ? (
                 <Text className="text-sm font-medium leading-5 text-text-secondary">
-                  {count} {count === 1 ? "item" : "items"}
+                  {pageSection === "recipes"
+                    ? count === 1
+                      ? "1 recipe"
+                      : `${count} recipes`
+                    : count === 1
+                      ? "1 cookbook"
+                      : `${count} cookbooks`}
                 </Text>
               ) : status === "loading" ? (
                 <Text

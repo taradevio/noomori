@@ -73,10 +73,10 @@ export default function HouseholdSettingsScreen() {
       setCopied(false);
       setActionError(null);
       await queryClient.invalidateQueries({ queryKey: ["household"] });
-      toast.success("Join code revoked");
+      toast.success("Join code deactivated");
     },
     onError: () => {
-      setActionError("Couldn’t revoke the join code. Try again.");
+      setActionError("Couldn’t deactivate the join code. Try again.");
     },
   });
 
@@ -98,7 +98,7 @@ export default function HouseholdSettingsScreen() {
     },
     onError: () => {
       setActionError(
-        "Couldn’t leave the household. Check your connection and try again.",
+        "Couldn’t leave the household. Try again.",
       );
     },
   });
@@ -146,9 +146,9 @@ export default function HouseholdSettingsScreen() {
       const result = await generateHouseholdCode(accessToken);
       setGeneratedCode(result);
       await queryClient.invalidateQueries({ queryKey: ["household"] });
-      toast.success("Join code generated");
+      toast.success("Join code ready");
     } catch {
-      setActionError("Couldn’t generate a join code. Try again.");
+      setActionError("Couldn’t create a join code. Try again.");
     } finally {
       setIsGenerating(false);
     }
@@ -161,23 +161,23 @@ export default function HouseholdSettingsScreen() {
     }
 
     Alert.alert(
-      "Generate a new join code?",
+      "Create a new join code?",
       "The current code will stop working.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Generate", onPress: () => void generateCode() },
+        { text: "Create new code", onPress: () => void generateCode() },
       ],
     );
   }
 
   function confirmRevoke() {
     Alert.alert(
-      "Revoke join code?",
-      "New members won’t be able to use this code.",
+      "Deactivate this join code?",
+      "It won’t work anymore.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Revoke",
+          text: "Deactivate code",
           style: "destructive",
           onPress: () => revokeMutation.mutate(),
         },
@@ -190,8 +190,8 @@ export default function HouseholdSettingsScreen() {
 
     const sharedRecipeCount = settingsQuery.data.shared_recipe_count;
     const sharedRecipeMessage = sharedRecipeCount
-      ? `${sharedRecipeCount} ${sharedRecipeCount === 1 ? "recipe" : "recipes"} you shared will be copied for the household owner to review. Your original ${sharedRecipeCount === 1 ? "recipe remains" : "recipes remain"} yours.`
-      : "You have no shared recipes awaiting handoff.";
+      ? `${sharedRecipeCount} ${sharedRecipeCount === 1 ? "recipe" : "recipes"} you shared will stay behind for the household owner to keep or remove. Your own ${sharedRecipeCount === 1 ? "recipe stays" : "recipes stay"} with you.`
+      : "Your own recipes will stay with you.";
 
     Alert.alert(
       `Leave “${settingsQuery.data.household_name}”?`,
@@ -223,7 +223,7 @@ export default function HouseholdSettingsScreen() {
     if (!generatedCode || !settingsQuery.data) return;
     try {
       await Share.share({
-        message: `Join my household “${settingsQuery.data.household_name}” on Noomori.\n\nInvite code: ${formatCode(generatedCode.code)}\n\nThis code can be used once and expires in 10 minutes.`,
+        message: `Join my household “${settingsQuery.data.household_name}” on Noomori.\n\nJoin code: ${formatCode(generatedCode.code)}\n\nThis code can be used once and expires in 10 minutes.`,
       });
       setActionError(null);
     } catch {
@@ -261,7 +261,7 @@ export default function HouseholdSettingsScreen() {
             Couldn’t load your household
           </Text>
           <Text className="text-base leading-6 text-text-secondary">
-            Check your connection and try again.
+            Try again in a moment.
           </Text>
           <OnboardingButton
             label="Try again"
@@ -311,34 +311,10 @@ export default function HouseholdSettingsScreen() {
               {settings.household_name}
             </Text>
             <Text className="text-base leading-6 text-text-secondary">
-              {settings.member_count}{" "}
-              {settings.member_count === 1 ? "member" : "members"}
-              {" · "}
-              {settings.role === "owner" ? "Owner" : "Member"}
+              {settings.member_count === 1
+                ? "1 person"
+                : `${settings.member_count} people`}
             </Text>
-          </View>
-
-          <View className="mt-8 gap-3 rounded-xl border border-border bg-surface p-5">
-            <Text className="text-sm font-bold uppercase leading-5 text-text-secondary">
-              Household
-            </Text>
-            <View className="gap-1">
-              <Text className="text-sm font-medium leading-5 text-text-secondary">
-                Name
-              </Text>
-              <Text className="text-lg font-bold leading-6 text-text-primary">
-                {settings.household_name}
-              </Text>
-            </View>
-            <View className="h-px bg-border" />
-            <View className="gap-1">
-              <Text className="text-sm font-medium leading-5 text-text-secondary">
-                Your role
-              </Text>
-              <Text className="text-lg font-bold leading-6 text-text-primary">
-                {settings.role === "owner" ? "Owner" : "Member"}
-              </Text>
-            </View>
           </View>
 
           <View className="mt-8 rounded-xl border border-border bg-surface p-5">
@@ -347,7 +323,7 @@ export default function HouseholdSettingsScreen() {
                 accessibilityRole="header"
                 className="text-xl font-bold leading-7 text-text-primary"
               >
-                Members
+                People
               </Text>
               <Text className="text-sm leading-5 text-text-secondary">
                 {settings.member_count}{" "}
@@ -401,11 +377,11 @@ export default function HouseholdSettingsScreen() {
                     accessibilityRole="header"
                     className="text-xl font-bold leading-7 text-text-primary"
                   >
-                    Invite member
+                    Invite someone
                   </Text>
                   <Text className="text-base leading-6 text-text-secondary">
-                    Share one short-lived code with the person you want to
-                    invite.
+                    Create a join code and send it to the person you want to
+                    bring in.
                   </Text>
                 </View>
 
@@ -422,14 +398,14 @@ export default function HouseholdSettingsScreen() {
                       {formatCode(generatedCode.code)}
                     </Text>
                     <Text className="text-center text-sm leading-5 text-text-secondary">
-                      Valid until {formatExpiry(generatedCode.expires_at)}. One
-                      use only.
+                      Works once and expires at{" "}
+                      {formatExpiry(generatedCode.expires_at)}.
                     </Text>
                     <View className="flex-row gap-3">
                       <View className="flex-1">
                         <OnboardingButton
                           disabled={revokeMutation.isPending}
-                          label="Copy"
+                          label="Copy code"
                           onPress={() => void copyCode()}
                           variant="secondary"
                         />
@@ -437,7 +413,7 @@ export default function HouseholdSettingsScreen() {
                       <View className="flex-1">
                         <OnboardingButton
                           disabled={revokeMutation.isPending}
-                          label="Share"
+                          label="Share code"
                           onPress={() => void shareCode()}
                           variant="secondary"
                         />
@@ -460,7 +436,7 @@ export default function HouseholdSettingsScreen() {
                       A join code is active
                     </Text>
                     <Text className="text-sm leading-5 text-text-secondary">
-                      It expires at {formatExpiry(activeExpiry)}. Generate a new
+                      It expires at {formatExpiry(activeExpiry)}. Create a new
                       code if you need to see or share it again.
                     </Text>
                   </View>
@@ -476,16 +452,16 @@ export default function HouseholdSettingsScreen() {
                 <OnboardingButton
                   disabled={revokeMutation.isPending}
                   label={
-                    hasActiveCode ? "Generate new code" : "Generate join code"
+                    hasActiveCode ? "Create new code" : "Create join code"
                   }
                   loading={isGenerating}
-                  loadingLabel="Generating…"
+                  loadingLabel="Creating code…"
                   onPress={confirmGenerate}
                 />
 
                 {hasActiveCode ? (
                   <Pressable
-                    accessibilityHint="Immediately invalidates the active join code."
+                    accessibilityHint="Makes this join code stop working."
                     accessibilityRole="button"
                     accessibilityState={{
                       busy: revokeMutation.isPending,
@@ -496,7 +472,9 @@ export default function HouseholdSettingsScreen() {
                     onPress={confirmRevoke}
                   >
                     <Text className="text-[17px] font-bold leading-6 text-error">
-                      {revokeMutation.isPending ? "Revoking…" : "Revoke code"}
+                      {revokeMutation.isPending
+                        ? "Deactivating…"
+                        : "Deactivate code"}
                     </Text>
                   </Pressable>
                 ) : null}
@@ -539,7 +517,7 @@ export default function HouseholdSettingsScreen() {
             <>
               <View className="mt-8 rounded-xl border border-border bg-surface p-5">
                 <Text className="text-base leading-6 text-text-secondary">
-                  Household invitations are managed by the Owner.
+                  Only the household owner can invite people.
                 </Text>
               </View>
 
@@ -552,9 +530,8 @@ export default function HouseholdSettingsScreen() {
                     Leave household
                   </Text>
                   <Text className="text-base leading-6 text-text-secondary">
-                    You’ll lose access to shared household recipes. Recipes you
-                    shared will be copied for the Owner to review, while your
-                    originals remain yours.
+                    You’ll lose access to this household’s shared recipes. Your
+                    own recipes will stay with you.
                   </Text>
                 </View>
 

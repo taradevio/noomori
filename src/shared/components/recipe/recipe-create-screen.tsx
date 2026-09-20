@@ -26,8 +26,7 @@ type RecipeSubmission = {
   photo: PreparedRecipePhoto | null;
 };
 
-const DUPLICATE_PERSONAL_RECIPE_MESSAGE =
-  "This recipe is already in your recipes.";
+const DUPLICATE_PERSONAL_RECIPE_MESSAGE = "You already have this recipe.";
 
 type RecipeCreateScreenProps = {
   initialDraft: RecipeDraft;
@@ -119,11 +118,7 @@ export function RecipeCreateScreen({
       );
 
       if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        if (
-          res.status === 409 &&
-          body?.detail === DUPLICATE_PERSONAL_RECIPE_MESSAGE
-        ) {
+        if (res.status === 409) {
           throw new Error(DUPLICATE_PERSONAL_RECIPE_MESSAGE);
         }
         throw new Error(`Server returned status code: ${res.status}`);
@@ -183,10 +178,16 @@ export function RecipeCreateScreen({
   const { mutateAsync, isPending, isError, reset } = useMutation({
     mutationFn: saveNewRecipe,
     onError: (error) => {
+      const connectionFailed =
+        error instanceof TypeError ||
+        error.name === "AbortError" ||
+        error.name === "TimeoutError";
       toast.error(
         error.message === DUPLICATE_PERSONAL_RECIPE_MESSAGE
           ? DUPLICATE_PERSONAL_RECIPE_MESSAGE
-          : "Recipe not saved. Your changes are still here—check your connection and try again.",
+          : connectionFailed
+            ? "Recipe not saved. Your changes are still here. Reconnect and try again."
+            : "Recipe not saved. Your changes are still here. Try again.",
       );
     },
     onSuccess: async ({ recipe, photo, photoFailed }) => {
@@ -212,8 +213,9 @@ export function RecipeCreateScreen({
             "The recipe is safe. You can try once more or continue without a photo.",
             [
               {
-                text: "Continue",
-                onPress: () => void finish(recipe, "Recipe saved without photo"),
+                text: "Continue without photo",
+                onPress: () =>
+                  void finish(recipe, "Recipe saved without photo"),
               },
               { text: "Try again", onPress: retryPhoto },
             ],
@@ -224,11 +226,11 @@ export function RecipeCreateScreen({
       if (!photoFailed) return finish(recipe);
       setIsHandlingPhotoFailure(true);
       Alert.alert(
-        "Recipe saved without its photo",
-        "The recipe is safe. Try adding the photo again?",
+        "Recipe saved — just without the photo",
+        "Your recipe is safe. Want to try the photo again?",
         [
           {
-            text: "Continue",
+            text: "Continue without photo",
             onPress: () => void finish(recipe, "Recipe saved without photo"),
           },
           { text: "Try again", onPress: retryPhoto },
@@ -308,7 +310,7 @@ export function RecipeCreateScreen({
                 onPress={discard}
               >
                 <Text className="text-center text-base font-bold text-on-primary">
-                  Discard
+                  Discard changes
                 </Text>
               </Pressable>
             </View>

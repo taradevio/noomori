@@ -21,7 +21,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
-  CookbookApiError,
   deleteCookbook,
   getCookbook,
   renameCookbook,
@@ -84,11 +83,8 @@ export default function CookbookDetailRoute() {
       setRenameError(null);
       toast.success("Cookbook renamed");
     },
-    onError: (error) => {
-      const message =
-        error instanceof CookbookApiError
-          ? error.message
-          : "Couldn’t rename the cookbook. Try again.";
+    onError: () => {
+      const message = "Couldn’t rename the cookbook. Try again.";
       setRenameError(message);
       AccessibilityInfo.announceForAccessibility(message);
     },
@@ -161,7 +157,7 @@ export default function CookbookDetailRoute() {
                 Couldn’t load cookbook
               </Text>
               <Text className="text-center text-base leading-6 text-text-secondary">
-                Check your connection and try again.
+                Try again in a moment.
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -241,7 +237,7 @@ export default function CookbookDetailRoute() {
       {deleteMutation.isError ? (
         <View accessibilityRole="alert" className="border-b border-error bg-surface px-5 py-3">
           <Text className="text-base font-bold text-error">Cookbook not deleted</Text>
-          <Text className="mt-1 text-sm text-text-secondary">Check your connection and try again.</Text>
+          <Text className="mt-1 text-sm text-text-secondary">It’s still here. Try again.</Text>
         </View>
       ) : null}
 
@@ -302,7 +298,7 @@ export default function CookbookDetailRoute() {
                 No recipes yet
               </Text>
               <Text className="mt-2 text-center text-base leading-6 text-text-secondary">
-                Add recipes whenever this collection is ready.
+                Add a few whenever you’re ready.
               </Text>
             </View>
           }
@@ -357,7 +353,7 @@ export default function CookbookDetailRoute() {
                 onPress={() => requestAction("delete")}
               >
                 <SymbolView accessible={false} name={{ ios: "trash", android: "delete", web: "delete" }} size={22} tintColor={colorTokens.error} />
-                <Text className="text-base font-bold text-error">Delete</Text>
+                <Text className="text-base font-bold text-error">Delete cookbook</Text>
               </Pressable>
             </View>
           </View>

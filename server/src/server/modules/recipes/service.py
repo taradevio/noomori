@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 RECIPE_SELECT = "*,household_recipe_shares(recipe_id)"
 HOUSEHOLD_RECIPE_SELECT = "*,household_recipe_shares!inner(recipe_id)"
 DUPLICATE_PERSONAL_RECIPE_CODE = "NM001"
-DUPLICATE_PERSONAL_RECIPE_MESSAGE = "This recipe is already in your recipes."
+DUPLICATE_PERSONAL_RECIPE_MESSAGE = "You already have this recipe."
 
 
 # Purpose: Load the minimal recipe record only when the current user owns it.

@@ -26,6 +26,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 const DUPLICATE_RECIPE_MESSAGE =
   "This recipe is already shared with this household";
 
+class RecipeShareError extends Error {
+  constructor(readonly status: number) {
+    super("Recipe sharing failed");
+  }
+}
+
+function recipeShareErrorMessage(error: unknown, shared: boolean) {
+  if (error instanceof RecipeShareError && error.status === 409) {
+    return DUPLICATE_RECIPE_MESSAGE;
+  }
+  return shared
+    ? "Couldn’t share this recipe. Try again."
+    : "Couldn’t remove this recipe from the household. Try again.";
+}
+
 export default function RecipeDetailRoute() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -78,12 +93,7 @@ export default function RecipeDetailRoute() {
         },
       );
       if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(
-          typeof body?.detail === "string"
-            ? body.detail
-            : "Could not change recipe sharing.",
-        );
+        throw new RecipeShareError(response.status);
       }
       return response.json();
     },
@@ -99,7 +109,11 @@ export default function RecipeDetailRoute() {
         }),
       ]);
       cacheUpdatedRecipe(queryClient, updatedRecipe);
-      toast.success(shared ? "Recipe shared" : "Recipe unshared");
+      toast.success(
+        shared
+          ? "Recipe shared with household"
+          : "Recipe removed from household",
+      );
     },
   });
 
@@ -213,7 +227,10 @@ export default function RecipeDetailRoute() {
         }}
         onRetryShare={
           shareMutation.isError &&
-          shareMutation.error.message !== DUPLICATE_RECIPE_MESSAGE &&
+          !(
+            shareMutation.error instanceof RecipeShareError &&
+            shareMutation.error.status === 409
+          ) &&
           shareMutation.variables !== undefined
             ? () => shareMutation.mutate(shareMutation.variables!)
             : undefined
@@ -226,7 +243,12 @@ export default function RecipeDetailRoute() {
         }
         recipe={recipe}
         shareErrorMessage={
-          shareMutation.isError ? shareMutation.error.message : undefined
+          shareMutation.isError && shareMutation.variables !== undefined
+            ? recipeShareErrorMessage(
+                shareMutation.error,
+                shareMutation.variables,
+              )
+            : undefined
         }
         shareErrorMode={
           shareMutation.isError
@@ -282,9 +304,7 @@ export default function RecipeDetailRoute() {
             {recipeQuery.isError ? "Couldn’t load recipe" : "Loading recipe…"}
           </Text>
           <Text className="mt-2 text-center text-base leading-6 text-text-secondary">
-            {recipeQuery.isError
-              ? "Check your connection and try again."
-              : "Your saved recipe will appear here shortly."}
+            {recipeQuery.isError ? "Try again in a moment." : null}
           </Text>
           {recipeQuery.isError ? (
             <Pressable
@@ -297,9 +317,6 @@ export default function RecipeDetailRoute() {
               </Text>
             </Pressable>
           ) : null}
-          <Text className="mt-4 text-center text-sm font-medium leading-5 text-text-secondary">
-            Recipe ID: {normalizedRecipeId || "Missing"}
-          </Text>
         </View>
       </View>
     </SafeAreaView>

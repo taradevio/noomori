@@ -14,7 +14,7 @@ export default function Onboarding() {
     <OnboardingScreen>
       <View className={`grow ${compact ? "py-3" : "py-5"}`}>
         <Text className="self-start text-[13px] font-bold uppercase leading-[18px] tracking-[0.5px] text-secondary">
-          Household setup
+          Your household
         </Text>
 
         <View
@@ -29,8 +29,8 @@ export default function Onboarding() {
               Share recipes with the people you cook with.
             </Text>
             <Text className="max-w-[380px] text-center text-base font-normal leading-6 text-text-secondary">
-              Your personal library stays yours. Choose exactly which recipes
-              become part of your household.
+              Your personal recipes stay private until you share them with your
+              household.
             </Text>
           </View>
         </View>

@@ -372,7 +372,7 @@ class HouseholdEndpointTest(unittest.TestCase):
 
         self.assertEqual(409, raised.exception.status_code)
         self.assertEqual(
-            "This recipe is already in your recipes.",
+            "You already have this recipe.",
             raised.exception.detail,
         )
 

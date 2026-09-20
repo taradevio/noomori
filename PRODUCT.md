@@ -8,15 +8,15 @@ adaptive
 
 ## Users
 
-People who keep a personal recipe library and may share selected recipes with a household.
+People who keep recipes for themselves and share selected recipes with their household.
 
 ## Product Purpose
 
-Noomori makes saved recipes fast to find, organize, and open during everyday cooking.
+Noomori keeps a household’s recipes easy to share and find without making every personal recipe public.
 
 ## Positioning
 
-A calm, direct recipe library focused on routine use rather than content discovery or social browsing.
+A calm, shared household recipe library with first-class personal use, focused on routine cooking rather than content discovery or social browsing.
 
 ## Operating Context
 
@@ -25,6 +25,7 @@ Used frequently on phones while planning meals or cooking, with tablet support a
 ## Capabilities and Constraints
 
 - Personal recipes are searchable from the primary Home grid.
+- Personal recipes stay private until their owner shares them with the household.
 - Cookbooks are a secondary organization view.
 - Household recipes remain a separate top-level destination.
 - Adding a recipe is a global action available from every top-level tab.
@@ -49,6 +50,10 @@ Used frequently on phones while planning meals or cooking, with tablet support a
 
 - Optimize for fast scanning and routine usability.
 - Keep the primary recipe library direct and searchable.
+- Lead with household usefulness while preserving personal ownership and privacy.
+- Use `Your recipes`, `Shared recipes`, `household`, and `join code` consistently.
+- Write errors as what failed followed by how to recover; reserve connection language for transport failures.
+- Use sentence case and verb-first labels that name consequential actions.
 - Use spacing and typography for hierarchy before adding containers.
 - Preserve real content, routes, state, and accessibility semantics.
 

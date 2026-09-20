@@ -59,14 +59,14 @@ describe("auth gate", () => {
   it("disables recovery actions and reports a sign-out failure", async () => {
     mockIsSigningOut = true;
     mockSignOutError =
-      "Couldn’t sign out. Check your connection and try again.";
+      "Couldn’t sign out. Try again.";
     await render(<RootNavigator />);
 
     expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
     expect(
       screen.getByText(
-        "Couldn’t sign out. Check your connection and try again.",
+        "Couldn’t sign out. Try again.",
       ),
     ).toBeTruthy();
   });

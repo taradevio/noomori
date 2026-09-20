@@ -11,7 +11,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { colorTokens, MaxContentWidth } from "@/shared/design-system";
 import type { RecipeCardModel } from "@/shared/types";
@@ -69,7 +72,11 @@ export function CookbookRecipePicker({
         >
           <SymbolView
             accessible={false}
-            name={{ ios: "chevron.left", android: "arrow_back", web: "arrow_back" }}
+            name={{
+              ios: "chevron.left",
+              android: "arrow_back",
+              web: "arrow_back",
+            }}
             size={22}
             tintColor={colorTokens.textPrimary}
           />
@@ -90,7 +97,9 @@ export function CookbookRecipePicker({
           accessibilityRole="alert"
           className="border-b border-error bg-surface px-5 py-3"
         >
-          <Text className="text-base font-bold leading-6 text-error">{error}</Text>
+          <Text className="text-base font-bold leading-6 text-error">
+            {error}
+          </Text>
         </View>
       ) : null}
 
@@ -103,14 +112,19 @@ export function CookbookRecipePicker({
           ListHeaderComponent={
             <View className="gap-4 pb-5">
               <Text className="text-base leading-6 text-text-secondary">
-                Choose any recipes to include. You can also save an empty cookbook.
+                Choose any recipes to include. You can also save an empty
+                cookbook.
               </Text>
               <View
                 className={`min-h-12 flex-row items-center rounded-2xl border-2 bg-surface-subtle pl-4 ${focused ? "border-primary-strong" : "border-transparent"}`}
               >
                 <SymbolView
                   accessible={false}
-                  name={{ ios: "magnifyingglass", android: "search", web: "search" }}
+                  name={{
+                    ios: "magnifyingglass",
+                    android: "search",
+                    web: "search",
+                  }}
                   size={21}
                   tintColor={colorTokens.textSecondary}
                 />
@@ -137,7 +151,11 @@ export function CookbookRecipePicker({
                   >
                     <SymbolView
                       accessible={false}
-                      name={{ ios: "xmark.circle.fill", android: "cancel", web: "cancel" }}
+                      name={{
+                        ios: "xmark.circle.fill",
+                        android: "cancel",
+                        web: "cancel",
+                      }}
                       size={21}
                       tintColor={colorTokens.textSecondary}
                     />
@@ -150,7 +168,10 @@ export function CookbookRecipePicker({
             <View className="min-h-[280px] items-center justify-center gap-3 px-5 py-10">
               {isLoading ? (
                 <>
-                  <ActivityIndicator color={colorTokens.primaryStrong} size="large" />
+                  <ActivityIndicator
+                    color={colorTokens.primaryStrong}
+                    size="large"
+                  />
                   <Text
                     accessibilityLiveRegion="polite"
                     className="text-base leading-6 text-text-secondary"
@@ -164,11 +185,13 @@ export function CookbookRecipePicker({
                     accessibilityRole="header"
                     className="text-center text-xl font-bold leading-7 text-text-primary"
                   >
-                    {normalizedQuery ? "No recipes found" : "No recipes yet"}
+                    {normalizedQuery
+                      ? `No recipes found for “${query.trim()}”`
+                      : "No recipes yet"}
                   </Text>
                   <Text className="text-center text-base leading-6 text-text-secondary">
                     {normalizedQuery
-                      ? "Try a different recipe name."
+                      ? "Try a different recipe name or clear the search."
                       : "You can save this cookbook now and add recipes later."}
                   </Text>
                   {onRetry && error ? (
@@ -177,7 +200,9 @@ export function CookbookRecipePicker({
                       className="min-h-12 rounded-xl border-2 border-border bg-surface px-5 py-3 focus:border-primary-strong active:bg-surface-subtle"
                       onPress={onRetry}
                     >
-                      <Text className="text-base font-bold text-text-primary">Try again</Text>
+                      <Text className="text-base font-bold text-text-primary">
+                        Try again
+                      </Text>
                     </Pressable>
                   ) : null}
                 </>
@@ -201,14 +226,21 @@ export function CookbookRecipePicker({
                       accessible={false}
                       cachePolicy="memory-disk"
                       contentFit="cover"
-                      source={{ uri: item.imageUrl, cacheKey: item.imagePath ?? undefined }}
+                      source={{
+                        uri: item.imageUrl,
+                        cacheKey: item.imagePath ?? undefined,
+                      }}
                       style={styles.image}
                     />
                   ) : (
                     <View className="h-full items-center justify-center">
                       <SymbolView
                         accessible={false}
-                        name={{ ios: "fork.knife", android: "restaurant", web: "restaurant" }}
+                        name={{
+                          ios: "fork.knife",
+                          android: "restaurant",
+                          web: "restaurant",
+                        }}
                         size={23}
                         tintColor={colorTokens.textSecondary}
                       />
@@ -231,7 +263,11 @@ export function CookbookRecipePicker({
                   {selected ? (
                     <SymbolView
                       accessible={false}
-                      name={{ ios: "checkmark", android: "check", web: "check" }}
+                      name={{
+                        ios: "checkmark",
+                        android: "check",
+                        web: "check",
+                      }}
                       size={18}
                       tintColor={colorTokens.onPrimary}
                     />
@@ -240,7 +276,12 @@ export function CookbookRecipePicker({
               </Pressable>
             );
           }}
-          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingHorizontal: 20,
+            paddingTop: 20,
+            paddingBottom: 24,
+          }}
           style={{ width: "100%", maxWidth: MaxContentWidth }}
         />
       </View>
@@ -266,7 +307,9 @@ export function CookbookRecipePicker({
             {isSaving ? (
               <ActivityIndicator color={colorTokens.onPrimary} />
             ) : (
-              <Text className="text-base font-bold leading-6 text-on-primary">{saveLabel}</Text>
+              <Text className="text-base font-bold leading-6 text-on-primary">
+                {saveLabel}
+              </Text>
             )}
           </Pressable>
         </View>

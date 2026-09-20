@@ -25,14 +25,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 const actionLabels = {
   added: "added",
-  edited: "edited",
-  unshared: "unshared",
+  edited: "updated",
+  unshared: "removed",
 } as const;
 
 function ActivityRow({ activity }: { activity: HouseholdActivity }) {
   const router = useRouter();
   const canOpen = activity.recipe_id !== null;
-  const label = `${activity.actor_display_name} ${actionLabels[activity.action]} ${activity.recipe_title}, ${formatHouseholdActivityTime(activity.created_at)}`;
+  const action =
+    activity.action === "unshared"
+      ? `removed ${activity.recipe_title} from the household`
+      : `${actionLabels[activity.action]} ${activity.recipe_title}`;
+  const label = `${activity.actor_display_name} ${action}, ${formatHouseholdActivityTime(activity.created_at)}`;
   const content = (
     <>
       <View className="h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface-subtle">
@@ -44,7 +48,11 @@ function ActivityRow({ activity }: { activity: HouseholdActivity }) {
       <View className="min-w-0 flex-1">
         <Text className="text-base leading-6 text-text-primary">
           <Text className="font-bold">{activity.actor_display_name}</Text>{" "}
-          {actionLabels[activity.action]} “{activity.recipe_title}”
+          {activity.action === "unshared" ? (
+            <>removed “{activity.recipe_title}” from the household</>
+          ) : (
+            <>{actionLabels[activity.action]} “{activity.recipe_title}”</>
+          )}
         </Text>
         <Text className="mt-1 text-sm leading-5 text-text-secondary">
           {formatHouseholdActivityTime(activity.created_at)}
@@ -178,7 +186,7 @@ export default function HouseholdActivityScreen() {
         Couldn’t load activity
       </Text>
       <Text className="text-center text-base leading-6 text-text-secondary">
-        Check your connection and try again.
+        Try again in a moment.
       </Text>
       <Pressable
         accessibilityRole="button"
@@ -200,14 +208,12 @@ export default function HouseholdActivityScreen() {
             accessibilityRole="header"
             className="text-center text-xl font-bold text-text-primary"
           >
-            {memberCount < 2
-              ? "Activity starts when someone joins"
-              : "No recipe activity yet"}
+            {memberCount < 2 ? "It’s quiet here for now" : "No updates yet"}
           </Text>
           <Text className="mt-2 max-w-[440px] text-center text-base leading-6 text-text-secondary">
             {memberCount < 2
-              ? "Shared recipe updates will appear here after your household has another member."
-              : "When household members share or update recipes, you’ll see it here."}
+              ? "Once someone joins your household, shared recipe updates will show up here."
+              : "When someone shares or changes a recipe, you’ll see it here."}
           </Text>
         </View>
       }
@@ -244,7 +250,7 @@ export default function HouseholdActivityScreen() {
           accessibilityRole="header"
           className="min-w-0 flex-1 px-2 text-center text-xl font-bold text-text-primary"
         >
-          Activity
+          Household activity
         </Text>
         <View className="h-12 w-12" />
       </View>

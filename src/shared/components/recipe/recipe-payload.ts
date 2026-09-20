@@ -162,7 +162,7 @@ export function validateRecipeDraft(draft: RecipeDraft): RecipeDraftErrors {
   } else if (draft.source.type === "website") {
     const sourceUrl = normalizedText(draft.source.url);
     if (!sourceUrl || !isValidRecipeWebsiteUrl(sourceUrl)) {
-      errors.sourceUrl = "Enter a valid website URL.";
+      errors.sourceUrl = "Enter a valid recipe link.";
     } else if (sourceUrl.length > RECIPE_SOURCE_URL_MAX_CHARS) {
       errors.sourceUrl = "Use 2,083 characters or fewer.";
     }

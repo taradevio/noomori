@@ -131,8 +131,9 @@ export function RecipeDurationPicker({
         borderTopRightRadius: 24,
       }}
       enableDynamicSizing
-      enablePanDownToClose={false}
+      enablePanDownToClose
       index={0}
+      onDismiss={dismiss}
     >
       <BottomSheetView>
         <View
@@ -286,8 +287,9 @@ export function RecipeUnitPicker({
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
       }}
-      enablePanDownToClose={false}
+      enablePanDownToClose
       index={0}
+      onDismiss={dismiss}
       snapPoints={["85%"]}
     >
       <BottomSheetScrollView

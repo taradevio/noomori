@@ -190,8 +190,8 @@ export function RecipeDetailView({
         </Pressable>
         {canManage ? (
           <Pressable
-            accessibilityHint="Opens recipe actions."
-            accessibilityLabel="Recipe actions"
+            accessibilityHint="Opens recipe options."
+            accessibilityLabel="Recipe options"
             accessibilityRole="button"
             accessibilityState={{ disabled: isBusy }}
             className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle disabled:opacity-50"
@@ -233,13 +233,13 @@ export function RecipeDetailView({
                 ? "Recipe not deleted"
                 : shareErrorMode === "share"
                   ? "Recipe not shared"
-                  : "Recipe still shared"}
+                  : "Recipe is still shared"}
             </Text>
             <Text className="text-sm leading-5 text-text-secondary">
               {deleteError
-                ? "Check your connection and try again."
-                : shareErrorMessage ??
-                  "Check your household and connection, then try again."}
+                ? "It’s still in your recipes. Try again."
+                : (shareErrorMessage ??
+                  "Try again.")}
             </Text>
           </View>
           {canManage && (deleteError || onRetryShare) ? (
@@ -252,7 +252,9 @@ export function RecipeDetailView({
               accessibilityLabel={
                 deleteError
                   ? "Try deleting recipe again"
-                  : `Try to ${shareErrorMode} recipe again`
+                  : shareErrorMode === "share"
+                    ? "Try sharing recipe again"
+                    : "Try removing recipe from household again"
               }
               accessibilityRole="button"
               className="min-h-12 self-start rounded-xl border-2 border-error bg-surface px-4 py-3 focus:border-text-primary active:bg-surface-subtle"
@@ -320,7 +322,7 @@ export function RecipeDetailView({
                   tintColor={colorTokens.success}
                 />
                 <Text className="text-sm font-bold leading-5 text-success">
-                  Shared
+                  Shared with household
                 </Text>
               </View>
             ) : null}
@@ -594,10 +596,10 @@ export function RecipeDetailView({
                     accessibilityRole="header"
                     className="shrink text-xl font-bold leading-7 text-text-primary"
                   >
-                    Recipe actions
+                    Recipe options
                   </Text>
                   <Pressable
-                    accessibilityLabel="Close Recipe actions"
+                    accessibilityLabel="Close recipe options"
                     accessibilityRole="button"
                     className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
                     onPress={() => dismissActions()}
@@ -616,8 +618,8 @@ export function RecipeDetailView({
                       accessibilityHint={`Opens a confirmation to ${recipe.isShared ? "remove this recipe from" : "share this recipe with"} ${householdLabel}.`}
                       accessibilityLabel={
                         recipe.isShared
-                          ? "Unshare recipe from household"
-                          : "Share recipe to household"
+                          ? "Remove recipe from household"
+                          : "Share recipe with household"
                       }
                       accessibilityRole="button"
                       className={`min-h-12 flex-row items-center gap-4 rounded-xl border-2 bg-surface px-4 py-3 focus:border-text-primary active:bg-surface-subtle ${recipe.isShared ? "border-error" : "border-border"}`}
@@ -654,8 +656,8 @@ export function RecipeDetailView({
                         className={`text-base font-bold leading-6 ${recipe.isShared ? "text-error" : "text-primary-strong"}`}
                       >
                         {recipe.isShared
-                          ? "Unshare from household"
-                          : "Share to household"}
+                          ? "Remove from household"
+                          : "Share with household"}
                       </Text>
                     </Pressable>
                   ) : null}
@@ -678,12 +680,12 @@ export function RecipeDetailView({
                   <Pressable
                     accessibilityHint={
                       recipe.isShared
-                        ? "Unshare this recipe before deleting it."
+                        ? "Remove this recipe from the household before deleting it."
                         : "Opens a confirmation before permanently deleting this recipe."
                     }
                     accessibilityLabel={
                       recipe.isShared
-                        ? "Delete recipe. Unshare before deleting."
+                        ? "Delete recipe. Remove it from the household first."
                         : "Delete recipe"
                     }
                     accessibilityRole="button"
@@ -710,11 +712,11 @@ export function RecipeDetailView({
                       <Text
                         className={`text-base font-bold leading-6 ${recipe.isShared ? "text-text-secondary" : "text-error"}`}
                       >
-                        Delete
+                        Delete recipe
                       </Text>
                       {recipe.isShared ? (
                         <Text className="text-sm leading-5 text-text-secondary">
-                          Unshare before deleting
+                          Remove from household before deleting
                         </Text>
                       ) : null}
                     </View>
@@ -752,14 +754,14 @@ export function RecipeDetailView({
                   >
                     {recipe.isShared
                       ? householdName?.trim()
-                        ? `Unshare from ${householdName.trim()}?`
-                        : "Unshare from household?"
+                        ? `Remove from ${householdName.trim()}?`
+                        : "Remove from household?"
                       : `Share with ${householdLabel}?`}
                   </Text>
                   <Text className="text-base leading-6 text-text-secondary">
                     {recipe.isShared
-                      ? `People in ${householdLabel} will lose access. The recipe stays in your personal library.`
-                      : `Everyone in ${householdLabel} will be able to view this recipe.`}
+                      ? `People in ${householdLabel} won’t be able to see this recipe anymore. It will stay in your recipes.`
+                      : `Everyone in ${householdLabel} will be able to see this recipe.`}
                   </Text>
                 </View>
                 <View className="flex-row gap-3">
@@ -776,7 +778,7 @@ export function RecipeDetailView({
                   <Pressable
                     accessibilityLabel={
                       recipe.isShared
-                        ? "Confirm unshare recipe"
+                        ? "Confirm remove recipe from household"
                         : "Confirm share recipe"
                     }
                     accessibilityRole="button"
@@ -787,7 +789,9 @@ export function RecipeDetailView({
                     }}
                   >
                     <Text className="text-base font-bold leading-6 text-on-primary">
-                      {recipe.isShared ? "Unshare" : "Share"}
+                      {recipe.isShared
+                        ? "Remove from household"
+                        : "Share recipe"}
                     </Text>
                   </Pressable>
                 </View>
@@ -850,7 +854,7 @@ export function RecipeDetailView({
                     }}
                   >
                     <Text className="text-base font-bold leading-6 text-on-primary">
-                      Delete
+                      Delete recipe
                     </Text>
                   </Pressable>
                 </View>

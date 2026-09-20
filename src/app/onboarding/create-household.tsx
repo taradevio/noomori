@@ -53,7 +53,7 @@ export default function CreateHousehold() {
     mutationFn: createHouseholdName,
     onSuccess: async (data) => {
       console.log(`Household is set ${data}`);
-      toast.success("Household created");
+      toast.success("Your household is ready");
       // Clear user-scoped cached data before re-resolving the navigation state
       // that depends on the newly completed profile.
       await Promise.all([
@@ -107,7 +107,7 @@ export default function CreateHousehold() {
             Create your household
           </Text>
           <Text className="max-w-[440px] text-base font-normal leading-6 text-text-secondary">
-            You’ll be the owner. You can invite people whenever you’re ready.
+            Give it a name to get started. You can invite someone later.
           </Text>
         </View>
 
@@ -134,7 +134,7 @@ export default function CreateHousehold() {
             onChangeText={handleHouseholdChange}
             onFocus={() => setIsFieldFocused(true)}
             onSubmitEditing={handleHouseholdName}
-            placeholder="e.g. Our kitchen"
+            placeholder="Our kitchen"
             placeholderTextColor={colorTokens.textSecondary}
             returnKeyType="done"
             selectionColor={colorTokens.primaryStrong}
@@ -142,7 +142,7 @@ export default function CreateHousehold() {
             value={household}
           />
           <Text className="mt-2 text-sm font-normal leading-5 text-text-secondary">
-            Choose a name everyone in the household will recognize.
+            Something everyone at home will recognize.
           </Text>
 
           <View className="mt-6">

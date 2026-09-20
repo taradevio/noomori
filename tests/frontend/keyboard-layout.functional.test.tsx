@@ -59,9 +59,9 @@ describe("keyboard layout", () => {
       await render(<RecipeForm initialDraft={draft} mode="edit" onClose={jest.fn()} onSubmit={jest.fn()} />);
       const ingredient = missing === "ingredients";
       await fireEvent.press(screen.getByRole("button", {
-        name: ingredient ? "Add ingredient" : "Add instruction",
+        name: ingredient ? "Add ingredient" : "Add step",
       }));
-      const field = screen.getByLabelText(ingredient ? "Ingredient 1 name" : "Instruction step 1");
+      const field = screen.getByLabelText(ingredient ? "Ingredient 1 name" : "Step 1");
       await fireEvent.changeText(field, ingredient ? "water" : "Simmer.");
       expect(field).toHaveProp("value", ingredient ? "water" : "Simmer.");
     },
@@ -214,10 +214,10 @@ describe("keyboard layout", () => {
       />,
     );
 
-    const setBase = screen.getByRole("button", { name: "Set base" });
+    const setBase = screen.getByRole("button", { name: "Set servings" });
     expect(setBase).toBeDisabled();
 
-    await fireEvent.changeText(screen.getByLabelText("Base servings"), "0");
+    await fireEvent.changeText(screen.getByLabelText("Servings"), "0");
     expect(setBase).toBeDisabled();
     expect(screen.queryByLabelText("0 servings")).toBeNull();
 
@@ -225,7 +225,7 @@ describe("keyboard layout", () => {
       screen.getByLabelText("Ingredient 1 amount"),
       "3",
     );
-    await fireEvent.changeText(screen.getByLabelText("Base servings"), "4");
+    await fireEvent.changeText(screen.getByLabelText("Servings"), "4");
     expect(setBase).not.toBeDisabled();
     await fireEvent.press(setBase);
 

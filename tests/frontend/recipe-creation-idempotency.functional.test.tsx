@@ -124,7 +124,7 @@ function duplicateResponse() {
     ok: false,
     status: 409,
     json: jest.fn().mockResolvedValue({
-      detail: "This recipe is already in your recipes.",
+      detail: "A duplicate recipe was found.",
     }),
   } as unknown as Response;
 }
@@ -231,9 +231,9 @@ describe("recipe creation identity", () => {
       expect(screen.getByTestId("save-recipe-placeholder")).toBeEnabled(),
     );
     expect(toast.error).toHaveBeenCalledWith(
-      "Recipe not saved. Your changes are still here—check your connection and try again.",
+      "Recipe not saved. Your changes are still here. Reconnect and try again.",
     );
-    expect(screen.getByLabelText("Recipe title")).toHaveProp(
+    expect(screen.getByLabelText("Recipe name")).toHaveProp(
       "value",
       "Original soup",
     );
@@ -242,7 +242,7 @@ describe("recipe creation identity", () => {
 
     await fireEvent.press(screen.getByText("Remove photo"));
     await fireEvent.changeText(
-      screen.getByLabelText("Recipe title"),
+      screen.getByLabelText("Recipe name"),
       "Edited soup",
     );
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
@@ -293,11 +293,9 @@ describe("recipe creation identity", () => {
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(
-        "This recipe is already in your recipes.",
-      ),
+      expect(toast.error).toHaveBeenCalledWith("You already have this recipe."),
     );
-    expect(screen.getByLabelText("Recipe title")).toHaveProp(
+    expect(screen.getByLabelText("Recipe name")).toHaveProp(
       "value",
       "Original soup",
     );
@@ -309,14 +307,12 @@ describe("recipe creation identity", () => {
       .mockResolvedValueOnce(response(apiRecipe("Original soup")))
       .mockResolvedValueOnce(duplicateResponse());
     await renderEditScreen();
-    const title = await screen.findByLabelText("Recipe title");
+    const title = await screen.findByLabelText("Recipe name");
 
     await fireEvent.press(screen.getByTestId("save-changes-placeholder"));
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(
-        "This recipe is already in your recipes.",
-      ),
+      expect(toast.error).toHaveBeenCalledWith("You already have this recipe."),
     );
     expect(title).toHaveProp("value", "Original soup");
     expect(attachRecipeImage).not.toHaveBeenCalled();

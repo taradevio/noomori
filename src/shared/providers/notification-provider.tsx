@@ -161,7 +161,7 @@ export function NotificationProvider({ children }: React.PropsWithChildren) {
                 : String(operationError),
           });
           setError(
-            "Couldn’t update notifications. Check your connection and try again.",
+            "Couldn’t update notifications. Try again.",
           );
           throw new Error("Could not update notifications");
         } finally {
@@ -247,11 +247,11 @@ export function NotificationProvider({ children }: React.PropsWithChildren) {
         await disable(false);
         if (requestPermission && intentVersion === intentVersionRef.current) {
           Alert.alert(
-            "Notifications are off",
-            "Allow notifications in your device settings to receive household recipe updates.",
+            "Notifications are turned off",
+            "Turn them on in your device settings if you’d like updates when shared recipes change.",
             [
               {
-                text: "Cancel",
+                text: "Not now",
                 style: "cancel",
                 onPress: () => {
                   void runExclusive("permission_cancelled", async () => {
