@@ -75,5 +75,8 @@
     "test:auth:api": "cd server && .venv/bin/python -m unittest tests.authorization_live -v",
     "test:auth": "bun run test:auth:db && bun run test:auth:api"
   },
-  "private": true
+  "private": true,
+  "patchedDependencies": {
+    "expo-symbols@56.0.7": "patches/expo-symbols@56.0.7.patch"
+  }
 }

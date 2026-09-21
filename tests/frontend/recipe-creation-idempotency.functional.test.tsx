@@ -224,6 +224,10 @@ describe("recipe creation identity", () => {
       .mockRejectedValueOnce(new TypeError("Network request failed"))
       .mockResolvedValueOnce(response(apiRecipe("Edited soup")));
     await renderScreen({ ...draft, photo }, preparedPhoto);
+    expect(screen.queryByTestId("recipe-form-default-photo")).toBeNull();
+    expect(screen.getByLabelText("Selected recipe photo")).toHaveProp(
+      "source", { uri: photo.uri, cacheKey: undefined },
+    );
 
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -241,6 +245,12 @@ describe("recipe creation identity", () => {
     expect(attachRecipeImage).not.toHaveBeenCalled();
 
     await fireEvent.press(screen.getByText("Remove photo"));
+    expect(screen.getByTestId("recipe-form-default-photo")).toHaveProp(
+      "source", require("@/assets/images/cookbook.png"),
+    );
+    expect(screen.getByTestId("recipe-form-default-photo")).toHaveProp(
+      "contentFit", "contain",
+    );
     await fireEvent.changeText(
       screen.getByLabelText("Recipe name"),
       "Edited soup",

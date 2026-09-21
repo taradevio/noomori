@@ -809,21 +809,20 @@ export function RecipeForm({
                     style={{ width: "100%", height: "100%" }}
                   />
                 ) : (
-                  <View className="h-full items-center justify-center gap-3 px-5">
-                    <View className="h-14 w-14 items-center justify-center rounded-2xl bg-surface">
-                      <SymbolView
-                        accessible={false}
-                        name={{ ios: "photo", android: "image", web: "image" }}
-                        size={26}
-                        tintColor={colorTokens.textSecondary}
-                      />
-                    </View>
-                    <Text className="text-center text-sm leading-5 text-text-secondary">
-                      {draft.photo ? "Photo unavailable" : "No photo selected"}
-                    </Text>
-                  </View>
+                  <Image
+                    accessible={false}
+                    contentFit="contain"
+                    source={require("@/assets/images/cookbook.png")}
+                    testID="recipe-form-default-photo"
+                    style={{ width: "100%", height: "100%" }}
+                  />
                 )}
               </View>
+              {draft.photo && !draft.photo.uri ? (
+                <Text className="text-sm leading-5 text-text-secondary">
+                  Photo unavailable. Choose a replacement or remove it.
+                </Text>
+              ) : null}
               <View className="flex-row flex-wrap gap-3">
                 <View className="min-w-[160px] flex-1">
                   <ActionButton

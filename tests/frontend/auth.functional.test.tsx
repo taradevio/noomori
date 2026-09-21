@@ -1,6 +1,7 @@
 // NOTE: Retrospective regression coverage for behavior implemented before TDD adoption.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import AuthScreen from "@/shared/components/auth/auth-screen";
+import Onboarding from "@/app/onboarding";
 import { GoogleSignInButton } from "@/shared/components/auth/google-sign-in-button";
 
 jest.mock("@/lib/supabase", () => ({
@@ -33,15 +34,25 @@ beforeEach(() => {
 });
 
 describe("authentication workflow", () => {
-  it("leads with household value and preserves personal ownership", async () => {
+  it("uses the welcome copy without a wordmark", async () => {
     await render(<AuthScreen />);
 
-    expect(screen.getByText("Recipes for your household—and you.")).toBeTruthy();
+    expect(screen.getByText("Your recipes. A little more home.")).toBeTruthy();
     expect(
       screen.getByText(
-        "Keep your own recipes organized, then share the ones everyone should have.",
+        "Save the dishes you love, make them your own, and share them with your household.",
       ),
     ).toBeTruthy();
+    expect(screen.queryByText("noomori")).toBeNull();
+  });
+
+  it("introduces household sharing with both existing actions", async () => {
+    await render(<Onboarding />);
+
+    expect(screen.getByText("Good food brings us together.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create household" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Join household" })).toBeTruthy();
+    expect(screen.queryByText("Your household")).toBeNull();
   });
 
   it("opens Google and establishes the returned session", async () => {

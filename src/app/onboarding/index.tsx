@@ -13,24 +13,20 @@ export default function Onboarding() {
   return (
     <OnboardingScreen>
       <View className={`grow ${compact ? "py-3" : "py-5"}`}>
-        <Text className="self-start text-[13px] font-bold uppercase leading-[18px] tracking-[0.5px] text-secondary">
-          Your household
-        </Text>
-
         <View
           className={`grow items-center justify-center ${compact ? "gap-3.5 py-3" : "gap-6 py-6"}`}
         >
           <HouseholdIllustration compact={compact} />
-          <View className="w-full max-w-[420px] items-center gap-3">
+          <View className="w-full max-w-[380px] items-center gap-6">
             <Text
               accessibilityRole="header"
               className="text-center text-[32px] font-bold leading-[38px] text-text-primary"
             >
-              Share recipes with the people you cook with.
+              Good food brings{"\n"}us together.
             </Text>
             <Text className="max-w-[380px] text-center text-base font-normal leading-6 text-text-secondary">
-              Your personal recipes stay private until you share them with your
-              household.
+              Keep your own recipes close and share favourites with the people
+              you cook for.
             </Text>
           </View>
         </View>

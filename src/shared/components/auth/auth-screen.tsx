@@ -17,7 +17,7 @@ export default function AuthScreen() {
   const compact = height < 720 || fontScale > 1.15;
 
   return (
-    <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
+    <SafeAreaView edges={["top", "bottom", "left", "right"]} style={styles.safeArea}>
       <StatusBar style="dark" />
       <ScrollView
         bounces={false}
@@ -31,19 +31,15 @@ export default function AuthScreen() {
             compact ? styles.contentCompact : styles.contentComfortable,
           ]}
         >
-          <Text accessibilityRole="text" style={styles.wordmark}>
-            noomori
-          </Text>
-
           <View style={[styles.hero, compact && styles.heroCompact]}>
             <AuthHeroIllustration compact={compact} />
             <View style={styles.copyBlock}>
               <Text accessibilityRole="header" style={styles.heading}>
-                Recipes for your household—and you.
+                Your recipes.{"\n"}A little more home.
               </Text>
               <Text style={styles.supportingCopy}>
-                Keep your own recipes organized, then share the ones everyone
-                should have.
+                Save the dishes you love, make them your own, and share them with
+                your household.
               </Text>
             </View>
           </View>
@@ -84,14 +80,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 12,
   },
-  wordmark: {
-    alignSelf: "flex-start",
-    color: colorTokens.textPrimary,
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
   hero: {
     flexGrow: 1,
     alignItems: "center",
@@ -107,7 +95,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 380,
     alignItems: "center",
-    gap: 8,
+    gap: 24,
   },
   heading: {
     color: colorTokens.textPrimary,

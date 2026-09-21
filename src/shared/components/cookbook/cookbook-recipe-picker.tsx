@@ -233,18 +233,12 @@ export function CookbookRecipePicker({
                       style={styles.image}
                     />
                   ) : (
-                    <View className="h-full items-center justify-center">
-                      <SymbolView
-                        accessible={false}
-                        name={{
-                          ios: "fork.knife",
-                          android: "restaurant",
-                          web: "restaurant",
-                        }}
-                        size={23}
-                        tintColor={colorTokens.textSecondary}
-                      />
-                    </View>
+                    <Image
+                      accessible={false}
+                      contentFit="contain"
+                      source={require("@/assets/images/cookbook.png")}
+                      style={styles.image}
+                    />
                   )}
                 </View>
                 <View className="min-w-0 flex-1">

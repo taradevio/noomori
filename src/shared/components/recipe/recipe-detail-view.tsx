@@ -289,20 +289,12 @@ export function RecipeDetailView({
                 style={styles.image}
               />
             ) : (
-              <View className="h-full items-center justify-center">
-                <View className="h-16 w-16 items-center justify-center rounded-2xl bg-surface">
-                  <SymbolView
-                    accessible={false}
-                    name={{
-                      ios: "fork.knife",
-                      android: "restaurant",
-                      web: "restaurant",
-                    }}
-                    size={30}
-                    tintColor={colorTokens.textSecondary}
-                  />
-                </View>
-              </View>
+              <Image
+                accessible={false}
+                contentFit="contain"
+                source={require("@/assets/images/cookbook.png")}
+                style={styles.image}
+              />
             )}
           </View>
 

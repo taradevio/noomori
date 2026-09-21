@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -157,7 +158,7 @@ function PersonalHeader({
             accessible={false}
             className="h-11 w-11 items-center justify-center rounded-[14px] bg-primary"
           >
-            <SymbolView
+            {/* <SymbolView
               name={{
                 ios: "fork.knife",
                 android: "restaurant",
@@ -165,6 +166,11 @@ function PersonalHeader({
               }}
               size={23}
               tintColor={colorTokens.onPrimary}
+            /> */}
+            <Image
+              source={require("@/assets/images/noomori-icon.webp")}
+              style={{ width: 44, height: 44 }}
+              contentFit="contain"
             />
           </View>
           <View className="min-w-0 flex-1">

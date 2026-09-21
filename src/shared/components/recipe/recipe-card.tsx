@@ -80,14 +80,11 @@ export function RecipeCard({
             className="h-full w-full items-center justify-center"
             testID={`recipe-card-missing-image-${item.id}`}
           >
-            <SymbolView
-              name={{
-                ios: "fork.knife",
-                android: "restaurant",
-                web: "restaurant",
-              }}
-              size={30}
-              tintColor={colorTokens.primary}
+            <Image
+              accessible={false}
+              contentFit="contain"
+              source={require("@/assets/images/cookbook.png")}
+              style={styles.coverImage}
             />
           </View>
         )}
