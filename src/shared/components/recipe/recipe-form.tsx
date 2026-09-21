@@ -812,7 +812,7 @@ export function RecipeForm({
                   <Image
                     accessible={false}
                     contentFit="contain"
-                    source={require("@/assets/images/cookbook.png")}
+                    source={require("@/assets/images/cookbook.webp")}
                     testID="recipe-form-default-photo"
                     style={{ width: "100%", height: "100%" }}
                   />

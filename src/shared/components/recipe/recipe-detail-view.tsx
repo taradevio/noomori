@@ -238,8 +238,7 @@ export function RecipeDetailView({
             <Text className="text-sm leading-5 text-text-secondary">
               {deleteError
                 ? "It’s still in your recipes. Try again."
-                : (shareErrorMessage ??
-                  "Try again.")}
+                : (shareErrorMessage ?? "Try again.")}
             </Text>
           </View>
           {canManage && (deleteError || onRetryShare) ? (
@@ -292,7 +291,7 @@ export function RecipeDetailView({
               <Image
                 accessible={false}
                 contentFit="contain"
-                source={require("@/assets/images/cookbook.png")}
+                source={require("@/assets/images/cookbook.webp")}
                 style={styles.image}
               />
             )}

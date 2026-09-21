@@ -236,7 +236,7 @@ export function CookbookRecipePicker({
                     <Image
                       accessible={false}
                       contentFit="contain"
-                      source={require("@/assets/images/cookbook.png")}
+                      source={require("@/assets/images/cookbook.webp")}
                       style={styles.image}
                     />
                   )}
