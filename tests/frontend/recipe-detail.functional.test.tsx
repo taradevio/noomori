@@ -151,14 +151,12 @@ describe("recipe source details", () => {
       name: "Open example.com in browser",
     });
     expect(sourceLinks).toHaveLength(2);
-    const sourceIcons = screen.getAllByTestId("recipe-source-external-icon");
+    const sourceIcons = screen.getAllByTestId("recipe-source-external-icon", { includeHiddenElements: true });
     expect(sourceIcons).toHaveLength(2);
     for (const icon of sourceIcons) {
-      expect(icon.props.name).toEqual({
-        ios: "arrow.up.right.square",
-        android: "open_in_new",
-        web: "open_in_new",
-      });
+      expect(icon.props.source.uri).toMatch(/^data:image\/svg\+xml;base64,/);
+      expect(icon).toHaveProp("accessible", false);
+      expect(icon).toHaveStyle({ width: 16, height: 16 });
     }
 
     await fireEvent.press(sourceLinks[0]);

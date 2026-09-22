@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -70,15 +70,11 @@ export function CookbookRecipePicker({
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
           onPress={onBack}
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "chevron.left",
-              android: "arrow_back",
-              web: "arrow_back",
-            }}
+            name="back"
             size={22}
-            tintColor={colorTokens.textPrimary}
+            color={colorTokens.textPrimary}
           />
         </Pressable>
         <Text
@@ -118,15 +114,11 @@ export function CookbookRecipePicker({
               <View
                 className={`min-h-12 flex-row items-center rounded-2xl border-2 bg-surface-subtle pl-4 ${focused ? "border-primary-strong" : "border-transparent"}`}
               >
-                <SymbolView
+                <AppIcon
                   accessible={false}
-                  name={{
-                    ios: "magnifyingglass",
-                    android: "search",
-                    web: "search",
-                  }}
+                  name="search"
                   size={21}
-                  tintColor={colorTokens.textSecondary}
+                  color={colorTokens.textSecondary}
                 />
                 <TextInput
                   accessibilityLabel="Search recipes"
@@ -149,15 +141,11 @@ export function CookbookRecipePicker({
                     className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:opacity-60"
                     onPress={() => setQuery("")}
                   >
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{
-                        ios: "xmark.circle.fill",
-                        android: "cancel",
-                        web: "cancel",
-                      }}
+                      name="close-circle"
                       size={21}
-                      tintColor={colorTokens.textSecondary}
+                      color={colorTokens.textSecondary}
                     />
                   </Pressable>
                 ) : null}
@@ -255,15 +243,11 @@ export function CookbookRecipePicker({
                   className={`h-7 w-7 items-center justify-center rounded-lg border-2 ${selected ? "border-primary-strong bg-primary-strong" : "border-border bg-surface"}`}
                 >
                   {selected ? (
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{
-                        ios: "checkmark",
-                        android: "check",
-                        web: "check",
-                      }}
+                      name="check"
                       size={18}
-                      tintColor={colorTokens.onPrimary}
+                      color={colorTokens.onPrimary}
                     />
                   ) : null}
                 </View>

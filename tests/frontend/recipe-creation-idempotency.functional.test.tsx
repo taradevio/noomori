@@ -246,7 +246,7 @@ describe("recipe creation identity", () => {
 
     await fireEvent.press(screen.getByText("Remove photo"));
     expect(screen.getByTestId("recipe-form-default-photo")).toHaveProp(
-      "source", require("@/assets/images/cookbook.png"),
+      "source", require("@/assets/images/cookbook.webp"),
     );
     expect(screen.getByTestId("recipe-form-default-photo")).toHaveProp(
       "contentFit", "contain",

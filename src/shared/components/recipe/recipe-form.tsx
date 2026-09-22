@@ -1,6 +1,6 @@
+import { AppIcon } from "@/shared/ui/app-icon";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardTypeOptions,
@@ -751,11 +751,11 @@ export function RecipeForm({
             className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
             onPress={onClose}
           >
-            <SymbolView
+            <AppIcon
               accessible={false}
-              name={{ ios: "xmark", android: "close", web: "close" }}
+              name="close"
               size={22}
-              tintColor={colorTokens.textPrimary}
+              color={colorTokens.textPrimary}
             />
           </Pressable>
           <Text
@@ -811,7 +811,7 @@ export function RecipeForm({
                 ) : (
                   <Image
                     accessible={false}
-                    contentFit="contain"
+                    contentFit="cover"
                     source={require("@/assets/images/cookbook.webp")}
                     testID="recipe-form-default-photo"
                     style={{ width: "100%", height: "100%" }}
@@ -903,15 +903,11 @@ export function RecipeForm({
                         <Text className="shrink text-base font-medium text-text-primary">
                           {formatDuration(value)}
                         </Text>
-                        <SymbolView
+                        <AppIcon
                           accessible={false}
-                          name={{
-                            ios: "chevron.down",
-                            android: "keyboard_arrow_down",
-                            web: "keyboard_arrow_down",
-                          }}
+                          name="chevron-down"
                           size={18}
-                          tintColor={colorTokens.textSecondary}
+                          color={colorTokens.textSecondary}
                         />
                       </Pressable>
                     </View>
@@ -950,15 +946,11 @@ export function RecipeForm({
                     <Text className="shrink text-base font-medium text-text-primary">
                       {formatDuration(draft.additionalTimeMinutes)}
                     </Text>
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{
-                        ios: "chevron.down",
-                        android: "keyboard_arrow_down",
-                        web: "keyboard_arrow_down",
-                      }}
+                      name="chevron-down"
                       size={18}
-                      tintColor={colorTokens.textSecondary}
+                      color={colorTokens.textSecondary}
                     />
                   </Pressable>
                 </View>
@@ -999,11 +991,11 @@ export function RecipeForm({
                     disabled={draft.servings <= 1}
                     onPress={() => adjustServings(-1)}
                   >
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{ ios: "minus", android: "remove", web: "remove" }}
+                      name="minus"
                       size={22}
-                      tintColor={colorTokens.textPrimary}
+                      color={colorTokens.textPrimary}
                     />
                   </Pressable>
                   <Text
@@ -1018,11 +1010,11 @@ export function RecipeForm({
                     className="h-12 w-12 items-center justify-center rounded-xl border-2 border-border focus:border-primary-strong active:bg-surface-subtle"
                     onPress={() => adjustServings(1)}
                   >
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{ ios: "plus", android: "add", web: "add" }}
+                      name="add"
                       size={22}
-                      tintColor={colorTokens.textPrimary}
+                      color={colorTokens.textPrimary}
                     />
                   </Pressable>
                 </View>
@@ -1088,15 +1080,11 @@ export function RecipeForm({
                                 removeIngredient(group.id, ingredient.id)
                               }
                             >
-                              <SymbolView
+                              <AppIcon
                                 accessible={false}
-                                name={{
-                                  ios: "trash",
-                                  android: "delete",
-                                  web: "delete",
-                                }}
+                                name="delete"
                                 size={20}
-                                tintColor={colorTokens.error}
+                                color={colorTokens.error}
                               />
                             </Pressable>
                           </View>
@@ -1141,15 +1129,11 @@ export function RecipeForm({
                                 <Text className="shrink text-base text-text-primary">
                                   {ingredient.unit || "No unit"}
                                 </Text>
-                                <SymbolView
+                                <AppIcon
                                   accessible={false}
-                                  name={{
-                                    ios: "chevron.down",
-                                    android: "keyboard_arrow_down",
-                                    web: "keyboard_arrow_down",
-                                  }}
+                                  name="chevron-down"
                                   size={18}
-                                  tintColor={colorTokens.textSecondary}
+                                  color={colorTokens.textSecondary}
                                 />
                               </Pressable>
                               {submitAttempted &&
@@ -1301,15 +1285,11 @@ export function RecipeForm({
                                 removeInstruction(group.id, step.id)
                               }
                             >
-                              <SymbolView
+                              <AppIcon
                                 accessible={false}
-                                name={{
-                                  ios: "trash",
-                                  android: "delete",
-                                  web: "delete",
-                                }}
+                                name="delete"
                                 size={20}
-                                tintColor={colorTokens.error}
+                                color={colorTokens.error}
                               />
                             </Pressable>
                           </View>

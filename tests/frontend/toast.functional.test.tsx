@@ -41,7 +41,7 @@ describe("global toast feedback", () => {
 
     expect(successId).toBeGreaterThan(0);
     expect(screen.getByText("Recipe saved")).toBeTruthy();
-    expect(screen.getByTestId("toast-icon-success")).toBeTruthy();
+    expect(screen.getByTestId("toast-icon-success", { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByTestId("toast-status").props.className).toContain(
       "bg-success",
     );
@@ -70,7 +70,7 @@ describe("global toast feedback", () => {
 
     expect(screen.queryByText("Recipe saved")).toBeNull();
     expect(screen.getByText("Recipe not saved")).toBeTruthy();
-    expect(screen.getByTestId("toast-icon-error")).toBeTruthy();
+    expect(screen.getByTestId("toast-icon-error", { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByTestId("toast-status").props.className).toContain(
       "bg-error",
     );

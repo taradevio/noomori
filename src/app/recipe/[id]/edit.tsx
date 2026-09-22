@@ -1,6 +1,6 @@
 import { apiConfig } from "@/config/api";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -282,11 +282,11 @@ export default function EditRecipeRoute() {
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
           onPress={close}
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{ ios: "xmark", android: "close", web: "close" }}
+            name="close"
             size={22}
-            tintColor={colorTokens.textPrimary}
+            color={colorTokens.textPrimary}
           />
         </Pressable>
         <Text

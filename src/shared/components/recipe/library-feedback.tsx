@@ -1,12 +1,15 @@
-import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { Image, type ImageSource } from "expo-image";
+import { AppIcon, type AppIconProps } from "@/shared/ui/app-icon";
 import { Pressable, Text, View } from "react-native";
 
 import { colorTokens } from "@/shared/design-system";
 
 type LibraryFeedbackProps = {
   actionLabel?: string;
+  actionFullWidth?: boolean;
   body: string;
-  icon: SymbolViewProps["name"];
+  icon?: AppIconProps["name"];
+  illustration?: ImageSource;
   onAction?: () => void;
   testID: string;
   title: string;
@@ -15,9 +18,11 @@ type LibraryFeedbackProps = {
 function FeedbackAction({
   label,
   onPress,
+  fullWidth,
 }: {
   label: string;
   onPress: () => void;
+  fullWidth: boolean;
 }) {
   const content = (
     <Text className="text-center text-base font-bold leading-6 text-on-primary">
@@ -29,7 +34,7 @@ function FeedbackAction({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      className="mt-6 min-h-12 min-w-[176px] items-center justify-center rounded-xl border-2 border-primary-strong bg-primary-strong px-5 py-3 focus:border-text-primary active:opacity-[0.82]"
+      className={`min-h-12 min-w-[176px] items-center justify-center rounded-xl border-2 border-primary-strong bg-primary-strong px-5 py-3 focus:border-text-primary active:opacity-[0.82] ${fullWidth ? "mt-4 w-full" : "mt-6"}`}
     >
       {content}
     </Pressable>
@@ -39,37 +44,62 @@ function FeedbackAction({
 /** Centered status treatment shared by empty, error, and no-result states. */
 export function LibraryFeedback({
   actionLabel,
+  actionFullWidth = false,
   body,
   icon,
+  illustration,
   onAction,
   testID,
   title,
 }: LibraryFeedbackProps) {
   return (
     <View
-      className="min-h-[320px] items-center justify-center px-5 py-10"
+      className={`min-h-[320px] items-center justify-center ${illustration || actionFullWidth ? "px-4" : "px-5"} ${illustration ? "py-6" : "py-10"}`}
       testID={testID}
     >
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        className="mb-6 h-20 w-20 items-center justify-center rounded-2xl bg-surface-subtle"
-      >
-        <SymbolView name={icon} size={30} tintColor={colorTokens.primary} />
-      </View>
+      {illustration ? (
+        <Image
+          source={illustration}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          contentFit="contain"
+          style={{
+            width: "100%",
+            maxWidth: 230,
+            aspectRatio: 230 / 153,
+            marginBottom: 16,
+          }}
+          testID={`${testID}-illustration`}
+        />
+      ) : icon ? (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          className="mb-6 h-20 w-20 items-center justify-center rounded-2xl bg-surface-subtle"
+        >
+          <AppIcon accented name={icon} size={30} color={colorTokens.primary} />
+        </View>
+      ) : null}
 
       <Text
         accessibilityRole="header"
-        className="max-w-[360px] text-center text-xl font-bold leading-[27px] text-text-primary"
+        className={`max-w-[360px] text-center font-bold text-text-primary ${illustration ? "text-2xl leading-[30px]" : "text-xl leading-[27px]"}`}
       >
         {title}
       </Text>
-      <Text className="mt-2 max-w-[340px] text-center text-base font-normal leading-6 text-text-secondary">
+      <Text
+        className={`${illustration ? "mt-4" : "mt-2"} max-w-[340px] text-center text-base font-normal leading-6 text-text-secondary`}
+      >
         {body}
       </Text>
 
       {actionLabel && onAction ? (
-        <FeedbackAction label={actionLabel} onPress={onAction} />
+        <FeedbackAction
+          label={actionLabel}
+          onPress={onAction}
+          fullWidth={actionFullWidth}
+        />
       ) : null}
     </View>
   );

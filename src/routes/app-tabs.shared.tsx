@@ -10,7 +10,7 @@ import {
   TabTrigger,
   type TabTriggerSlotProps,
 } from "expo-router/ui";
-import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { AppIcon, type AppIconProps } from "@/shared/ui/app-icon";
 import { useEffect, useState } from "react";
 import {
   Keyboard,
@@ -45,7 +45,7 @@ const TRACK_COUNT = 3;
 
 type TabButtonProps = TabTriggerSlotProps & {
   barHeight: number;
-  icon: SymbolViewProps["name"];
+  icon: AppIconProps["name"];
   label: string;
   labelLines: number;
 };
@@ -82,11 +82,12 @@ function TabButton({
         controlFocused && styles.tabButtonFocused,
       ])}
     >
-      <SymbolView
+      <AppIcon
         accessible={false}
         name={icon}
+        accented={isFocused}
         size={22}
-        tintColor={isFocused ? colorTokens.primary : colorTokens.textSecondary}
+        color={isFocused ? colorTokens.primary : colorTokens.textSecondary}
       />
       <Text
         numberOfLines={labelLines}
@@ -153,11 +154,11 @@ function AddFab() {
         ])}
         testID="tab-add-recipe-button"
       >
-        <SymbolView
+        <AppIcon
           accessible={false}
-          name={{ ios: "plus", android: "add", web: "add" }}
+          name="add"
           size={28}
-          tintColor={colorTokens.onAccent}
+          color={colorTokens.onAccent}
         />
       </Pressable>
     </Animated.View>
@@ -227,11 +228,7 @@ function AppTabsContent() {
           <TabTrigger name="recipes" href="/" asChild>
             <TabButton
               barHeight={barSurfaceHeight}
-              icon={{
-                ios: "book.closed",
-                android: "menu_book",
-                web: "menu_book",
-              }}
+              icon="recipes"
               label="Recipes"
               labelLines={labelLines}
             />
@@ -239,7 +236,7 @@ function AppTabsContent() {
           <TabTrigger name="household" href="/household" asChild>
             <TabButton
               barHeight={barSurfaceHeight}
-              icon={{ ios: "house", android: "home", web: "home" }}
+              icon="household"
               label="Household"
               labelLines={labelLines}
             />
@@ -247,11 +244,7 @@ function AppTabsContent() {
           <TabTrigger name="account" href="/account" asChild>
             <TabButton
               barHeight={barSurfaceHeight}
-              icon={{
-                ios: "person.crop.circle",
-                android: "account_circle",
-                web: "account_circle",
-              }}
+              icon="account"
               label="Account"
               labelLines={labelLines}
             />

@@ -1,12 +1,30 @@
 // NOTE: Retrospective regression coverage for behavior implemented before TDD adoption.
-import { fireEvent, render, screen } from "@testing-library/react-native";
-import { FlatList } from "react-native";
+import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { FlatList, I18nManager, View } from "react-native";
 
 import {
   getLibraryColumnCount,
   RecipesLibraryView,
 } from "@/shared/components/recipe/recipes-library-view";
+import { GestureHandlerRootView, State } from "react-native-gesture-handler";
+import {
+  fireGestureHandler,
+  getByGestureTestId,
+} from "react-native-gesture-handler/jest-utils";
+import { useState } from "react";
 import { RecipeCard } from "@/shared/components/recipe/recipe-card";
+
+// Supply the native measurement boundary used to anchor the popup.
+beforeEach(() => {
+  jest
+    .spyOn(View.prototype, "measureInWindow")
+    .mockImplementation((callback) => callback(160, 200, 160, 48));
+});
+
+async function chooseSort(label: "Recently added" | "A–Z") {
+  await fireEvent.press(screen.getByTestId("recipe-sort-trigger"));
+  await fireEvent.press(screen.getByRole("radio", { name: label }));
+}
 
 const recipes = {
   status: "ready" as const,
@@ -63,6 +81,100 @@ function recipeOrder() {
 }
 
 describe("recipe and cookbook library workflow", () => {
+  it("marks the active sort and dismisses without changing it on outside press or Back", async () => {
+    await render(
+      <RecipesLibraryView recipes={recipes} cookbooks={cookbooks} />,
+    );
+    await fireEvent.press(screen.getByTestId("recipe-sort-trigger"));
+    expect(
+      screen.getByRole("radio", { name: "Recently added", checked: true }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "A–Z", checked: false }),
+    ).toBeTruthy();
+    await fireEvent.press(
+      screen.getByTestId("recipe-sort-backdrop", {
+        includeHiddenElements: true,
+      }),
+    );
+    expect(screen.queryByTestId("recipe-sort-menu")).toBeNull();
+    await fireEvent.press(screen.getByTestId("recipe-sort-trigger"));
+    await fireEvent(screen.getByTestId("recipe-sort-modal"), "requestClose");
+    expect(screen.queryByTestId("recipe-sort-menu")).toBeNull();
+    expect(recipeOrder()).toEqual(["soup", "cake"]);
+  });
+
+  it.each([false, true])(
+    "swipes between sections with RTL=%s, preserving queries and rejecting short/vertical/cancelled swipes",
+    async (rtl) => {
+      const originalRTL = I18nManager.isRTL;
+      I18nManager.isRTL = rtl;
+      const onSectionChange = jest.fn();
+      function Library() {
+        const [section, setSection] = useState<"recipes" | "cookbooks">(
+          "recipes",
+        );
+        return (
+          <GestureHandlerRootView>
+            <RecipesLibraryView
+              recipes={recipes}
+              cookbooks={cookbooks}
+              section={section}
+              onSectionChange={(next) => {
+                onSectionChange(next);
+                setSection(next);
+              }}
+            />
+          </GestureHandlerRootView>
+        );
+      }
+      const swipe = async (x: number, y = 0, cancelled = false) =>
+        act(() => {
+          fireGestureHandler(getByGestureTestId("library-section-swipe"), [
+            { state: State.BEGAN, translationX: 0, translationY: 0 },
+            { state: State.ACTIVE, translationX: x, translationY: y },
+            {
+              state: cancelled ? State.CANCELLED : State.END,
+              translationX: x,
+              translationY: y,
+            },
+          ]);
+        });
+      try {
+        await render(<Library />);
+        await fireEvent.changeText(
+          screen.getByTestId("library-recipes-search-input"),
+          "cake",
+        );
+        const forward = rtl ? 80 : -80;
+        await swipe(forward / 4);
+        await swipe(forward, 60);
+        await swipe(forward, 0, true);
+        await swipe(-forward);
+        expect(onSectionChange).not.toHaveBeenCalled();
+        await swipe(forward);
+        expect(
+          screen.getByTestId("library-segment-cookbooks").props
+            .accessibilityState.selected,
+        ).toBe(true);
+        expect(onSectionChange).toHaveBeenLastCalledWith("cookbooks");
+        await swipe(forward);
+        expect(onSectionChange).toHaveBeenCalledTimes(1);
+        await swipe(-forward);
+        expect(
+          screen.getByTestId("library-recipes-search-input").props.value,
+        ).toBe("cake");
+        expect(recipeOrder()).toEqual(["cake"]);
+        await fireEvent.press(
+          screen.getByRole("button", { name: "Cookbooks" }),
+        );
+        expect(screen.getByTestId("cookbook-card-favorites")).toBeTruthy();
+      } finally {
+        I18nManager.isRTL = originalRTL;
+      }
+    },
+  );
+
   it("uses the native list refresh control", async () => {
     const onRefresh = jest.fn();
     await render(
@@ -94,7 +206,9 @@ describe("recipe and cookbook library workflow", () => {
 
     await fireEvent.press(screen.getByTestId("recipe-handoff-banner"));
     expect(screen.getByText("Recipes from someone who left")).toBeTruthy();
-    expect(screen.getByText("Choose which ones you’d like to keep.")).toBeTruthy();
+    expect(
+      screen.getByText("Choose which ones you’d like to keep."),
+    ).toBeTruthy();
     expect(onReview).toHaveBeenCalledTimes(1);
 
     await view.rerender(
@@ -151,9 +265,13 @@ describe("recipe and cookbook library workflow", () => {
       ).toBeTruthy();
       expect(screen.queryByTestId(`library-${stateKey}-empty`)).toBeNull();
       expect(screen.queryByRole("button", { name: action })).toBeNull();
-      expect(Boolean(screen.queryByRole("button", { name: "Newest" }))).toBe(
-        section === "recipes",
-      );
+      expect(
+        Boolean(
+          screen.queryByRole("button", {
+            name: "Sort recipes: Recently added",
+          }),
+        ),
+      ).toBe(section === "recipes");
 
       await fireEvent.press(
         screen.getByRole("button", { name: "Clear search" }),
@@ -179,8 +297,36 @@ describe("recipe and cookbook library workflow", () => {
         />,
       );
       expect(screen.getByTestId(`library-${stateKey}-empty`)).toBeTruthy();
+      if (mode === "personal") {
+        expect(
+          screen.getByTestId(`library-${stateKey}-empty-illustration`, {
+            includeHiddenElements: true,
+          }).props.accessible,
+        ).toBe(false);
+        expect(
+          screen.getByText(
+            section === "recipes"
+              ? "Your cookbook starts here"
+              : "Your cookbooks start here",
+          ),
+        ).toBeTruthy();
+        expect(
+          screen.getByText(
+            section === "recipes"
+              ? "Keep the dishes you love, ready for the next time you cook."
+              : "Gather the recipes you love into cookbooks.",
+          ),
+        ).toBeTruthy();
+        expect(
+          screen.queryByText(
+            section === "recipes" ? "0 recipes" : "0 cookbooks",
+          ),
+        ).toBeNull();
+      }
       expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Sort recipes: Recently added" }),
+      ).toBeNull();
       await fireEvent.press(screen.getByRole("button", { name: action }));
       expect(onAction).toHaveBeenCalledTimes(1);
 
@@ -193,7 +339,9 @@ describe("recipe and cookbook library workflow", () => {
       );
       expect(screen.getByText("Loading…")).toBeTruthy();
       expect(screen.queryByTestId(`library-${stateKey}-no-results`)).toBeNull();
-      expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Sort recipes: Recently added" }),
+      ).toBeNull();
       await view.rerender(
         <RecipesLibraryView
           {...props}
@@ -205,7 +353,9 @@ describe("recipe and cookbook library workflow", () => {
       );
       expect(screen.getByText("Offline")).toBeTruthy();
       expect(screen.queryByTestId(`library-${stateKey}-no-results`)).toBeNull();
-      expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Sort recipes: Recently added" }),
+      ).toBeNull();
       await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
       expect(onAction).toHaveBeenCalledTimes(2);
     },
@@ -233,16 +383,14 @@ describe("recipe and cookbook library workflow", () => {
       );
       expect(recipeOrder()).toEqual(["z", "ten", "accent", "two", "plain"]);
       expect(
-        screen.getByRole("button", { name: "Newest", selected: true }),
+        screen.getByRole("button", { name: "Sort recipes: Recently added" }),
       ).toBeTruthy();
-      await fireEvent.press(screen.getByRole("button", { name: "A–Z" }));
+      await chooseSort("A–Z");
       expect(recipeOrder()).toEqual(["accent", "plain", "two", "ten", "z"]);
       expect(
-        screen.getByRole("button", { name: "A–Z", selected: true }),
+        screen.getByRole("button", { name: "Sort recipes: A–Z" }),
       ).toBeTruthy();
-      expect(
-        screen.getByRole("button", { name: "Newest", selected: false }),
-      ).toBeTruthy();
+      expect(screen.queryByTestId("recipe-sort-menu")).toBeNull();
 
       await fireEvent.changeText(
         screen.getByTestId("library-recipes-search-input"),
@@ -277,7 +425,7 @@ describe("recipe and cookbook library workflow", () => {
         "ten",
         "z",
       ]);
-      await fireEvent.press(screen.getByRole("button", { name: "Newest" }));
+      await chooseSort("Recently added");
       expect(recipeOrder()).toEqual([
         "banana",
         "z",
@@ -315,7 +463,7 @@ describe("recipe and cookbook library workflow", () => {
     const view = await render(
       <RecipesLibraryView cookbooks={collections} recipes={recipes} />,
     );
-    await fireEvent.press(screen.getByRole("button", { name: "A–Z" }));
+    await chooseSort("A–Z");
     await view.rerender(
       <RecipesLibraryView
         cookbooks={collections}
@@ -323,7 +471,7 @@ describe("recipe and cookbook library workflow", () => {
         section="cookbooks"
       />,
     );
-    expect(screen.queryByRole("button", { name: "A–Z" })).toBeNull();
+    expect(screen.queryByTestId("recipe-sort-trigger")).toBeNull();
     expect(
       screen.getAllByTestId(/^cookbook-card-/).map((card) => card.props.testID),
     ).toEqual(["cookbook-card-favorites", "cookbook-card-breakfast"]);
@@ -335,7 +483,7 @@ describe("recipe and cookbook library workflow", () => {
       />,
     );
     expect(
-      screen.getByRole("button", { name: "A–Z", selected: true }),
+      screen.getByRole("button", { name: "Sort recipes: A–Z" }),
     ).toBeTruthy();
     expect(recipeOrder()).toEqual(["cake", "soup"]);
     await view.unmount();
@@ -347,7 +495,7 @@ describe("recipe and cookbook library workflow", () => {
       />,
     );
     expect(
-      screen.getByRole("button", { name: "Newest", selected: true }),
+      screen.getByRole("button", { name: "Sort recipes: Recently added" }),
     ).toBeTruthy();
     expect(recipeOrder()).toEqual(["soup", "cake"]);
   });
@@ -371,10 +519,10 @@ describe("recipe and cookbook library workflow", () => {
       "  CAKE ",
     );
     expect(scroll).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByRole("button", { name: "A–Z" }));
+    await chooseSort("A–Z");
     expect(scroll).toHaveBeenCalledTimes(1);
     scroll.mockClear();
-    await fireEvent.press(screen.getByRole("button", { name: "A–Z" }));
+    await chooseSort("A–Z");
     await view.rerender(
       <RecipesLibraryView
         cookbooks={cookbooks}
@@ -424,7 +572,7 @@ describe("recipe and cookbook library workflow", () => {
       />,
     );
 
-    expect(screen.getByText("Your recipes")).toBeTruthy();
+    expect(screen.queryByText("Your recipes")).toBeNull();
     expect(screen.queryByText(/recently saved/i)).toBeNull();
     expect(
       screen.getByTestId("library-segment-recipes").props.accessibilityState,

@@ -4,7 +4,7 @@ import {
 } from "@expo/ui/community/bottom-sheet";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -142,11 +142,11 @@ export default function CookbookDetailRoute() {
             className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
             onPress={close}
           >
-            <SymbolView
+            <AppIcon
               accessible={false}
-              name={{ ios: "chevron.left", android: "arrow_back", web: "arrow_back" }}
+              name="back"
               size={22}
-              tintColor={colorTokens.textPrimary}
+              color={colorTokens.textPrimary}
             />
           </Pressable>
         </View>
@@ -202,11 +202,11 @@ export default function CookbookDetailRoute() {
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
           onPress={close}
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{ ios: "chevron.left", android: "arrow_back", web: "arrow_back" }}
+            name="back"
             size={22}
-            tintColor={colorTokens.textPrimary}
+            color={colorTokens.textPrimary}
           />
         </Pressable>
         <Text className="min-w-0 shrink flex-1 px-2 text-center text-lg font-bold text-text-primary" numberOfLines={1}>
@@ -224,11 +224,11 @@ export default function CookbookDetailRoute() {
           {deleteMutation.isPending ? (
             <ActivityIndicator color={colorTokens.primaryStrong} />
           ) : (
-            <SymbolView
+            <AppIcon
               accessible={false}
-              name={{ ios: "ellipsis", android: "more_vert", web: "more_vert" }}
+              name="more"
               size={24}
-              tintColor={colorTokens.textPrimary}
+              color={colorTokens.textPrimary}
             />
           )}
         </Pressable>
@@ -334,7 +334,7 @@ export default function CookbookDetailRoute() {
                   className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
                   onPress={() => actionsSheetRef.current?.dismiss()}
                 >
-                  <SymbolView accessible={false} name={{ ios: "xmark", android: "close", web: "close" }} size={22} tintColor={colorTokens.textPrimary} />
+                  <AppIcon accessible={false} name="close" size={22} color={colorTokens.textPrimary} />
                 </Pressable>
               </View>
               <Pressable
@@ -343,7 +343,7 @@ export default function CookbookDetailRoute() {
                 className="min-h-12 flex-row items-center gap-4 rounded-xl border-2 border-border bg-surface px-4 py-3 focus:border-primary-strong active:bg-surface-subtle"
                 onPress={() => requestAction("rename")}
               >
-                <SymbolView accessible={false} name={{ ios: "pencil", android: "edit", web: "edit" }} size={22} tintColor={colorTokens.textPrimary} />
+                <AppIcon accessible={false} name="edit" size={22} color={colorTokens.textPrimary} />
                 <Text className="text-base font-bold text-text-primary">Rename</Text>
               </Pressable>
               <Pressable
@@ -352,7 +352,7 @@ export default function CookbookDetailRoute() {
                 className="min-h-12 flex-row items-center gap-4 rounded-xl border-2 border-error bg-surface px-4 py-3 focus:border-text-primary active:bg-surface-subtle"
                 onPress={() => requestAction("delete")}
               >
-                <SymbolView accessible={false} name={{ ios: "trash", android: "delete", web: "delete" }} size={22} tintColor={colorTokens.error} />
+                <AppIcon accessible={false} name="delete" size={22} color={colorTokens.error} />
                 <Text className="text-base font-bold text-error">Delete cookbook</Text>
               </Pressable>
             </View>

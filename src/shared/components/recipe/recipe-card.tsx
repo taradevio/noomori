@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
@@ -91,11 +91,11 @@ export function RecipeCard({
 
         {sharedLabel ? (
           <View className="absolute left-3 top-3 min-h-8 max-w-[85%] flex-row items-center gap-1.5 rounded-full bg-surface px-2.5 py-1">
-            <SymbolView
+            <AppIcon
               accessible={false}
-              name={{ ios: "person.2", android: "group", web: "group" }}
+              name="people"
               size={17}
-              tintColor={colorTokens.success}
+              color={colorTokens.success}
             />
             <Text
               numberOfLines={1}
@@ -118,11 +118,11 @@ export function RecipeCard({
         <View className="mt-auto flex-row items-center gap-2 pt-1">
           {cookingTime ? (
             <View className="shrink-0 flex-row items-center gap-1">
-              <SymbolView
+              <AppIcon
                 accessible={false}
-                name={{ ios: "clock", android: "schedule", web: "schedule" }}
+                name="clock"
                 size={15}
-                tintColor={colorTokens.textSecondary}
+                color={colorTokens.textSecondary}
               />
               <Text className="text-[13px] font-normal leading-[18px] text-text-secondary">
                 {cookingTime} min
@@ -134,11 +134,11 @@ export function RecipeCard({
           ) : null}
           {servingsLabel ? (
             <View className="shrink-0 flex-row items-center gap-1">
-              <SymbolView
+              <AppIcon
                 accessible={false}
-                name={{ ios: "person.2", android: "group", web: "group" }}
+                name="people"
                 size={15}
-                tintColor={colorTokens.textSecondary}
+                color={colorTokens.textSecondary}
               />
               <Text className="text-[13px] font-normal leading-[18px] text-text-secondary">
                 {item.servings}

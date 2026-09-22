@@ -3,7 +3,7 @@ import {
   BottomSheetView,
 } from "@expo/ui/community/bottom-sheet";
 import { Image } from "expo-image";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -129,16 +129,12 @@ export function RecipeDetailView({
           <Text className="text-base leading-6 text-text-secondary">
             {recipeSourceLabel}
           </Text>
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "arrow.up.right.square",
-              android: "open_in_new",
-              web: "open_in_new",
-            }}
+            name="external-link"
             size={16}
             testID="recipe-source-external-icon"
-            tintColor={colorTokens.textSecondary}
+            color={colorTokens.textSecondary}
           />
         </Pressable>
       </ExternalLink>
@@ -177,15 +173,11 @@ export function RecipeDetailView({
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
           onPress={onBack}
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "chevron.left",
-              android: "arrow_back",
-              web: "arrow_back",
-            }}
+            name="back"
             size={22}
-            tintColor={colorTokens.textPrimary}
+            color={colorTokens.textPrimary}
           />
         </Pressable>
         {canManage ? (
@@ -205,15 +197,11 @@ export function RecipeDetailView({
                 size="small"
               />
             ) : (
-              <SymbolView
+              <AppIcon
                 accessible={false}
-                name={{
-                  ios: "ellipsis",
-                  android: "more_vert",
-                  web: "more_vert",
-                }}
+                name="more"
                 size={24}
-                tintColor={colorTokens.textPrimary}
+                color={colorTokens.textPrimary}
               />
             )}
           </Pressable>
@@ -306,11 +294,11 @@ export function RecipeDetailView({
             </Text>
             {recipe.isShared ? (
               <View className="min-h-9 self-start flex-row items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5">
-                <SymbolView
+                <AppIcon
                   accessible={false}
-                  name={{ ios: "person.2", android: "group", web: "group" }}
+                  name="people"
                   size={17}
-                  tintColor={colorTokens.success}
+                  color={colorTokens.success}
                 />
                 <Text className="text-sm font-bold leading-5 text-success">
                   Shared with household
@@ -370,11 +358,11 @@ export function RecipeDetailView({
                     setDisplayedServings((value) => Math.max(1, value - 1))
                   }
                 >
-                  <SymbolView
+                  <AppIcon
                     accessible={false}
-                    name={{ ios: "minus", android: "remove", web: "remove" }}
+                    name="minus"
                     size={20}
-                    tintColor={colorTokens.textPrimary}
+                    color={colorTokens.textPrimary}
                   />
                 </Pressable>
                 <Text
@@ -389,11 +377,11 @@ export function RecipeDetailView({
                   className="h-12 w-12 items-center justify-center rounded-full border-2 border-border bg-surface focus:border-primary-strong active:bg-surface-subtle"
                   onPress={() => setDisplayedServings((value) => value + 1)}
                 >
-                  <SymbolView
+                  <AppIcon
                     accessible={false}
-                    name={{ ios: "plus", android: "add", web: "add" }}
+                    name="add"
                     size={20}
-                    tintColor={colorTokens.textPrimary}
+                    color={colorTokens.textPrimary}
                   />
                 </Pressable>
               </View>
@@ -595,11 +583,11 @@ export function RecipeDetailView({
                     className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
                     onPress={() => dismissActions()}
                   >
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{ ios: "xmark", android: "close", web: "close" }}
+                      name="close"
                       size={22}
-                      tintColor={colorTokens.textPrimary}
+                      color={colorTokens.textPrimary}
                     />
                   </Pressable>
                 </View>
@@ -621,23 +609,11 @@ export function RecipeDetailView({
                       }
                       testID="recipe-share-action"
                     >
-                      <SymbolView
+                      <AppIcon
                         accessible={false}
-                        name={
-                          recipe.isShared
-                            ? {
-                                ios: "person.2.slash",
-                                android: "group_remove",
-                                web: "group_remove",
-                              }
-                            : {
-                                ios: "square.and.arrow.up",
-                                android: "group_add",
-                                web: "group_add",
-                              }
-                        }
+                        name={recipe.isShared ? "people-remove" : "share"}
                         size={22}
-                        tintColor={
+                        color={
                           recipe.isShared
                             ? colorTokens.error
                             : colorTokens.primaryStrong
@@ -658,11 +634,11 @@ export function RecipeDetailView({
                     className="min-h-12 flex-row items-center gap-4 rounded-xl border-2 border-border bg-surface px-4 py-3 focus:border-primary-strong active:bg-surface-subtle"
                     onPress={() => dismissActions(onEdit)}
                   >
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{ ios: "pencil", android: "edit", web: "edit" }}
+                      name="edit"
                       size={22}
-                      tintColor={colorTokens.textPrimary}
+                      color={colorTokens.textPrimary}
                     />
                     <Text className="text-base font-bold leading-6 text-text-primary">
                       Edit
@@ -689,11 +665,11 @@ export function RecipeDetailView({
                       )
                     }
                   >
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{ ios: "trash", android: "delete", web: "delete" }}
+                      name="delete"
                       size={22}
-                      tintColor={
+                      color={
                         recipe.isShared
                           ? colorTokens.textSecondary
                           : colorTokens.error

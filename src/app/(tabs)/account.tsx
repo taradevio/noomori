@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import { StatusBar } from "expo-status-bar";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useRouter } from "expo-router";
 import {
   Pressable,
@@ -83,15 +83,12 @@ export default function AccountScreen() {
         importantForAccessibility="no-hide-descendants"
         className="h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-subtle"
       >
-        <SymbolView
+        <AppIcon
           accessible={false}
-          name={{
-            ios: "bell",
-            android: "notifications",
-            web: "notifications",
-          }}
+          name="notifications"
+          accented
           size={21}
-          tintColor={colorTokens.textSecondary}
+          color={colorTokens.primary}
         />
       </View>
       <View className="min-w-0 flex-1">
@@ -122,15 +119,11 @@ export default function AccountScreen() {
             value={notifications.enabled}
           />
         ) : soloOwner ? (
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "chevron.right",
-              android: "chevron_right",
-              web: "chevron_right",
-            }}
+            name="chevron-right"
             size={19}
-            tintColor={colorTokens.textSecondary}
+            color={colorTokens.textSecondary}
           />
         ) : notificationEligibilityFailed ? (
           <Pressable
@@ -219,11 +212,12 @@ export default function AccountScreen() {
                   importantForAccessibility="no-hide-descendants"
                   className="h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-subtle"
                 >
-                  <SymbolView
+                  <AppIcon
                     accessible={false}
-                    name={{ ios: "house", android: "home", web: "home" }}
+                    name="household"
+                    accented
                     size={21}
-                    tintColor={colorTokens.textSecondary}
+                    color={colorTokens.primary}
                   />
                 </View>
                 <View className="min-w-0 flex-1">
@@ -234,15 +228,11 @@ export default function AccountScreen() {
                     People and invites
                   </Text>
                 </View>
-                <SymbolView
+                <AppIcon
                   accessible={false}
-                  name={{
-                    ios: "chevron.right",
-                    android: "chevron_right",
-                    web: "chevron_right",
-                  }}
+                  name="chevron-right"
                   size={19}
-                  tintColor={colorTokens.textSecondary}
+                  color={colorTokens.textSecondary}
                 />
               </Pressable>
             </View>
@@ -303,15 +293,11 @@ export default function AccountScreen() {
                   importantForAccessibility="no-hide-descendants"
                   className="h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-subtle"
                 >
-                  <SymbolView
+                  <AppIcon
                     accessible={false}
-                    name={{
-                      ios: "rectangle.portrait.and.arrow.right",
-                      android: "logout",
-                      web: "logout",
-                    }}
+                    name="logout"
                     size={21}
-                    tintColor={colorTokens.error}
+                    color={colorTokens.error}
                   />
                 </View>
                 <Text className="min-w-0 flex-1 text-base font-bold leading-6 text-error">

@@ -1,10 +1,12 @@
+import { AppIcon } from "@/shared/ui/app-icon";
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
-import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  I18nManager,
   Keyboard,
+  Platform,
   Pressable,
   Text,
   TextInput,
@@ -15,6 +17,8 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import { colorTokens, MaxContentWidth } from "@/shared/design-system";
 import type {
@@ -29,6 +33,7 @@ import type {
 import { CookbookCard } from "./cookbook-card";
 import { LibraryFeedback, SkeletonCard } from "./library-feedback";
 import { RecipeCard } from "./recipe-card";
+import { RecipeSortMenu, type RecipeSort } from "./recipe-sort-menu";
 
 type LibraryListItem =
   | { kind: "recipe"; item: RecipeCardModel }
@@ -37,11 +42,6 @@ type LibraryListItem =
 
 const GRID_GAP = 12;
 const LIBRARY_SECTIONS: readonly LibrarySection[] = ["recipes", "cookbooks"];
-const RECIPE_SORT_OPTIONS = [
-  { value: "newest", label: "Newest" },
-  { value: "alphabetical", label: "A–Z" },
-] as const;
-type RecipeSort = (typeof RECIPE_SORT_OPTIONS)[number]["value"];
 
 export function getLibraryColumnCount({
   fontScale,
@@ -79,11 +79,11 @@ function SearchField({
     <View
       className={`min-h-12 flex-row items-center rounded-2xl border bg-surface px-1 pl-4 ${focused ? "border-primary" : "border-border"}`}
     >
-      <SymbolView
+      <AppIcon
         accessible={false}
-        name={{ ios: "magnifyingglass", android: "search", web: "search" }}
+        name="search"
         size={21}
-        tintColor={colorTokens.textSecondary}
+        color={colorTokens.textSecondary}
       />
       <TextInput
         accessibilityLabel={`Search ${noun}`}
@@ -109,15 +109,11 @@ function SearchField({
           onPress={() => onChangeText("")}
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary active:bg-surface-subtle"
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "xmark.circle.fill",
-              android: "cancel",
-              web: "cancel",
-            }}
+            name="close-circle"
             size={21}
-            tintColor={colorTokens.textSecondary}
+            color={colorTokens.textSecondary}
           />
         </Pressable>
       ) : (
@@ -147,7 +143,7 @@ function PersonalHeader({
   return (
     <View className="w-full items-center">
       <View
-        className="w-full pb-5 pt-2"
+        className="w-full pb-4 pt-2"
         style={{
           maxWidth: MaxContentWidth,
           paddingHorizontal: horizontalGutter,
@@ -158,14 +154,10 @@ function PersonalHeader({
             accessible={false}
             className="h-11 w-11 items-center justify-center rounded-[14px] bg-primary"
           >
-            {/* <SymbolView
-              name={{
-                ios: "fork.knife",
-                android: "restaurant",
-                web: "restaurant",
-              }}
+            {/* <AppIcon
+              name="utensils"
               size={23}
-              tintColor={colorTokens.onPrimary}
+              color={colorTokens.onPrimary}
             /> */}
             <Image
               source={require("@/assets/images/noomori-icon.webp")}
@@ -200,15 +192,11 @@ function PersonalHeader({
               onPress={onActivityPress}
               testID="recipe-activity-button"
             >
-              <SymbolView
+              <AppIcon
                 accessible={false}
-                name={{
-                  ios: "bell",
-                  android: "notifications",
-                  web: "notifications",
-                }}
+                name="notifications"
                 size={23}
-                tintColor={colorTokens.textPrimary}
+                color={colorTokens.textPrimary}
               />
               {Boolean(unreadActivityCount) ? (
                 <View
@@ -242,7 +230,7 @@ function SectionSelector({
   return (
     <View
       accessibilityLabel="Recipe library view"
-      className="flex-row border-b border-border"
+      className="flex-row gap-1 rounded-[14px] bg-surface-subtle p-1"
       testID="library-section-selector"
     >
       {LIBRARY_SECTIONS.map((section) => {
@@ -257,18 +245,16 @@ function SectionSelector({
             accessibilityLabel={label}
             accessibilityRole="button"
             accessibilityState={{ selected }}
-            className="relative min-h-12 min-w-[112px] items-center justify-center border-2 border-transparent px-4 focus:border-primary"
+            aria-selected={selected}
+            className={`min-h-12 min-w-0 flex-1 items-center justify-center rounded-[10px] border-2 border-transparent px-2 py-3 focus:border-primary ${selected ? "bg-surface" : "bg-surface-subtle"}`}
             onPress={() => onSectionChange(section)}
             testID={`library-segment-${section}`}
           >
             <Text
-              className={`text-base leading-6 ${selected ? "font-bold text-primary" : "font-semibold text-text-secondary"}`}
+              className={`w-full text-center text-sm leading-[21px] ${selected ? "font-bold text-primary" : "font-medium text-text-secondary"}`}
             >
               {label}
             </Text>
-            {selected ? (
-              <View className="absolute bottom-0 left-4 right-4 h-0.5 rounded-full bg-accent" />
-            ) : null}
           </Pressable>
         );
       })}
@@ -407,11 +393,7 @@ function LibraryPage({
               : onRetryCookbooks && "Try again"
           }
           body="Try again in a moment."
-          icon={{
-            ios: "exclamationmark.arrow.circlepath",
-            android: "sync_problem",
-            web: "sync_problem",
-          }}
+          icon="sync-error"
           onAction={isRecipes ? onRetryRecipes : onRetryCookbooks}
           testID={`library-${stateKey}-error`}
           title={message?.trim() || `Couldn’t load your ${noun}.`}
@@ -423,7 +405,7 @@ function LibraryPage({
         <LibraryFeedback
           actionLabel="Clear search"
           body={`Try a different ${isRecipes ? "name or keyword" : "cookbook name"}.`}
-          icon={{ ios: "magnifyingglass", android: "search", web: "search" }}
+          icon="search"
           onAction={() => onQueryChange("")}
           testID={`library-${stateKey}-no-results`}
           title={`No ${noun} found for “${query.trim()}”`}
@@ -435,8 +417,10 @@ function LibraryPage({
       return (
         <LibraryFeedback
           actionLabel="Share a recipe"
+          actionFullWidth
           body="Pick one of your recipes to share with the household."
-          icon={{ ios: "person.2", android: "group", web: "group" }}
+          illustration={require("@/assets/images/household.webp")}
+          icon="people"
           onAction={onShareRecipe}
           testID="library-shared-recipes-empty"
           title="Nothing shared yet"
@@ -448,24 +432,15 @@ function LibraryPage({
         actionLabel={isRecipes ? "Add your first recipe" : "Create a cookbook"}
         body={
           isRecipes
-            ? "Add one you already love. It’s yours until you choose to share it."
-            : "Keep the recipes you come back to together."
+            ? "Keep the dishes you love, ready for the next time you cook."
+            : "Gather the recipes you love into cookbooks."
         }
-        icon={
-          isRecipes
-            ? { ios: "book.closed", android: "menu_book", web: "menu_book" }
-            : {
-                ios: "books.vertical",
-                android: "library_books",
-                web: "library_books",
-              }
-        }
+        illustration={require("@/assets/images/cookbook.webp")}
+        actionFullWidth
         onAction={isRecipes ? onAddRecipe : onCreateCookbook}
         testID={`library-${noun}-empty`}
         title={
-          isRecipes
-            ? "Your recipes will live here."
-            : "Your cookbooks will live here."
+          isRecipes ? "Your cookbook starts here" : "Your cookbooks start here"
         }
       />
     );
@@ -511,13 +486,13 @@ function LibraryPage({
       }}
       ListEmptyComponent={renderEmptyState}
       ListHeaderComponent={
-        <View className="pb-5">
+        <View className="pb-4">
           {isHousehold ? (
             <>
               <View className="min-h-14 justify-center">
                 <Text
                   accessibilityRole="header"
-                  className="text-2xl font-bold leading-[30px] text-text-primary"
+                  className="text-[31px] font-bold leading-[36px] text-text-primary"
                 >
                   {householdName?.trim() || "Household"}
                 </Text>
@@ -538,15 +513,12 @@ function LibraryPage({
                   onPress={onReviewHandoffs}
                   testID="recipe-handoff-banner"
                 >
-                  <SymbolView
+                  <AppIcon
                     accessible={false}
-                    name={{
-                      ios: "tray.full",
-                      android: "inbox",
-                      web: "inbox",
-                    }}
+                    name="inbox"
+                    accented
                     size={24}
-                    tintColor={colorTokens.primaryStrong}
+                    color={colorTokens.primaryStrong}
                   />
                   <View className="min-w-0 flex-1">
                     <Text className="text-base font-bold leading-6 text-text-primary">
@@ -557,34 +529,28 @@ function LibraryPage({
                       like to keep.
                     </Text>
                   </View>
-                  <SymbolView
+                  <AppIcon
                     accessible={false}
-                    name={{
-                      ios: "chevron.right",
-                      android: "chevron_right",
-                      web: "chevron_right",
-                    }}
+                    name="chevron-right"
                     size={22}
-                    tintColor={colorTokens.textSecondary}
+                    color={colorTokens.textSecondary}
                   />
                 </Pressable>
               ) : null}
             </>
           ) : null}
-          <View className={isHousehold ? "mt-8" : "pt-1"}>
-            <View className="min-h-12 flex-row items-center justify-between gap-4">
-              <Text
-                accessibilityRole="header"
-                className="shrink text-[28px] font-bold leading-[34px] text-text-primary"
-              >
-                {isHousehold
-                  ? "Shared recipes"
-                  : pageSection === "recipes"
-                    ? "Your recipes"
-                    : "Cookbooks"}
-              </Text>
+          {isHousehold ? (
+            <Text
+              accessibilityRole="header"
+              className="mt-8 text-[24px] font-bold leading-[34px] text-text-primary"
+            >
+              Shared recipes
+            </Text>
+          ) : null}
+          {isHousehold || hasSourceData || status === "loading" ? (
+            <View className="min-h-12 flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2">
               {count != null ? (
-                <Text className="text-sm font-medium leading-5 text-text-secondary">
+                <Text className="text-sm font-medium leading-[21px] text-text-secondary">
                   {pageSection === "recipes"
                     ? count === 1
                       ? "1 recipe"
@@ -601,34 +567,11 @@ function LibraryPage({
                   Loading…
                 </Text>
               ) : null}
+              {pageSection === "recipes" && hasSourceData ? (
+                <RecipeSortMenu value={sort} onChange={onSortChange} />
+              ) : null}
             </View>
-            {pageSection === "recipes" && hasSourceData ? (
-              <View
-                accessibilityLabel="Recipe sort order"
-                className="mt-3 flex-row flex-wrap gap-2"
-              >
-                {RECIPE_SORT_OPTIONS.map(({ value, label }) => {
-                  const selected = sort === value;
-                  return (
-                    <Pressable
-                      key={value}
-                      accessibilityRole="button"
-                      accessibilityLabel={label}
-                      accessibilityState={{ selected }}
-                      className={`min-h-12 min-w-12 max-w-full items-center justify-center rounded-xl border-2 px-4 py-2 focus:border-text-primary active:opacity-80 ${selected ? "border-primary bg-primary" : "border-border bg-surface"}`}
-                      onPress={() => onSortChange(value)}
-                    >
-                      <Text
-                        className={`text-base font-semibold leading-6 ${selected ? "text-on-primary" : "text-text-primary"}`}
-                      >
-                        {label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
-          </View>
+          ) : null}
         </View>
       }
       ItemSeparatorComponent={() => <View className="h-3" />}
@@ -639,7 +582,13 @@ function LibraryPage({
         paddingBottom: 32,
       }}
       showsVerticalScrollIndicator={false}
-      style={{ flex: 1, width: "100%", maxWidth: MaxContentWidth }}
+      style={{
+        flex: 1,
+        width: "100%",
+        maxWidth: MaxContentWidth,
+        // Browsers stop resolving touch-action at the first scroll container.
+        ...(Platform.OS === "web" ? { touchAction: "pan-y" as const } : {}),
+      }}
       testID={`library-grid-${pageSection}`}
     />
   );
@@ -692,6 +641,27 @@ export function RecipesLibraryView({
     setQueries((current) => ({ ...current, [section]: query }));
     onSearchQueryChange?.(section, query);
   };
+
+  const sectionSwipe = Gesture.Pan()
+    .enabled(!isHousehold && Boolean(onSectionChange))
+    .activeOffsetX([-24, 24])
+    .failOffsetY([-16, 16])
+    .runOnJS(true)
+    .withTestId("library-section-swipe")
+    .onEnd((event, success) => {
+      if (
+        !success ||
+        Math.abs(event.translationX) < 48 ||
+        Math.abs(event.translationY) > 16
+      )
+        return;
+      const forward =
+        (I18nManager.isRTL ? -event.translationX : event.translationX) < 0;
+      if (forward && activeSection === "recipes")
+        onSectionChange?.("cookbooks");
+      else if (!forward && activeSection === "cookbooks")
+        onSectionChange?.("recipes");
+    });
 
   const page = (
     <LibraryPage
@@ -746,9 +716,9 @@ export function RecipesLibraryView({
             showActivity={showActivity}
             unreadActivityCount={unreadActivityCount}
           />
-          <View className="flex-1 items-center overflow-hidden rounded-t-[24px] bg-surface">
+          <View className="flex-1 items-center bg-background">
             <View
-              className="w-full"
+              className="w-full pb-4"
               style={{
                 maxWidth: MaxContentWidth,
                 paddingHorizontal: horizontalGutter,
@@ -759,7 +729,11 @@ export function RecipesLibraryView({
                 onSectionChange={(section) => onSectionChange?.(section)}
               />
             </View>
-            {page}
+            <GestureDetector gesture={sectionSwipe} touchAction="pan-y">
+              <View collapsable={false} className="w-full flex-1 items-center">
+                {page}
+              </View>
+            </GestureDetector>
           </View>
         </>
       )}

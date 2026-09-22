@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { type Href, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useRef } from "react";
 import {
@@ -59,15 +59,11 @@ function ActivityRow({ activity }: { activity: HouseholdActivity }) {
         </Text>
       </View>
       {canOpen ? (
-        <SymbolView
+        <AppIcon
           accessible={false}
-          name={{
-            ios: "chevron.right",
-            android: "chevron_right",
-            web: "chevron_right",
-          }}
+          name="chevron-right"
           size={20}
-          tintColor={colorTokens.textSecondary}
+          color={colorTokens.textSecondary}
         />
       ) : null}
     </>
@@ -235,15 +231,11 @@ export default function HouseholdActivityScreen() {
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
           onPress={close}
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "chevron.left",
-              android: "arrow_back",
-              web: "arrow_back",
-            }}
+            name="back"
             size={22}
-            tintColor={colorTokens.textPrimary}
+            color={colorTokens.textPrimary}
           />
         </Pressable>
         <Text

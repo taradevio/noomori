@@ -1,5 +1,5 @@
 import { BottomSheet, BottomSheetView } from "@expo/ui/community/bottom-sheet";
-import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { AppIcon, type AppIconProps } from "@/shared/ui/app-icon";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -15,7 +15,7 @@ type AddRecipeBottomSheetProps = {
 
 type RecipeOption = {
   body: string;
-  icon: SymbolViewProps["name"];
+  icon: AppIconProps["name"];
   id: string;
   title: string;
 };
@@ -25,27 +25,19 @@ const recipeOptions: readonly RecipeOption[] = [
     id: "write",
     title: "Write a recipe",
     body: "Start with a blank page.",
-    icon: {
-      ios: "square.and.pencil",
-      android: "edit_note",
-      web: "edit_note",
-    },
+    icon: "write",
   },
   {
     id: "copy",
     title: "Paste a recipe",
     body: "Bring in one from your notes or messages.",
-    icon: {
-      ios: "doc.on.clipboard",
-      android: "content_paste",
-      web: "content_paste",
-    },
+    icon: "paste",
   },
   {
     id: "url",
     title: "Import from a website",
     body: "Paste a recipe link and we’ll fill it in.",
-    icon: { ios: "link", android: "link", web: "link" },
+    icon: "link",
   },
 ];
 
@@ -94,11 +86,11 @@ export function AddRecipeBottomSheet({
                 className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
                 testID="add-recipe-sheet-close"
               >
-                <SymbolView
+                <AppIcon
                   accessible={false}
-                  name={{ ios: "xmark", android: "close", web: "close" }}
+                  name="close"
                   size={22}
-                  tintColor={colorTokens.textPrimary}
+                  color={colorTokens.textPrimary}
                 />
               </Pressable>
             </View>
@@ -125,10 +117,11 @@ export function AddRecipeBottomSheet({
                       accessible={false}
                       className="h-12 w-12 items-center justify-center rounded-xl bg-surface"
                     >
-                      <SymbolView
+                      <AppIcon
                         name={option.icon}
+                        accented
                         size={24}
-                        tintColor={colorTokens.primaryStrong}
+                        color={colorTokens.primaryStrong}
                       />
                     </View>
                     <View className="shrink flex-1">

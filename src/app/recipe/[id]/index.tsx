@@ -1,6 +1,6 @@
 import { apiConfig } from "@/config/api";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -270,30 +270,23 @@ export default function RecipeDetailRoute() {
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
           onPress={close}
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "chevron.left",
-              android: "arrow_back",
-              web: "arrow_back",
-            }}
+            name="back"
             size={22}
-            tintColor={colorTokens.textPrimary}
+            color={colorTokens.textPrimary}
           />
         </Pressable>
       </View>
       <View className="flex-1 items-center justify-center px-5 py-10">
         <View className="w-full max-w-[440px] items-center rounded-2xl border border-border bg-surface px-5 py-8">
           <View className="mb-5 h-14 w-14 items-center justify-center rounded-2xl bg-surface-subtle">
-            <SymbolView
+            <AppIcon
               accessible={false}
-              name={{
-                ios: "fork.knife",
-                android: "restaurant",
-                web: "restaurant",
-              }}
+              name="utensils"
+              accented
               size={26}
-              tintColor={colorTokens.primaryStrong}
+              color={colorTokens.primaryStrong}
             />
           </View>
           <Text

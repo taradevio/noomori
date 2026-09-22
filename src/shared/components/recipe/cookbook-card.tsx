@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -28,14 +28,11 @@ function CoverFallback({ compact = false }: { compact?: boolean }) {
       className="h-full w-full items-center justify-center bg-surface-subtle"
     >
       {!compact ? (
-        <SymbolView
-          name={{
-            ios: "books.vertical",
-            android: "library_books",
-            web: "library_books",
-          }}
+        <AppIcon
+          name="cookbooks"
+          accented
           size={29}
-          tintColor={colorTokens.primary}
+          color={colorTokens.primary}
         />
       ) : null}
     </View>

@@ -1,4 +1,4 @@
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import {
   AccessibilityInfo,
@@ -305,24 +305,12 @@ function ToastCard({ item }: { item: ToastItem }) {
             key={item.id}
             testID="toast-status"
           >
-            <SymbolView
+            <AppIcon
               accessible={false}
-              name={
-                item.tone === "success"
-                  ? {
-                      ios: "checkmark.circle.fill",
-                      android: "check_circle",
-                      web: "check_circle",
-                    }
-                  : {
-                      ios: "exclamationmark.triangle.fill",
-                      android: "error",
-                      web: "error",
-                    }
-              }
+              name={item.tone === "success" ? "check-circle" : "warning"}
               size={20}
               testID={`toast-icon-${item.tone}`}
-              tintColor={toneForegroundColor}
+              color={toneForegroundColor}
             />
             <Text
               className={`min-w-0 flex-1 text-[15px] font-semibold leading-5 ${item.tone === "success" ? "text-text-primary" : "text-on-primary"}`}

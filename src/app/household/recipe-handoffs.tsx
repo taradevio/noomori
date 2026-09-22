@@ -14,7 +14,7 @@ import { useSession } from "@/shared/providers/session-providers";
 import { toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
@@ -202,15 +202,11 @@ export default function RecipeHandoffsScreen() {
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary active:bg-surface-subtle"
           onPress={close}
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "chevron.left",
-              android: "arrow_back",
-              web: "arrow_back",
-            }}
+            name="back"
             size={22}
-            tintColor={colorTokens.textPrimary}
+            color={colorTokens.textPrimary}
           />
         </Pressable>
         <Text
@@ -245,15 +241,12 @@ export default function RecipeHandoffsScreen() {
         </View>
       ) : handoffsQuery.data.length === 0 ? (
         <View className="flex-1 items-center justify-center gap-3 px-5">
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{
-              ios: "checkmark.circle",
-              android: "check_circle",
-              web: "check_circle",
-            }}
+            name="check-circle"
+            accented
             size={42}
-            tintColor={colorTokens.success}
+            color={colorTokens.success}
           />
           <Text className="text-xl font-bold text-text-primary">
             All done
@@ -308,15 +301,11 @@ export default function RecipeHandoffsScreen() {
                         disabled={decisionMutation.isPending}
                         onPress={() => decide(handoff.id, "remove", [item.id])}
                       >
-                        <SymbolView
+                        <AppIcon
                           accessible={false}
-                          name={{
-                            ios: "trash",
-                            android: "delete",
-                            web: "delete",
-                          }}
+                          name="delete"
                           size={21}
-                          tintColor={colorTokens.error}
+                          color={colorTokens.error}
                         />
                       </Pressable>
                       <Pressable
@@ -326,15 +315,11 @@ export default function RecipeHandoffsScreen() {
                         disabled={decisionMutation.isPending}
                         onPress={() => decide(handoff.id, "keep", [item.id])}
                       >
-                        <SymbolView
+                        <AppIcon
                           accessible={false}
-                          name={{
-                            ios: "checkmark",
-                            android: "check",
-                            web: "check",
-                          }}
+                          name="check"
                           size={22}
-                          tintColor={colorTokens.success}
+                          color={colorTokens.success}
                         />
                       </Pressable>
                     </View>

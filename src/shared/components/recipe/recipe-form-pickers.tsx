@@ -4,7 +4,7 @@ import {
   BottomSheetTextInput,
   BottomSheetView,
 } from "@expo/ui/community/bottom-sheet";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -64,11 +64,11 @@ function SheetHeader({
         className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
         onPress={onDismiss}
       >
-        <SymbolView
+        <AppIcon
           accessible={false}
-          name={{ ios: "xmark", android: "close", web: "close" }}
+          name="close"
           size={22}
-          tintColor={colorTokens.textPrimary}
+          color={colorTokens.textPrimary}
         />
       </Pressable>
     </View>
@@ -218,15 +218,11 @@ export function RecipeDurationPicker({
                         {formatDuration(option)}
                       </Text>
                       {selected ? (
-                        <SymbolView
+                        <AppIcon
                           accessible={false}
-                          name={{
-                            ios: "checkmark",
-                            android: "check",
-                            web: "check",
-                          }}
+                          name="check"
                           size={20}
-                          tintColor={colorTokens.primaryStrong}
+                          color={colorTokens.primaryStrong}
                         />
                       ) : null}
                     </Pressable>
@@ -314,15 +310,11 @@ export function RecipeUnitPicker({
                     {unit || "No unit"}
                   </Text>
                   {selected ? (
-                    <SymbolView
+                    <AppIcon
                       accessible={false}
-                      name={{
-                        ios: "checkmark",
-                        android: "check",
-                        web: "check",
-                      }}
+                      name="check"
                       size={20}
-                      tintColor={colorTokens.primaryStrong}
+                      color={colorTokens.primaryStrong}
                     />
                   ) : null}
                 </Pressable>

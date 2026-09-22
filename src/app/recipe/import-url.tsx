@@ -16,7 +16,7 @@ import { useSession } from "@/shared/providers/session-providers";
 import type { RecipeDraft } from "@/shared/types";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -201,15 +201,11 @@ export default function ImportRecipeUrlRoute() {
                 onPress={close}
                 testID="import-url-back"
               >
-                <SymbolView
+                <AppIcon
                   accessible={false}
-                  name={{
-                    ios: "chevron.left",
-                    android: "arrow_back",
-                    web: "arrow_back",
-                  }}
+                  name="back"
                   size={22}
-                  tintColor={colorTokens.textPrimary}
+                  color={colorTokens.textPrimary}
                 />
               </Pressable>
               <Text

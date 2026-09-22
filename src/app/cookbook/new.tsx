@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { SymbolView } from "expo-symbols";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { useEffect, useState } from "react";
 import {
   AccessibilityInfo,
@@ -113,11 +113,11 @@ export default function NewCookbookRoute() {
           className="h-12 w-12 items-center justify-center rounded-full border-2 border-transparent focus:border-primary-strong active:bg-surface-subtle"
           onPress={() => router.back()}
         >
-          <SymbolView
+          <AppIcon
             accessible={false}
-            name={{ ios: "xmark", android: "close", web: "close" }}
+            name="close"
             size={22}
-            tintColor={colorTokens.textPrimary}
+            color={colorTokens.textPrimary}
           />
         </Pressable>
         <Text
