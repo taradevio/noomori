@@ -8,8 +8,8 @@ import {
 } from "@testing-library/react-native";
 import { Alert, Keyboard } from "react-native";
 
-import { apiConfig } from "@/config/api";
 import EditRecipeRoute from "@/app/recipe/[id]/edit";
+import { apiConfig } from "@/config/api";
 import { RecipeCreateScreen } from "@/shared/components/recipe/recipe-create-screen";
 import type { PreparedRecipePhoto } from "@/shared/components/recipe/recipe-image";
 import { attachRecipeImage } from "@/shared/components/recipe/recipe-image-storage";
@@ -226,7 +226,8 @@ describe("recipe creation identity", () => {
     await renderScreen({ ...draft, photo }, preparedPhoto);
     expect(screen.queryByTestId("recipe-form-default-photo")).toBeNull();
     expect(screen.getByLabelText("Selected recipe photo")).toHaveProp(
-      "source", { uri: photo.uri, cacheKey: undefined },
+      "source",
+      { uri: photo.uri, cacheKey: undefined },
     );
 
     await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
@@ -246,10 +247,12 @@ describe("recipe creation identity", () => {
 
     await fireEvent.press(screen.getByText("Remove photo"));
     expect(screen.getByTestId("recipe-form-default-photo")).toHaveProp(
-      "source", require("@/assets/images/cookbook.webp"),
+      "source",
+      require("@/assets/images/cookbook.webp"),
     );
     expect(screen.getByTestId("recipe-form-default-photo")).toHaveProp(
-      "contentFit", "contain",
+      "contentFit",
+      "cover",
     );
     await fireEvent.changeText(
       screen.getByLabelText("Recipe name"),
