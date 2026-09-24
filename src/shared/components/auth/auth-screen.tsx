@@ -17,7 +17,10 @@ export default function AuthScreen() {
   const compact = height < 720 || fontScale > 1.15;
 
   return (
-    <SafeAreaView edges={["top", "bottom", "left", "right"]} style={styles.safeArea}>
+    <SafeAreaView
+      edges={["top", "bottom", "left", "right"]}
+      style={styles.safeArea}
+    >
       <StatusBar style="dark" />
       <ScrollView
         bounces={false}
@@ -38,8 +41,8 @@ export default function AuthScreen() {
                 Your recipes.{"\n"}A little more home.
               </Text>
               <Text style={styles.supportingCopy}>
-                Save the dishes you love, make them your own, and share them with
-                your household.
+                Save the dishes you love, make them your own, and share them
+                with your household.
               </Text>
             </View>
           </View>
@@ -47,8 +50,7 @@ export default function AuthScreen() {
           <View style={styles.actionSection}>
             <GoogleSignInButton />
             <Text style={styles.legalCopy}>
-              By continuing, you agree to Noomori’s Terms of Service and Privacy
-              Policy.
+              By continuing, you agree to Noomori’s Privacy Policy.
             </Text>
           </View>
         </View>

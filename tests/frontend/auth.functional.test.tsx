@@ -1,5 +1,11 @@
 // NOTE: Retrospective regression coverage for behavior implemented before TDD adoption.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react-native";
 import AuthScreen from "@/shared/components/auth/auth-screen";
 import Onboarding from "@/app/onboarding";
 import { GoogleSignInButton } from "@/shared/components/auth/google-sign-in-button";
@@ -34,6 +40,32 @@ beforeEach(() => {
 });
 
 describe("authentication workflow", () => {
+  it("uses Google's official light button treatment", async () => {
+    await render(<GoogleSignInButton />);
+
+    const button = screen.getByRole("button", {
+      name: "Sign in with Google",
+    });
+    const surface = screen.getByTestId("google-sign-in-surface");
+    const label = screen.getByText("Sign in with Google");
+
+    expect(button.props.className).toContain("h-[52px] w-[220px]");
+    expect(button.props.className).toContain("focus:border-primary");
+    expect(button.props.className).toContain("active:scale-[0.99]");
+    expect(surface.props.className).toContain("h-12 w-[216px]");
+    expect(surface.props.className).toContain("border-[#747775] bg-white");
+    expect(surface.props.className).toContain("android:gap-[10px] android:px-3");
+    expect(surface.props.className).toContain("ios:gap-3 ios:px-4");
+    expect(surface.props.className).toContain("web:gap-[10px] web:px-3");
+    expect(label.props.className).toContain(
+      "text-sm font-medium leading-5 text-[#1F1F1F]",
+    );
+    expect(screen.getByTestId("google-sign-in-logo")).toHaveStyle({
+      height: 20,
+      width: 20,
+    });
+  });
+
   it("uses the welcome copy without a wordmark", async () => {
     await render(<AuthScreen />);
 
@@ -78,6 +110,44 @@ describe("authentication workflow", () => {
       "noomori://",
       { showInRecents: true },
     );
+  });
+
+  it("keeps the light surface while submitting and ignores duplicate presses", async () => {
+    let resolveBrowser!: (result: { type: "cancel" }) => void;
+    mockOpenAuthSessionAsync.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveBrowser = resolve;
+        }),
+    );
+
+    await render(<GoogleSignInButton />);
+    const idleSurfaceClasses = screen.getByTestId("google-sign-in-surface")
+      .props.className;
+
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Sign in with Google" }),
+    );
+
+    const submittingButton = await screen.findByRole("button", {
+      name: "Signing in with Google",
+    });
+    expect(submittingButton).toBeDisabled();
+    expect(submittingButton).toHaveProp("accessibilityState", {
+      busy: true,
+      disabled: true,
+    });
+    expect(screen.getByText("Signing you in…")).toBeTruthy();
+    expect(screen.getByTestId("google-sign-in-surface").props.className).toBe(
+      idleSurfaceClasses,
+    );
+
+    await fireEvent.press(submittingButton);
+    expect(mockSignInWithOAuth).toHaveBeenCalledTimes(1);
+    expect(mockOpenAuthSessionAsync).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveBrowser({ type: "cancel" }));
+    await screen.findByRole("button", { name: "Sign in with Google" });
   });
 
   it("returns to idle without an error when authentication is cancelled", async () => {

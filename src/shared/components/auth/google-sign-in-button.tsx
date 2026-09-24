@@ -1,5 +1,4 @@
 import { supabase } from "@/lib/supabase";
-import { colorTokens } from "@/shared/design-system";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -9,7 +8,6 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from "react-native";
@@ -26,10 +24,7 @@ type AuthActionState =
 const OFFLINE_ERROR = "You’re offline. Connect to the internet and try again.";
 const GENERIC_ERROR = "Couldn’t sign you in. Try again.";
 
-const googleButtonSource = Platform.select({
-  ios: require("@/assets/images/auth/google-sign-in.ios.svg"),
-  default: require("@/assets/images/auth/google-sign-in.android-web.svg"),
-});
+const googleButtonSource = require("@/assets/images/google-logo.webp");
 
 function isNetworkError(error: unknown) {
   const message =
@@ -62,7 +57,6 @@ function extractSessionTokens(url: string) {
 
 export function GoogleSignInButton() {
   const [state, setState] = useState<AuthActionState>({ status: "idle" });
-  const [isFocused, setIsFocused] = useState(false);
   const inFlightRef = useRef(false);
   const isSubmitting = state.status === "submitting";
   const errorMessage = state.status === "error" ? state.message : null;
@@ -152,12 +146,15 @@ export function GoogleSignInButton() {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.feedbackSlot}>
+    <View className="w-full items-center">
+      <View className="mb-2 min-h-[58px] w-full max-w-[340px] justify-center">
         {errorMessage ? (
-          <View style={styles.errorMessage}>
-            <View style={styles.errorMarker} />
-            <Text accessibilityLiveRegion="assertive" style={styles.errorText}>
+          <View className="min-h-12 flex-row items-start gap-2.5 rounded-[10px] border border-error bg-surface px-3 py-2.5">
+            <View className="mt-1.5 h-2 w-2 rounded-full bg-error" />
+            <Text
+              accessibilityLiveRegion="assertive"
+              className="flex-1 text-sm font-medium leading-5 text-text-primary"
+            >
               {errorMessage}
             </Text>
           </View>
@@ -171,107 +168,37 @@ export function GoogleSignInButton() {
         }
         accessibilityRole="button"
         accessibilityState={{ busy: isSubmitting, disabled: isSubmitting }}
+        className="h-[52px] w-[220px] items-center justify-center rounded-lg border-2 border-transparent focus:border-primary active:scale-[0.99]"
         disabled={isSubmitting}
-        onBlur={() => setIsFocused(false)}
-        onFocus={() => setIsFocused(true)}
-        onPress={signInWithGoogle}
-        style={({ pressed }) => [
-          styles.focusRing,
-          isFocused && styles.focused,
-          pressed && !isSubmitting && styles.pressed,
-        ]}
+        onPress={() => void signInWithGoogle()}
       >
-        {isSubmitting ? (
-          <View style={styles.loadingButton}>
-            <ActivityIndicator color="#1F1F1F" size="small" />
-            <Text style={styles.loadingLabel}>Signing you in…</Text>
-          </View>
-        ) : (
-          <Image
-            accessible={false}
-            contentFit="contain"
-            source={googleButtonSource}
-            style={styles.googleButtonImage}
-          />
-        )}
+        <View
+          className="h-14 w-[216px] flex-row items-center justify-center rounded-[5px] border border-[#747775] bg-white android:gap-[10px] android:px-3 ios:gap-3 ios:px-4 web:gap-[10px] web:px-3"
+          testID="google-sign-in-surface"
+        >
+          {isSubmitting ? (
+            <View className="flex-1 flex-row items-center justify-center gap-2.5">
+              <ActivityIndicator color="#1F1F1F" size="small" />
+              <Text className="text-lg font-medium leading-5 text-[#1F1F1F]">
+                Signing you in…
+              </Text>
+            </View>
+          ) : (
+            <>
+              <Image
+                accessible={false}
+                contentFit="contain"
+                source={googleButtonSource}
+                style={{ height: 24, width: 24 }}
+                testID="google-sign-in-logo"
+              />
+              <Text className="text-lg font-medium leading-5 text-[#1F1F1F]">
+                Sign in with Google
+              </Text>
+            </>
+          )}
+        </View>
       </Pressable>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    width: "100%",
-    alignItems: "center",
-  },
-  feedbackSlot: {
-    width: "100%",
-    maxWidth: 340,
-    minHeight: 58,
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  errorMessage: {
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colorTokens.error,
-    backgroundColor: colorTokens.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  errorMarker: {
-    width: 8,
-    height: 8,
-    marginTop: 6,
-    borderRadius: 4,
-    backgroundColor: colorTokens.error,
-  },
-  errorText: {
-    flex: 1,
-    color: colorTokens.textPrimary,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "500",
-  },
-  focusRing: {
-    width: 220,
-    height: 52,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderRadius: 8,
-    borderColor: "transparent",
-  },
-  focused: {
-    borderColor: colorTokens.primary,
-  },
-  pressed: {
-    opacity: 0.78,
-  },
-  googleButtonImage: {
-    width: 216,
-    height: 48,
-  },
-  loadingButton: {
-    width: 216,
-    height: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: "#747775",
-    backgroundColor: "#FFFFFF",
-  },
-  loadingLabel: {
-    color: "#1F1F1F",
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "500",
-  },
-});
