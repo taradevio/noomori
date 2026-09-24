@@ -27,7 +27,7 @@ import {
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
 import type { RecipeDraft } from "@/shared/types";
-import { toast } from "@/shared/ui";
+import { ConfirmationDialog, toast } from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 type EditSubmission = {
@@ -46,7 +46,11 @@ export default function EditRecipeRoute() {
   const recipeId = Array.isArray(params.id) ? params.id[0] : params.id;
   const normalizedRecipeId = recipeId?.trim() || "";
   const [dirty, setDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [isHandlingPhotoFailure, setIsHandlingPhotoFailure] = useState(false);
+  const pendingAction = useRef<
+    Parameters<typeof navigation.dispatch>[0] | null
+  >(null);
   const allowNavigation = useRef(false);
 
   const recipeQuery = useQuery<ApiRecipe>({
@@ -76,27 +80,23 @@ export default function EditRecipeRoute() {
       navigation.addListener("beforeRemove", (event) => {
         if (!dirty || allowNavigation.current) return;
         event.preventDefault();
-        Alert.alert(
-          "Discard changes?",
-          "Your unsaved recipe changes will be lost.",
-          [
-            { text: "Keep editing", style: "cancel" },
-            {
-              text: "Discard changes",
-              style: "destructive",
-              onPress: () => {
-                allowNavigation.current = true;
-                navigation.dispatch(event.data.action);
-              },
-            },
-          ],
-        );
+        pendingAction.current = event.data.action;
+        setConfirmDiscard(true);
       }),
     [dirty, navigation],
   );
 
   const close = () => {
     if (router.canGoBack()) router.back();
+    else router.replace("/");
+  };
+
+  const discard = () => {
+    const action = pendingAction.current;
+    allowNavigation.current = true;
+    setConfirmDiscard(false);
+
+    if (action) navigation.dispatch(action);
     else router.replace("/");
   };
 
@@ -258,18 +258,30 @@ export default function EditRecipeRoute() {
 
   if (recipeQuery.data) {
     return (
-      <RecipeForm
-        initialDraft={toRecipeDraft(recipeQuery.data)}
-        isSubmitting={isPending || isHandlingPhotoFailure}
-        mode="edit"
-        onClose={close}
-        onDirtyChange={setDirty}
-        onSubmit={async (draft, photo) => {
-          if (isPending || isHandlingPhotoFailure) return;
-          if (isError) reset();
-          await mutateAsync({ draft, photo });
-        }}
-      />
+      <>
+        <RecipeForm
+          initialDraft={toRecipeDraft(recipeQuery.data)}
+          isSubmitting={isPending || isHandlingPhotoFailure}
+          mode="edit"
+          onClose={close}
+          onDirtyChange={setDirty}
+          onSubmit={async (draft, photo) => {
+            if (isPending || isHandlingPhotoFailure) return;
+            if (isError) reset();
+            await mutateAsync({ draft, photo });
+          }}
+        />
+        <ConfirmationDialog
+          cancelLabel="Keep editing"
+          confirmLabel="Discard changes"
+          message="Your unsaved changes will be lost."
+          onCancel={() => setConfirmDiscard(false)}
+          onConfirm={discard}
+          title="Discard changes?"
+          tone="destructive"
+          visible={confirmDiscard}
+        />
+      </>
     );
   }
 

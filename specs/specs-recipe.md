@@ -929,7 +929,7 @@ Example:
 ```text
 Discard changes?
 
-Your unsaved recipe changes will be lost.
+Your unsaved changes will be lost.
 
 [ Keep editing ]
 [ Discard ]

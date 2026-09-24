@@ -1,10 +1,10 @@
 import { apiConfig } from "@/config/api";
 import { useSession } from "@/shared/providers/session-providers";
-import { toast } from "@/shared/ui";
+import { ConfirmationDialog, toast } from "@/shared/ui";
 import { useNavigation, useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Modal, Pressable, Text, View } from "react-native";
+import { Alert } from "react-native";
 
 import { RecipeForm } from "@/shared/components/recipe/recipe-form";
 import { toRecipeCreatePayload } from "@/shared/components/recipe/recipe-payload";
@@ -265,58 +265,16 @@ export function RecipeCreateScreen({
         isSubmitting={isPending || isHandlingPhotoFailure}
       />
 
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setConfirmDiscard(false)}
-        statusBarTranslucent
-        transparent
+      <ConfirmationDialog
+        cancelLabel="Keep editing"
+        confirmLabel="Discard changes"
+        message="Your unsaved changes will be lost."
+        onCancel={() => setConfirmDiscard(false)}
+        onConfirm={discard}
+        title="Discard changes?"
+        tone="destructive"
         visible={confirmDiscard}
-      >
-        <View className="flex-1 items-center justify-center px-5">
-          <Pressable
-            accessibilityLabel="Keep editing recipe"
-            accessibilityRole="button"
-            className="absolute inset-0 bg-text-primary/50"
-            onPress={() => setConfirmDiscard(false)}
-          />
-          <View
-            accessibilityRole="alert"
-            accessibilityViewIsModal
-            className="w-full max-w-[400px] rounded-[20px] border border-border bg-surface p-5 shadow-lg shadow-text-primary/10"
-            onAccessibilityEscape={() => setConfirmDiscard(false)}
-          >
-            <Text
-              accessibilityRole="header"
-              className="text-xl font-bold leading-7 text-text-primary"
-            >
-              Discard changes?
-            </Text>
-            <Text className="mt-2 text-base font-normal leading-6 text-text-secondary">
-              Your unsaved recipe changes will be lost.
-            </Text>
-            <View className="mt-6 flex-row gap-3">
-              <Pressable
-                accessibilityRole="button"
-                className="min-h-12 flex-1 items-center justify-center rounded-xl border-2 border-border bg-surface px-4 py-3 focus:border-primary-strong active:bg-surface-subtle"
-                onPress={() => setConfirmDiscard(false)}
-              >
-                <Text className="text-center text-base font-bold text-text-primary">
-                  Keep editing
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                className="min-h-12 flex-1 items-center justify-center rounded-xl border-2 border-error bg-error px-4 py-3 focus:border-text-primary active:opacity-[0.82]"
-                onPress={discard}
-              >
-                <Text className="text-center text-base font-bold text-on-primary">
-                  Discard changes
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      />
     </>
   );
 }

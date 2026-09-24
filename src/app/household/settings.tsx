@@ -9,7 +9,11 @@ import { OnboardingButton } from "@/shared/components/onboarding/onboarding-butt
 import { colorTokens } from "@/shared/design-system";
 import { clearHouseholdTransitionCaches } from "@/shared/household-query";
 import { useSession } from "@/shared/providers/session-providers";
-import { toast } from "@/shared/ui";
+import {
+  ConfirmationDialog,
+  type ConfirmationDialogTone,
+  toast,
+} from "@/shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Clipboard from "expo-clipboard";
 import { StatusBar } from "expo-status-bar";
@@ -18,7 +22,6 @@ import { type ComponentRef, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -30,6 +33,16 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+
+type HouseholdConfirmation = "replace-code" | "deactivate-code" | "leave";
+
+type HouseholdConfirmationCopy = {
+  cancelLabel: string;
+  confirmLabel: string;
+  message: string;
+  title: string;
+  tone: ConfirmationDialogTone;
+};
 
 function formatCode(code: string) {
   return `${code.slice(0, 3)} ${code.slice(3)}`;
@@ -59,6 +72,8 @@ export default function HouseholdSettingsScreen() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] =
+    useState<HouseholdConfirmation | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: ["household"],
@@ -97,9 +112,7 @@ export default function HouseholdSettingsScreen() {
       queryClient.removeQueries({ queryKey: ["profile"] });
     },
     onError: () => {
-      setActionError(
-        "Couldn’t leave the household. Try again.",
-      );
+      setActionError("Couldn’t leave the household. Try again.");
     },
   });
 
@@ -155,56 +168,24 @@ export default function HouseholdSettingsScreen() {
   }
 
   function confirmGenerate() {
+    if (isGenerating) return;
+
     if (!settingsQuery.data?.active_code_expires_at && !generatedCode) {
       void generateCode();
       return;
     }
 
-    Alert.alert(
-      "Create a new join code?",
-      "The current code will stop working.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Create new code", onPress: () => void generateCode() },
-      ],
-    );
+    setConfirmation("replace-code");
   }
 
   function confirmRevoke() {
-    Alert.alert(
-      "Deactivate this join code?",
-      "It won’t work anymore.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Deactivate code",
-          style: "destructive",
-          onPress: () => revokeMutation.mutate(),
-        },
-      ],
-    );
+    if (isGenerating || revokeMutation.isPending) return;
+    setConfirmation("deactivate-code");
   }
 
   function confirmLeave() {
     if (!settingsQuery.data || leaveMutation.isPending) return;
-
-    const sharedRecipeCount = settingsQuery.data.shared_recipe_count;
-    const sharedRecipeMessage = sharedRecipeCount
-      ? `${sharedRecipeCount} ${sharedRecipeCount === 1 ? "recipe" : "recipes"} you shared will stay behind for the household owner to keep or remove. Your own ${sharedRecipeCount === 1 ? "recipe stays" : "recipes stay"} with you.`
-      : "Your own recipes will stay with you.";
-
-    Alert.alert(
-      `Leave “${settingsQuery.data.household_name}”?`,
-      `You’ll lose access to this household’s shared recipes. ${sharedRecipeMessage} You can create or join another household afterward.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Leave household",
-          style: "destructive",
-          onPress: () => leaveMutation.mutate(),
-        },
-      ],
-    );
+    setConfirmation("leave");
   }
 
   async function copyCode() {
@@ -276,6 +257,47 @@ export default function HouseholdSettingsScreen() {
   const activeExpiry =
     generatedCode?.expires_at ?? settings.active_code_expires_at;
   const hasActiveCode = Boolean(activeExpiry);
+  const sharedRecipeCount = settings.shared_recipe_count;
+  const leaveMessage = sharedRecipeCount
+    ? `You’ll lose access to this household’s shared recipes. ${sharedRecipeCount} ${sharedRecipeCount === 1 ? "recipe" : "recipes"} you shared will stay behind for the household owner to keep or remove. Your own recipes will stay with you.`
+    : "You’ll lose access to this household’s shared recipes. Your own recipes will stay with you.";
+  const confirmationCopy: HouseholdConfirmationCopy =
+    confirmation === "replace-code"
+      ? {
+          cancelLabel: "Keep current code",
+          confirmLabel: "Create new code",
+          message: "The current code will stop working.",
+          title: "Create a new join code?",
+          tone: "primary",
+        }
+      : confirmation === "deactivate-code"
+        ? {
+            cancelLabel: "Keep code",
+            confirmLabel: "Deactivate code",
+            message: "This join code will stop working.",
+            title: "Deactivate this join code?",
+            tone: "destructive",
+          }
+        : {
+            cancelLabel: "Cancel",
+            confirmLabel: "Leave household",
+            message: leaveMessage,
+            title: `Leave “${settings.household_name}”?`,
+            tone: "destructive",
+          };
+
+  function runConfirmedAction() {
+    const selectedConfirmation = confirmation;
+    setConfirmation(null);
+
+    if (selectedConfirmation === "replace-code") {
+      void generateCode();
+    } else if (selectedConfirmation === "deactivate-code") {
+      if (!revokeMutation.isPending) revokeMutation.mutate();
+    } else if (selectedConfirmation === "leave") {
+      if (!leaveMutation.isPending) leaveMutation.mutate();
+    }
+  }
 
   return (
     <SafeAreaView
@@ -451,9 +473,7 @@ export default function HouseholdSettingsScreen() {
 
                 <OnboardingButton
                   disabled={revokeMutation.isPending}
-                  label={
-                    hasActiveCode ? "Create new code" : "Create join code"
-                  }
+                  label={hasActiveCode ? "Create new code" : "Create join code"}
                   loading={isGenerating}
                   loadingLabel="Creating code…"
                   onPress={confirmGenerate}
@@ -576,6 +596,12 @@ export default function HouseholdSettingsScreen() {
           )}
         </View>
       </ScrollView>
+      <ConfirmationDialog
+        {...confirmationCopy}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={runConfirmedAction}
+        visible={confirmation !== null}
+      />
     </SafeAreaView>
   );
 }

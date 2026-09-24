@@ -2172,7 +2172,7 @@ Heading:
 
 Body:
 
-> It won't work anymore.
+> This join code will stop working.
 
 Actions:
 

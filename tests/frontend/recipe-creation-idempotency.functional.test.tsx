@@ -21,6 +21,17 @@ import {
 import type { RecipeDraft } from "@/shared/types";
 import { toast } from "@/shared/ui";
 
+type MockBeforeRemoveEvent = {
+  data: { action: { type: string } };
+  preventDefault: () => void;
+};
+
+const mockNavigationAddListener = jest.fn(
+  (_eventName: string, _listener: (event: MockBeforeRemoveEvent) => void) =>
+    jest.fn(),
+);
+const mockNavigationDispatch = jest.fn();
+
 jest.mock("expo-crypto", () => ({
   randomUUID: jest.fn(() => "22222222-2222-4222-8222-222222222222"),
 }));
@@ -32,8 +43,8 @@ jest.mock("expo-image-picker", () => ({
 jest.mock("expo-router", () => ({
   DefaultTheme: { colors: {} },
   useNavigation: () => ({
-    addListener: jest.fn(() => jest.fn()),
-    dispatch: jest.fn(),
+    addListener: mockNavigationAddListener,
+    dispatch: mockNavigationDispatch,
   }),
   useRouter: () => ({
     back: jest.fn(),
@@ -161,6 +172,18 @@ function renderEditScreen() {
       <EditRecipeRoute />
     </QueryClientProvider>,
   );
+}
+
+async function attemptNavigation(action = { type: "GO_BACK" }) {
+  const beforeRemoveCalls = mockNavigationAddListener.mock.calls.filter(
+    ([eventName]) => eventName === "beforeRemove",
+  );
+  const listener = beforeRemoveCalls[beforeRemoveCalls.length - 1]?.[1];
+  if (!listener) throw new Error("No beforeRemove listener registered.");
+
+  const preventDefault = jest.fn();
+  await act(async () => listener({ data: { action }, preventDefault }));
+  return preventDefault;
 }
 
 beforeAll(() => {
@@ -408,5 +431,46 @@ describe("recipe creation identity", () => {
 
     await fireEvent(screen.getByLabelText("Recipe notes"), "focus");
     expect(addKeyboardListener).not.toHaveBeenCalled();
+  });
+
+  it("uses the branded confirmation before discarding a new recipe", async () => {
+    await renderScreen();
+    await fireEvent.changeText(
+      screen.getByLabelText("Recipe name"),
+      "Changed soup",
+    );
+
+    const action = { type: "GO_BACK" };
+    const preventDefault = await attemptNavigation(action);
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Discard changes?")).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId("confirmation-dialog-cancel"));
+    expect(screen.queryByText("Discard changes?")).toBeNull();
+    expect(mockNavigationDispatch).not.toHaveBeenCalled();
+
+    await attemptNavigation(action);
+    await fireEvent.press(screen.getByTestId("confirmation-dialog-confirm"));
+    expect(mockNavigationDispatch).toHaveBeenCalledWith(action);
+  });
+
+  it("uses the same branded confirmation before discarding recipe edits", async () => {
+    fetchMock.mockResolvedValueOnce(response(apiRecipe("Original soup")));
+    await renderEditScreen();
+    const title = await screen.findByLabelText("Recipe name");
+    await fireEvent.changeText(title, "Changed soup");
+
+    const action = { type: "GO_BACK" };
+    const preventDefault = await attemptNavigation(action);
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Discard changes?")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Keep editing" })).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId("confirmation-dialog-confirm"));
+    expect(mockNavigationDispatch).toHaveBeenCalledWith(action);
   });
 });

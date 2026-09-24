@@ -130,7 +130,8 @@ HTTP mapping:
   - No active code: `Generate join code`.
   - Newly generated: formatted code, expiry, single-use explanation, Copy, Share, Generate new, and Revoke.
   - Existing active code after reopening Settings: show expiry but not plaintext; offer Generate new or Revoke.
-- Generating a replacement or revoking uses native `Alert.alert` confirmation.
+- Generating a replacement or revoking uses the shared branded
+  `ConfirmationDialog` component.
 - Use Expo 56 `expo-clipboard` for Copy and React Native `Share.share` for native text sharing.
 - Keep plaintext code only in local screen state. Do not put it in TanStack Query, storage, logs, or route parameters.
 - Show accessible inline `Code copied` feedback; do not add a toast/snackbar system.
