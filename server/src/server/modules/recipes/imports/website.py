@@ -116,16 +116,29 @@ def normalize_imported_website_recipe(
                 )
             )
 
-    instruction_steps = [
-        RecipeInstruction(text=instruction[:2000])
-        for instruction in extracted.instructions
-        if instruction and not _is_instruction_marker(instruction)
-    ]
-    instructions = (
-        [RecipeInstructionGroup(title=None, steps=instruction_steps)]
-        if instruction_steps
-        else []
+    has_instruction_labels = bool(extracted.instruction_groups) and all(
+        group.title and not _is_instruction_marker(group.title)
+        for group in extracted.instruction_groups
     )
+    instruction_groups = (
+        [(group.title, group.instructions) for group in extracted.instruction_groups]
+        if has_instruction_labels
+        else [(None, extracted.instructions)]
+    )
+    instructions = []
+    for title, raw_steps in instruction_groups:
+        steps = [
+            RecipeInstruction(text=instruction[:2000])
+            for instruction in raw_steps
+            if instruction and not _is_instruction_marker(instruction)
+        ]
+        if steps:
+            instructions.append(
+                RecipeInstructionGroup(
+                    title=title[:200] if title else None,
+                    steps=steps,
+                )
+            )
 
     description, servings = _website_description_and_servings(extracted, notes)
 
@@ -327,25 +340,49 @@ def _enrich_primary_groups(
                 )
             ]
 
-    if (
+    instruction_groups_valid = len(structure.instruction_groups) >= 2 and all(
+        bool(group.title)
+        and len(group.title or "") <= 200
+        and not _is_instruction_marker(group.title or "")
+        and bool(group.label_prefix)
+        for group in structure.instruction_groups
+    )
+
+    if not draft.instructions and instruction_groups_valid:
+        instruction_groups = []
+        for group in structure.instruction_groups:
+            steps = []
+            for index, step in enumerate(group.instructions):
+                text = (
+                    _strip_verified_group_label(step, group.label_prefix or "")
+                    if index == 0
+                    else step.strip()
+                )
+                if not text:
+                    steps = []
+                    break
+                steps.append(RecipeInstruction(text=text[:2000]))
+            if not steps:
+                instruction_groups = []
+                break
+            instruction_groups.append(
+                RecipeInstructionGroup(title=group.title, steps=steps)
+            )
+        if len(instruction_groups) == len(structure.instruction_groups):
+            updates["instructions"] = instruction_groups
+
+    elif (
         len(draft.instructions) == 1
         and draft.instructions[0].title is None
-        and len(structure.instruction_groups) >= 2
+        and instruction_groups_valid
     ):
         dom_instruction_lines = [
             step
             for group in structure.instruction_groups
             for step in group.instructions
         ]
-        instruction_groups_valid = all(
-            bool(group.title)
-            and len(group.title or "") <= 200
-            and bool(group.label_prefix)
-            for group in structure.instruction_groups
-        )
         if (
-            instruction_groups_valid
-            and len(extracted.instructions) == len(draft.instructions[0].steps)
+            len(extracted.instructions) == len(draft.instructions[0].steps)
             and [_dom_structure_match(line) for line in extracted.instructions]
             == [_dom_structure_match(line) for line in dom_instruction_lines]
         ):
@@ -369,8 +406,8 @@ def _enrich_primary_groups(
             if offset == len(draft.instructions[0].steps) and instruction_groups:
                 updates["instructions"] = instruction_groups
 
-    # NOTE: DOM contributes only verified presentation boundaries and labels;
-    # primary parsed values remain authoritative, so core fields are not blended.
+    # NOTE: DOM supplies instruction content only when primary extraction has
+    # none. Otherwise it contributes verified presentation boundaries and labels.
     return (draft.model_copy(update=updates), True) if updates else (draft, False)
 
 
@@ -478,7 +515,7 @@ def import_recipe_url(
 
         if primary_draft is not None:
             ingredient_count, instruction_count = _draft_core_counts(primary_draft)
-            if ingredient_count and instruction_count:
+            if ingredient_count:
                 try:
                     enriched_draft, groups_enriched = _enrich_primary_groups(
                         primary_draft,
@@ -491,6 +528,8 @@ def import_recipe_url(
                     primary_draft = enriched_draft
                     if groups_enriched:
                         group_enrichment = "dom"
+                ingredient_count, instruction_count = _draft_core_counts(primary_draft)
+            if ingredient_count and instruction_count:
                 if primary_draft.nutrition_per_serving is None:
                     try:
                         candidate_text = extract_recipe_container_text(

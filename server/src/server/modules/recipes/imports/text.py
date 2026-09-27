@@ -15,7 +15,7 @@ RECIPE_UNITS = (
 )
 
 
-_LIST_PREFIX = re.compile(r"^(?:[-*\u2022]\s+|\d+[.)]\s+)")
+_LIST_PREFIX = re.compile(r"^(?:[-*\u2022\u25a2]\s+|\d+[.)]\s+)")
 _NUMBERED_LIST_PREFIX = re.compile(r"^\d+[.)]\s+\S")
 _MARKDOWN_EMPHASIS = re.compile(
     r"(?<!\w)(?P<mark>\*{1,3}|_{1,3})(?=\S)(?P<text>.+?)(?<=\S)(?P=mark)(?!\w)"

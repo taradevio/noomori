@@ -6,6 +6,10 @@ import {
 } from "@/shared/components/recipe/recipe-text-import";
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
+import {
+  classifyRequestFailure,
+  useDelayedRequest,
+} from "@/shared/request-feedback";
 import type { RecipeDraft } from "@/shared/types";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -68,13 +72,14 @@ export default function ImportRecipeTextRoute() {
           },
         );
       } catch (error) {
-        const timedOut =
-          error instanceof Error &&
-          (error.name === "AbortError" || error.name === "TimeoutError");
+        const failure = classifyRequestFailure(error);
+        if (failure === "timeout") {
+          throw new Error(
+            "The import took too long. Your pasted text is still here. Check your connection and try again.",
+          );
+        }
         throw new Error(
-          timedOut
-            ? "This import took too long. Try again."
-            : "Couldn’t connect to Noomori. Try again.",
+          "Couldn’t import the recipe. Your pasted text is still here. Check your internet connection and try again.",
         );
       }
       if (!response.ok) {
@@ -91,6 +96,7 @@ export default function ImportRecipeTextRoute() {
     },
     onSuccess: (imported) => setDraft(toImportedRecipeDraft(imported)),
   });
+  const isSlow = useDelayedRequest(importMutation.isPending);
 
   if (draft) {
     return <RecipeCreateScreen initialDraft={draft} initiallyDirty />;
@@ -137,8 +143,8 @@ export default function ImportRecipeTextRoute() {
             </View>
 
             <Text className="mt-5 text-base font-normal leading-6 text-text-secondary">
-              Copy one from your notes, messages, or anywhere else. You’ll get
-              a chance to check it before saving.
+              Copy one from your notes, messages, or anywhere else. You’ll get a
+              chance to check it before saving.
             </Text>
 
             <View className="mt-8">
@@ -196,6 +202,15 @@ export default function ImportRecipeTextRoute() {
                     : "Import recipe"}
               </Text>
             </Pressable>
+            {isSlow ? (
+              <Text
+                accessibilityLiveRegion="polite"
+                className="mt-3 text-sm font-normal leading-5 text-text-secondary"
+              >
+                Still importing. Your pasted text will stay here if the import
+                fails.
+              </Text>
+            ) : null}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

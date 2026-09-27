@@ -253,6 +253,46 @@ class RecipeExtractionTest(unittest.TestCase):
             draft.nutrition_per_serving.model_dump(),
         )
 
+    def test_preserves_json_ld_how_to_step_names_as_instruction_labels(self):
+        html = """
+        <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "Recipe",
+            "name": "Quick Mozzarella",
+            "recipeIngredient": ["1 gallon milk"],
+            "recipeInstructions": [
+              {
+                "@type": "HowToStep",
+                "name": "Prepare Work Area",
+                "text": "Clean and sanitize the work surface."
+              },
+              {
+                "@type": "HowToStep",
+                "name": "Prepare Rennet",
+                "text": "Dissolve the rennet in cool water."
+              }
+            ]
+          }
+        </script>
+        """
+
+        draft = normalize_imported_website_recipe(
+            extract_recipe(html, "https://example.com/quick-mozzarella")
+        )
+
+        self.assertEqual(
+            ["Prepare Work Area", "Prepare Rennet"],
+            [group.title for group in draft.instructions],
+        )
+        self.assertEqual(
+            [
+                "Clean and sanitize the work surface.",
+                "Dissolve the rennet in cool water.",
+            ],
+            [group.steps[0].text for group in draft.instructions],
+        )
+
     def test_preserves_groups_and_reuses_ingredient_parser(self):
         draft = normalize_imported_website_recipe(extracted_recipe())
 
@@ -1442,6 +1482,80 @@ class SafeFetchTest(unittest.TestCase):
 
 
 class ImportRecipeUrlEndpointTest(unittest.TestCase):
+    def test_fills_missing_primary_instructions_from_labeled_legacy_list(self):
+        html = """
+        <main class="recipe">
+          <h1>Alpine Tomme</h1>
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "Recipe",
+              "name": "Alpine Tomme",
+              "recipeIngredient": ["2 gallons milk"],
+              "recipeInstructions": []
+            }
+          </script>
+          <fieldset>
+            <h2 class="sr-only">Ingredients</h2>
+            <legend>Ingredients</legend>
+          </fieldset>
+          <section>
+            <h2>Instructions</h2>
+            <h4>A Guideline for Making Alpine Tomme</h4>
+            <p>Introductory publisher prose.</p>
+            <ul>
+              <li>
+                <figure><figcaption>Step photo</figcaption></figure>
+                <h3>Acidify &amp; Heat Milk</h3>
+                <p>Heat the milk.</p>
+                Keep stirring.
+                <ol><li>Raise the temperature.</li><li>Rest the milk.</li></ol>
+              </li>
+              <li>
+                <h3>Coagulate with Rennet</h3>
+                <p>Add the rennet.</p>
+              </li>
+            </ul>
+          </section>
+        </main>
+        """
+        page = FetchedRecipePage(
+            html,
+            "https://example.com/alpine-tomme",
+            "example.com",
+            len(html.encode()),
+        )
+
+        with patch(
+            "server.modules.recipes.imports.website.fetch_public_html",
+            return_value=page,
+        ):
+            draft = import_recipe_url(
+                ImportRecipeUrlRequest(url=page.url),
+                _auth=Mock(),
+            )
+
+        self.assertEqual(
+            ["gallons milk"],
+            [item.name for item in draft.ingredients[0].items],
+        )
+        self.assertEqual(
+            ["Acidify & Heat Milk", "Coagulate with Rennet"],
+            [group.title for group in draft.instructions],
+        )
+        self.assertEqual(
+            "Heat the milk. Keep stirring. Raise the temperature. Rest the milk.",
+            draft.instructions[0].steps[0].text,
+        )
+        self.assertNotIn(
+            "Introductory publisher prose.",
+            " ".join(
+                step.text
+                for group in draft.instructions
+                for step in group.steps
+            ),
+        )
+
     def test_fallback_preserves_labeled_metadata_without_publisher_prose(self):
         page = FetchedRecipePage("html", "https://example.com/soup", "example.com", 4)
         with (

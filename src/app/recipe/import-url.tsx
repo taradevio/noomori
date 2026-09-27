@@ -13,6 +13,10 @@ import {
 } from "@/shared/components/recipe/recipe-text-import";
 import { colorTokens } from "@/shared/design-system";
 import { useSession } from "@/shared/providers/session-providers";
+import {
+  classifyRequestFailure,
+  useDelayedRequest,
+} from "@/shared/request-feedback";
 import type { RecipeDraft } from "@/shared/types";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -32,6 +36,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 const MAX_RECIPE_URL_LENGTH = 2_048;
 const TEXT_FALLBACK_ERRORS = new Set([
+  "fetch_timeout",
   "page_too_large",
   "unsupported_content_type",
   "recipe_not_found",
@@ -48,7 +53,8 @@ const errorMessages: Record<string, string> = {
     "No recipe found on this page. Try another link or paste the recipe instead.",
   page_unavailable:
     "Couldn’t reach this page. Check that it’s public and try again.",
-  fetch_timeout: "This page took too long to respond. Try again.",
+  fetch_timeout:
+    "This page took too long to respond. Try again, or paste the recipe text instead.",
 };
 
 class WebsiteImportFailure extends Error {
@@ -91,9 +97,15 @@ export default function ImportRecipeUrlRoute() {
             signal: AbortSignal.timeout(apiConfig.timeout),
           },
         );
-      } catch {
+      } catch (error) {
+        const failure = classifyRequestFailure(error);
+        if (failure === "timeout") {
+          throw new Error(
+            "The import took too long. Your link is still here. Check your connection and try again.",
+          );
+        }
         throw new Error(
-          "Couldn’t connect to Noomori. Try again.",
+          "Couldn’t import the recipe. Your link is still here. Check your internet connection and try again.",
         );
       }
       if (!response.ok) {
@@ -136,11 +148,12 @@ export default function ImportRecipeUrlRoute() {
         draft: importedDraft,
         photo,
         notice: photoFailed
-          ? "The recipe is ready, but its photo couldn’t be imported. You can choose another photo before saving."
+          ? "Recipe imported without its photo. You can choose a photo before saving."
           : null,
       });
     },
   });
+  const isSlow = useDelayedRequest(importMutation.isPending);
 
   const preparedUri = review?.photo?.preparedPhoto.uri;
   useEffect(() => {
@@ -282,10 +295,19 @@ export default function ImportRecipeUrlRoute() {
               ) : null}
               <Text className="text-center text-base font-bold leading-6 text-on-primary">
                 {importMutation.isPending
-                  ? "Preparing recipe…"
+                  ? "Importing recipe…"
                   : "Import recipe"}
               </Text>
             </Pressable>
+            {isSlow ? (
+              <Text
+                accessibilityLiveRegion="polite"
+                className="mt-3 text-sm font-normal leading-5 text-text-secondary"
+              >
+                Still importing. Some websites respond slowly. Your link will
+                stay here if the import fails.
+              </Text>
+            ) : null}
 
             {showTextFallback ? (
               <Pressable

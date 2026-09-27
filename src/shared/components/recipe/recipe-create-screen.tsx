@@ -1,5 +1,9 @@
 import { apiConfig } from "@/config/api";
 import { useSession } from "@/shared/providers/session-providers";
+import {
+  classifyRequestFailure,
+  useDelayedRequest,
+} from "@/shared/request-feedback";
 import { ConfirmationDialog, toast } from "@/shared/ui";
 import { useNavigation, useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
@@ -178,16 +182,15 @@ export function RecipeCreateScreen({
   const { mutateAsync, isPending, isError, reset } = useMutation({
     mutationFn: saveNewRecipe,
     onError: (error) => {
-      const connectionFailed =
-        error instanceof TypeError ||
-        error.name === "AbortError" ||
-        error.name === "TimeoutError";
+      const failure = classifyRequestFailure(error);
       toast.error(
         error.message === DUPLICATE_PERSONAL_RECIPE_MESSAGE
           ? DUPLICATE_PERSONAL_RECIPE_MESSAGE
-          : connectionFailed
-            ? "Recipe not saved. Your changes are still here. Reconnect and try again."
-            : "Recipe not saved. Your changes are still here. Try again.",
+          : failure === "timeout"
+            ? "Saving took too long. Your changes are still here. Check your connection and try again."
+            : failure === "connection"
+              ? "Recipe not saved. Your changes are still here. Check your internet connection and try again."
+              : "Recipe not saved. Your changes are still here. Try again.",
       );
     },
     onSuccess: async ({ recipe, photo, photoFailed }) => {
@@ -226,8 +229,8 @@ export function RecipeCreateScreen({
       if (!photoFailed) return finish(recipe);
       setIsHandlingPhotoFailure(true);
       Alert.alert(
-        "Recipe saved — just without the photo",
-        "Your recipe is safe. Want to try the photo again?",
+        "Recipe saved without its photo",
+        "Try adding the photo again, or continue without it.",
         [
           {
             text: "Continue without photo",
@@ -238,6 +241,7 @@ export function RecipeCreateScreen({
       );
     },
   });
+  const isSlow = useDelayedRequest(isPending);
 
   // NOTE: Keep submit orchestration in the route so the shared form stays
   // persistence-agnostic and cannot start duplicate requests.
@@ -259,6 +263,11 @@ export function RecipeCreateScreen({
         mode="create"
         onClose={closeEditor}
         onDirtyChange={setFormDirty}
+        submissionStatus={
+          isSlow
+            ? "Still saving. Your changes will stay here if saving fails."
+            : null
+        }
         // NOTE: Route form submissions through the mutation wrapper and expose
         // its pending state so the form disables Save while the request runs.
         onSubmit={handleNewRecipe}

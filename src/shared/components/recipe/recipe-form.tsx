@@ -56,6 +56,7 @@ type RecipeFormProps = {
     photo: PreparedRecipePhoto | null,
   ) => void | Promise<void>;
   isSubmitting?: boolean;
+  submissionStatus?: string | null;
 };
 
 type AmountSnapshot = {
@@ -243,6 +244,7 @@ export function RecipeForm({
   onDirtyChange,
   onSubmit,
   isSubmitting = false,
+  submissionStatus = null,
 }: RecipeFormProps) {
   const insets = useSafeAreaInsets();
   const [initialSignature] = useState(() => JSON.stringify(initialDraft));
@@ -1504,6 +1506,14 @@ export function RecipeForm({
               ) : null}
             </View>
 
+            {submissionStatus ? (
+              <Text
+                accessibilityLiveRegion="polite"
+                className="text-sm font-normal leading-5 text-text-secondary"
+              >
+                {submissionStatus}
+              </Text>
+            ) : null}
             <Pressable
               accessibilityState={{ disabled: isSaving }}
               disabled={isSaving}

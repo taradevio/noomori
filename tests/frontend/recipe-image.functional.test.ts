@@ -1,9 +1,11 @@
 import { toRecipeImageError } from "@/shared/components/recipe/recipe-image";
 
-it("reports an offline error when processed photo bytes cannot be read", () => {
-  expect(toRecipeImageError(new TypeError("Network request failed"))).toHaveProperty(
+it("does not misidentify a local photo read failure as an internet outage", () => {
+  expect(
+    toRecipeImageError(new TypeError("Network request failed")),
+  ).toHaveProperty(
     "message",
-    "You’re offline. Connect to the internet and try adding the photo again.",
+    "This photo couldn’t be used. Choose another photo.",
   );
 });
 

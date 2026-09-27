@@ -25,6 +25,7 @@ from recipe_scrapers._exceptions import (
     OpenGraphException,
     SchemaOrgException,
 )
+from recipe_scrapers._utils import normalize_string
 
 from server.config import settings
 
@@ -292,6 +293,7 @@ class ExtractedRecipe:
     nutrients: dict[str, str]
     image_url: str | None
     total_time_minutes: int | None = None
+    instruction_groups: list[ExtractedInstructionGroup] = field(default_factory=list)
 
 
 # Purpose: Validate a URL and resolve only globally routable addresses on safe ports.
@@ -1149,7 +1151,7 @@ def _is_notes_heading_tag(tag: Tag) -> bool:
 # Purpose: Classify a semantic or standalone-emphasis tag as a recipe section heading.
 # Connects to: Called by server/src/server/recipe_url_import.py::{_recipe_dom_candidate(),_serialize_recipe_scope()::visit()}; calls server/src/server/recipe_url_import.py::{_normalized_dom_text(),_standalone_emphasis_text(),recipe_section_name()}.
 def _section_kind(tag: Tag) -> str | None:
-    if tag.name not in _HEADING_TAGS | {"p", "div"}:
+    if tag.name not in _HEADING_TAGS | {"p", "div", "legend"}:
         return None
 
     text = _normalized_dom_text(tag)
@@ -1233,6 +1235,8 @@ def _leading_instruction_label(tag: Tag) -> str | None:
         if isinstance(descendant, Comment):
             continue
         if isinstance(descendant, NavigableString):
+            if descendant.find_parent(["figure", "figcaption"]):
+                continue
             if str(descendant).strip():
                 return None
             continue
@@ -1247,7 +1251,6 @@ def _leading_instruction_label(tag: Tag) -> str | None:
                     descendant.name in {"h3", "h4"}
                     or text.endswith(":")
                 )
-                and _normalized_dom_text(tag).casefold().startswith(text.casefold())
             ):
                 return text
             return None
@@ -1258,16 +1261,32 @@ def _leading_instruction_label(tag: Tag) -> str | None:
 # Connects to: Called by server/src/server/recipe_url_import.py::{extract_recipe_group_structure(),_serialize_recipe_scope()::visit()}; calls server/src/server/recipe_url_import.py::{_leading_instruction_label(),_normalized_dom_text()}.
 def _instruction_item_parts(item: Tag) -> tuple[str | None, str, str]:
     label = _leading_instruction_label(item)
-    # NOTE: One ordered-list item remains one editable instruction even when its
-    # body has several paragraphs. Figure captions are presentation metadata and
-    # must not become cooking text or break exact primary/DOM verification.
-    paragraphs = [
-        _normalized_dom_text(paragraph)
-        for paragraph in item.find_all("p")
-        if not paragraph.find_parent(["figure", "figcaption"])
-        and _normalized_dom_text(paragraph)
-    ]
-    content = " ".join(paragraphs) or _normalized_dom_text(item)
+    # NOTE: One list item remains one editable instruction. Read direct children
+    # so bare text and nested lists survive without importing figure captions.
+    parts = []
+    for child in item.children:
+        if isinstance(child, Comment):
+            continue
+        if isinstance(child, NavigableString):
+            text = " ".join(str(child).split())
+        elif isinstance(child, Tag) and child.name not in {"figure", "figcaption"}:
+            text = (
+                " ".join(
+                    _normalized_dom_text(item)
+                    for item in child.find_all("li", recursive=False)
+                )
+                if child.name in {"ul", "ol"}
+                else _normalized_dom_text(child)
+            )
+            if (
+                child.name in {"h3", "h4"} or child.find(["h3", "h4"])
+            ) and (not label or text.casefold() != label.casefold()):
+                continue
+        else:
+            continue
+        if text:
+            parts.append(text)
+    content = " ".join(parts)
     body = content
     if label and content.casefold().startswith(label.casefold()):
         body = content[len(label):].strip()
@@ -1599,7 +1618,7 @@ def extract_recipe_group_structure(html: str) -> ExtractedRecipeGroupStructure:
             and not _normalized_dom_text(tag).endswith(":")
         ):
             break
-        if tag.name != "ol" or tag.find_parent(["ul", "ol"]):
+        if tag.name not in {"ul", "ol"} or tag.find_parent(["ul", "ol"]):
             continue
         for item in tag.find_all("li", recursive=False):
             label, _body, step = _instruction_item_parts(item)
@@ -1765,8 +1784,42 @@ def _optional_value(scraper, method_name: str):
         return None
 
 
+# Purpose: Preserve explicit Schema.org HowToStep names when recipe-scrapers emits them as alternating instruction lines.
+# Connects to: Called by server/src/server/recipe_url_import.py::extract_recipe(); uses the recipe-scrapers schema already parsed for the primary extraction.
+def _schema_instruction_groups(
+    scraper,
+    instructions: list[str],
+) -> list[ExtractedInstructionGroup]:
+    data = getattr(getattr(scraper, "schema", None), "data", None)
+    raw_steps = (
+        data.get("recipeInstructions") or data.get("RecipeInstructions")
+        if isinstance(data, dict)
+        else None
+    )
+    if not isinstance(raw_steps, list):
+        return []
+
+    groups = []
+    expected = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict) or raw_step.get("@type") != "HowToStep":
+            return []
+        name = raw_step.get("name")
+        text = raw_step.get("text")
+        if not isinstance(name, str) or not isinstance(text, str):
+            return []
+        title = normalize_string(name)
+        body = normalize_string(text)
+        if not title or not body:
+            return []
+        expected.extend((title, body))
+        groups.append(ExtractedInstructionGroup(title, None, [body]))
+
+    return groups if expected == instructions else []
+
+
 # Purpose: Normalize recipe-scrapers output into the low-level extracted recipe model.
-# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_optional_value(),extract_recipe()::clean_string(),extract_recipe()::clean_minutes()} and recipe_scrapers.scrape_html().
+# Connects to: Called by server/src/server/modules/recipes/imports/website.py::import_recipe_url(); calls server/src/server/recipe_url_import.py::{_optional_value(),_schema_instruction_groups(),extract_recipe()::clean_string(),extract_recipe()::clean_minutes()} and recipe_scrapers.scrape_html().
 def extract_recipe(html: str, url: str) -> ExtractedRecipe:
     try:
         scraper = scrape_html(html, url, supported_only=False)
@@ -1856,4 +1909,5 @@ def extract_recipe(html: str, url: str) -> ExtractedRecipe:
         yield_text=clean_string(_optional_value(scraper, "yields")),
         nutrients=nutrients,
         image_url=image_url,
+        instruction_groups=_schema_instruction_groups(scraper, instructions),
     )

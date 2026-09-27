@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -205,16 +206,56 @@ describe("import from text route", () => {
     );
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "This import took too long. Try again.",
+        "The import took too long. Your pasted text is still here. Check your connection and try again.",
       ),
     );
 
     await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Couldn’t connect to Noomori. Try again.",
+        "Couldn’t import the recipe. Your pasted text is still here. Check your internet connection and try again.",
       ),
     );
+  });
+
+  it("reassures the user when an import is taking longer than usual", async () => {
+    jest.useFakeTimers();
+    try {
+      const pending = deferred<Response>();
+      fetchMock.mockReturnValue(pending.promise);
+      await renderRoute();
+
+      await fireEvent.changeText(
+        screen.getByLabelText("Recipe text"),
+        "Soup recipe",
+      );
+      await fireEvent.press(
+        screen.getByRole("button", { name: "Import recipe" }),
+      );
+      expect(
+        screen.queryByText(
+          "Still importing. Your pasted text will stay here if the import fails.",
+        ),
+      ).toBeNull();
+
+      await act(async () => jest.advanceTimersByTime(4_000));
+      expect(
+        screen.getByText(
+          "Still importing. Your pasted text will stay here if the import fails.",
+        ),
+      ).toBeTruthy();
+
+      pending.resolve(response(importedRecipe()));
+      await act(async () => undefined);
+      expect(screen.getByText("Recipe review")).toBeTruthy();
+      expect(
+        screen.queryByText(
+          "Still importing. Your pasted text will stay here if the import fails.",
+        ),
+      ).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("sends the authenticated request and opens review with adapted defaults", async () => {

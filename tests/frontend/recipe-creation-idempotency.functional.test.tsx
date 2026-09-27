@@ -259,7 +259,7 @@ describe("recipe creation identity", () => {
       expect(screen.getByTestId("save-recipe-placeholder")).toBeEnabled(),
     );
     expect(toast.error).toHaveBeenCalledWith(
-      "Recipe not saved. Your changes are still here. Reconnect and try again.",
+      "Recipe not saved. Your changes are still here. Check your internet connection and try again.",
     );
     expect(screen.getByLabelText("Recipe name")).toHaveProp(
       "value",
@@ -320,6 +320,59 @@ describe("recipe creation identity", () => {
     });
     await waitFor(() => expect(save).toBeEnabled());
     expect(toast.success).toHaveBeenCalledWith("Recipe saved");
+  });
+
+  it("distinguishes a save timeout from another connection failure", async () => {
+    const timeout = new Error("timed out");
+    timeout.name = "TimeoutError";
+    fetchMock.mockRejectedValue(timeout);
+    await renderScreen();
+
+    await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "Saving took too long. Your changes are still here. Check your connection and try again.",
+      ),
+    );
+    expect(screen.getByLabelText("Recipe name")).toHaveProp(
+      "value",
+      "Original soup",
+    );
+  });
+
+  it("explains when the recipe saves but its photo does not", async () => {
+    const photo = {
+      uri: "file:///soup.webp",
+      width: 800,
+      height: 600,
+      fileName: "soup.webp",
+      mimeType: "image/webp",
+    };
+    const preparedPhoto: PreparedRecipePhoto = {
+      uri: photo.uri,
+      width: photo.width,
+      height: photo.height,
+      bytes: new ArrayBuffer(1),
+    };
+    fetchMock.mockResolvedValue(response(apiRecipe("Original soup")));
+    jest
+      .mocked(attachRecipeImage)
+      .mockRejectedValue(new TypeError("Network request failed"));
+    await renderScreen({ ...draft, photo }, preparedPhoto);
+
+    await fireEvent.press(screen.getByTestId("save-recipe-placeholder"));
+
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        "Recipe saved without its photo",
+        "Try adding the photo again, or continue without it.",
+        expect.arrayContaining([
+          expect.objectContaining({ text: "Continue without photo" }),
+          expect.objectContaining({ text: "Try again" }),
+        ]),
+      ),
+    );
   });
 
   it("keeps a duplicate draft open and explains why it was not saved", async () => {
