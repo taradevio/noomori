@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 
 describe("authentication workflow", () => {
-  it("uses Google's official light button treatment", async () => {
+  it("uses the configured light button treatment", async () => {
     await render(<GoogleSignInButton />);
 
     const button = screen.getByRole("button", {
@@ -52,17 +52,17 @@ describe("authentication workflow", () => {
     expect(button.props.className).toContain("h-[52px] w-[220px]");
     expect(button.props.className).toContain("focus:border-primary");
     expect(button.props.className).toContain("active:scale-[0.99]");
-    expect(surface.props.className).toContain("h-12 w-[216px]");
+    expect(surface.props.className).toContain("h-14 w-[216px]");
     expect(surface.props.className).toContain("border-[#747775] bg-white");
     expect(surface.props.className).toContain("android:gap-[10px] android:px-3");
     expect(surface.props.className).toContain("ios:gap-3 ios:px-4");
     expect(surface.props.className).toContain("web:gap-[10px] web:px-3");
     expect(label.props.className).toContain(
-      "text-sm font-medium leading-5 text-[#1F1F1F]",
+      "text-lg font-medium leading-5 text-[#1F1F1F]",
     );
     expect(screen.getByTestId("google-sign-in-logo")).toHaveStyle({
-      height: 20,
-      width: 20,
+      height: 24,
+      width: 24,
     });
   });
 
